@@ -1,0 +1,109 @@
+import { putFeed, putEntries } from "./db.js";
+import { getSession } from "./session.js";
+
+function apiUrl(path) {
+  const { apiBase } = getSession();
+  return `${apiBase}${path}`;
+}
+
+function text(el) {
+  return el ? el.textContent.trim() : "";
+}
+
+function parseDate(str) {
+  if (!str) return null;
+  const d = new Date(str);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function firstNonEmpty(...values) {
+  return values.find((v) => v) || "";
+}
+
+function parseRss(doc, channel) {
+  const title = text(channel.querySelector(":scope > title"));
+  const items = Array.from(doc.querySelectorAll("item"));
+  const entries = items.map((item) => {
+    const guid = firstNonEmpty(text(item.querySelector("guid")), text(item.querySelector("link")));
+    const content =
+      text(item.getElementsByTagNameNS("*", "encoded")[0]) || text(item.querySelector("description"));
+    return {
+      guid: guid || crypto.randomUUID(),
+      title: text(item.querySelector("title")),
+      link: text(item.querySelector("link")),
+      pubDate: parseDate(text(item.querySelector("pubDate"))),
+      summary: text(item.querySelector("description")),
+      content,
+      author: firstNonEmpty(text(item.querySelector("author")), text(item.getElementsByTagNameNS("*", "creator")[0])),
+    };
+  });
+  return { title, entries };
+}
+
+function parseAtom(feedEl) {
+  const title = text(feedEl.querySelector(":scope > title"));
+  const entryEls = Array.from(feedEl.querySelectorAll("entry"));
+  const entries = entryEls.map((entry) => {
+    const linkEl =
+      entry.querySelector('link[rel="alternate"]') || entry.querySelector("link");
+    return {
+      guid: firstNonEmpty(text(entry.querySelector("id")), linkEl ? linkEl.getAttribute("href") : ""),
+      title: text(entry.querySelector("title")),
+      link: linkEl ? linkEl.getAttribute("href") : "",
+      pubDate: parseDate(firstNonEmpty(text(entry.querySelector("published")), text(entry.querySelector("updated")))),
+      summary: text(entry.querySelector("summary")),
+      content: firstNonEmpty(text(entry.querySelector("content")), text(entry.querySelector("summary"))),
+      author: text(entry.querySelector("author > name")),
+    };
+  });
+  return { title, entries };
+}
+
+function parseFeedXml(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+  if (doc.querySelector("parsererror")) throw new Error("failed to parse feed XML");
+
+  const channel = doc.querySelector("rss > channel, channel");
+  if (channel) return parseRss(doc, channel);
+
+  const feedEl = doc.querySelector("feed");
+  if (feedEl) return parseAtom(feedEl);
+
+  throw new Error("unrecognized feed format");
+}
+
+export async function fetchFeed(feed) {
+  const { accountId } = getSession();
+  const headers = { Authorization: `Bearer ${accountId}` };
+  headers["X-Feed-Url"] = feed.url;
+  if (feed.etag) headers["X-Feed-If-None-Match"] = feed.etag;
+  if (feed.lastModified) headers["X-Feed-If-Modified-Since"] = feed.lastModified;
+
+  const res = await fetch(apiUrl("/api/fetch-feed"), { headers });
+
+  if (res.status === 304) {
+    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString() });
+    return [];
+  }
+  if (!res.ok) {
+    throw new Error(`fetch-feed failed: ${res.status}`);
+  }
+
+  const xmlText = await res.text();
+  const { title, entries } = parseFeedXml(xmlText);
+
+  const dbEntries = entries
+    .filter((e) => e.guid)
+    .map((e) => ({ id: `${feed.feedId}:${e.guid}`, feedId: feed.feedId, ...e }));
+  await putEntries(dbEntries);
+
+  await putFeed({
+    ...feed,
+    title: feed.title || title,
+    lastFetchedAt: new Date().toISOString(),
+    etag: res.headers.get("ETag") || null,
+    lastModified: res.headers.get("Last-Modified") || null,
+  });
+
+  return dbEntries;
+}

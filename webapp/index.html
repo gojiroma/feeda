@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>feeda</title>
+  <link rel="stylesheet" href="./static/css/style.css">
+</head>
+<body>
+  <div id="setup-screen" class="setup-screen">
+    <div class="setup-card">
+      <h1>feeda セットアップ</h1>
+      <p>
+        購読リストと既読状況は、あなたの端末にある「シード」から作った鍵でのみ復号できます。
+        サーバーはシードを保存しないため、<strong>シードを失うと同期データには二度とアクセスできません</strong>。
+        安全な場所に保管してください。
+      </p>
+      <div class="setup-row">
+        <button id="generate-seed-btn" type="button">新しいシードを生成</button>
+      </div>
+      <label class="setup-label">
+        シード
+        <input id="seed-input" type="text" placeholder="生成するか、既存のシードを貼り付け" autocomplete="off">
+      </label>
+      <label class="setup-label">
+        APIベースURL
+        <input id="api-base-input" type="text" placeholder="例: https://your-app.vercel.app" autocomplete="off">
+      </label>
+      <div id="setup-error" class="setup-error"></div>
+      <button id="start-btn" type="button" class="primary">開始</button>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">feeda</div>
+      <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
+      <button id="refresh-btn" type="button" title="すべてのフィードを更新">更新</button>
+    </header>
+    <div class="panes">
+      <aside class="pane feed-pane">
+        <form id="add-feed-form" class="add-feed">
+          <input id="add-feed-url" type="url" placeholder="フィードURLを追加" required>
+          <button type="submit">追加</button>
+        </form>
+        <div id="feed-list"></div>
+      </aside>
+      <section class="pane article-pane">
+        <div id="article-list"></div>
+      </section>
+      <section class="pane preview-pane">
+        <div id="preview"></div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="./static/js/main.js"></script>
+</body>
+</html>
