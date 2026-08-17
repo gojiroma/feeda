@@ -26,30 +26,38 @@ export function setupPaneResizing() {
   }
 
   for (const resizer of document.querySelectorAll(".pane-resizer")) {
-    resizer.addEventListener("mousedown", (ev) => {
+    // Pointer Events cover mouse, touch, and pen with one code path — using
+    // setPointerCapture means move/up events keep reaching this element
+    // even once the finger/cursor leaves it, so no document-level listeners
+    // are needed.
+    resizer.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
       const targetPane = resizer.dataset.resizer === "0" ? feedPane : articlePane;
       const startX = ev.clientX;
       const startWidth = targetPane.getBoundingClientRect().width;
       resizer.classList.add("dragging");
+      resizer.setPointerCapture(ev.pointerId);
       document.body.style.userSelect = "none";
 
-      function onMouseMove(moveEv) {
+      function onPointerMove(moveEv) {
         const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (moveEv.clientX - startX)));
         targetPane.style.width = `${width}px`;
       }
-      function onMouseUp() {
+      function onPointerUp() {
         resizer.classList.remove("dragging");
         document.body.style.userSelect = "";
-        document.removeEventListener("mousemove", onMouseMove);
-        document.removeEventListener("mouseup", onMouseUp);
+        resizer.releasePointerCapture(ev.pointerId);
+        resizer.removeEventListener("pointermove", onPointerMove);
+        resizer.removeEventListener("pointerup", onPointerUp);
+        resizer.removeEventListener("pointercancel", onPointerUp);
         saveWidths({
           feed: feedPane.getBoundingClientRect().width,
           article: articlePane.getBoundingClientRect().width,
         });
       }
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
+      resizer.addEventListener("pointermove", onPointerMove);
+      resizer.addEventListener("pointerup", onPointerUp);
+      resizer.addEventListener("pointercancel", onPointerUp);
     });
   }
 }

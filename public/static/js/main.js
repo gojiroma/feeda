@@ -30,6 +30,12 @@ const state = {
   searchQuery: "",
   focusedPane: "article",
   keyboardNavActive: false,
+  // Snapshot of the cross-feed "unread timeline" shown when no feed is
+  // selected. Frozen at capture time so opening an entry (which marks it,
+  // and possibly its whole feed, as read) doesn't yank it out of the list
+  // the user is currently looking at — see currentArticles(). Cleared
+  // whenever fresh data is loaded from IndexedDB (loadAppData).
+  unreadTimelineSnapshot: null,
 };
 
 function isUnread(entry, feed) {
@@ -78,6 +84,7 @@ async function loadAppData() {
   if (state.selectedFeedId && !state.feedsById.has(state.selectedFeedId)) {
     state.selectedFeedId = null;
   }
+  state.unreadTimelineSnapshot = null;
 }
 
 function currentFeedGroups() {
@@ -114,15 +121,22 @@ function currentArticles() {
   }
   // Nothing selected: show unread entries across all feeds, newest first
   // (date-less unread entries have no position to sort by, so they sink to
-  // the end — see the pubDate-less comparator behavior below).
-  const unread = [];
-  for (const feed of state.feedsById.values()) {
-    for (const entry of state.entriesByFeed.get(feed.feedId) || []) {
-      if (isUnread(entry, feed)) unread.push(entry);
+  // the end — see the pubDate-less comparator behavior below). The set of
+  // entries is frozen in state.unreadTimelineSnapshot the first time it's
+  // needed and reused after that — opening an entry marks it (and possibly
+  // its whole feed) as read, and isUnread is re-evaluated live for styling,
+  // but the entry stays in place instead of vanishing out of the list.
+  if (!state.unreadTimelineSnapshot) {
+    const unread = [];
+    for (const feed of state.feedsById.values()) {
+      for (const entry of state.entriesByFeed.get(feed.feedId) || []) {
+        if (isUnread(entry, feed)) unread.push(entry);
+      }
     }
+    unread.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
+    state.unreadTimelineSnapshot = unread;
   }
-  unread.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-  return { entries: unread, showFeedName: true, emptyHint: "未読の記事はありません。" };
+  return { entries: state.unreadTimelineSnapshot, showFeedName: true, emptyHint: "未読の記事はありません。" };
 }
 
 function render() {

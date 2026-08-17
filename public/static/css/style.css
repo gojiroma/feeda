@@ -140,10 +140,22 @@ input[type="text"], input[type="url"], input[type="search"] {
   min-width: 0;
 }
 .pane-resizer {
+  position: relative;
   width: 5px;
   flex-shrink: 0;
   cursor: col-resize;
   background: transparent;
+  touch-action: none; /* let JS drive the drag instead of the browser scrolling/zooming */
+}
+.pane-resizer::after {
+  /* Widen the touch/click target well past the thin visible line without
+     changing its appearance. */
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -8px;
+  right: -8px;
 }
 .pane-resizer:hover,
 .pane-resizer.dragging {
