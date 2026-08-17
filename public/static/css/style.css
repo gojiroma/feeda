@@ -117,6 +117,9 @@ input[type="text"], input[type="url"], input[type="search"] {
   display: flex;
   min-height: 0;
 }
+.mobile-view {
+  display: none;
+}
 .pane {
   overflow-y: auto;
   padding: 8px;
@@ -235,8 +238,10 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 
 /* Tablet portrait: only feed-list + article-list fit side by side, so
-   preview moves below them instead of being a third column. */
-@media (orientation: portrait) {
+   preview moves below them instead of being a third column. Excludes small
+   phones (see the max-width:600px block below), which get a different,
+   single-column layout instead of a cramped 2-up grid. */
+@media (orientation: portrait) and (min-width: 601px) {
   .panes {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -264,6 +269,94 @@ input[type="text"], input[type="url"], input[type="search"] {
     display: none;
   }
 }
+
+/* Small phones: not 3-pane at all. A horizontally-scrollable strip of feed
+   chips replaces the feed-list pane — switching feeds is a tap on the
+   strip, not a trip up and back down a navigation hierarchy — and tapping
+   an article expands its content in place (accordion-style) instead of
+   opening a separate preview pane, so the list and the preview share one
+   surface. main.js picks this branch via matchMedia at the same
+   max-width:600px breakpoint used here. */
+@media (max-width: 600px) {
+  .panes {
+    display: none;
+  }
+  .mobile-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .search-input {
+    font-size: 16px; /* prevents iOS Safari's zoom-on-focus for inputs under 16px */
+  }
+}
+
+.mobile-feed-chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.feed-chip {
+  flex-shrink: 0;
+  position: relative;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+  color: var(--text);
+}
+.feed-chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.feed-chip.has-unread::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.feed-chip.active.has-unread::after {
+  background: var(--accent-fg);
+}
+
+.mobile-article-list {
+  flex: 1;
+  overflow-y: auto;
+}
+.mobile-article-list-inner {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.mobile-article-item {
+  border-bottom: 1px solid var(--border);
+}
+.mobile-article-row {
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.mobile-article-item.unread .mobile-article-row { color: var(--unread); font-weight: 600; }
+.mobile-article-item.expanded .mobile-article-row { color: var(--text); font-weight: 600; }
+.mobile-article-row .article-title { font-size: 0.95rem; margin-bottom: 4px; }
+.mobile-article-row .article-meta { font-size: 0.78rem; color: var(--text-muted); font-weight: 400; }
+.mobile-article-body {
+  padding: 0 14px 16px;
+  background: var(--bg-alt);
+}
+.mobile-article-body .preview-meta { margin-top: 0; }
 
 /* Status bar */
 .status-bar {

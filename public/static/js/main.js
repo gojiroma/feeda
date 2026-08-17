@@ -8,6 +8,7 @@ import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
+import { renderMobileChips, renderMobileList } from "./ui/mobile.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { updateFavicon } from "./favicon.js";
@@ -20,6 +21,15 @@ const previewEl = document.getElementById("preview");
 const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
+const mobileChipsEl = document.getElementById("mobile-feed-chips");
+const mobileListEl = document.getElementById("mobile-article-list");
+
+// Kept in sync with the max-width:600px breakpoint in style.css that
+// switches to the single-column phone layout.
+const mobileQuery = window.matchMedia("(max-width: 600px)");
+function isMobileLayout() {
+  return mobileQuery.matches;
+}
 
 const PANE_ORDER = ["feed", "article", "preview"];
 
@@ -142,6 +152,15 @@ function currentArticles() {
 }
 
 function render() {
+  if (isMobileLayout()) {
+    renderMobile();
+  } else {
+    renderDesktop();
+  }
+  updateFavicon(countUnreadSources());
+}
+
+function renderDesktop() {
   const query = state.searchQuery;
 
   renderFeedList(feedListEl, {
@@ -164,7 +183,50 @@ function render() {
   });
 
   renderPreview(previewEl, state.selectedEntry, query);
-  updateFavicon(countUnreadSources());
+}
+
+// Small-phone layout: a horizontal feed-chip strip instead of a feed pane
+// (tap a chip to filter, no navigating into/back out of a feed), and
+// articles expand in place — see ui/mobile.js.
+function renderMobile() {
+  const query = state.searchQuery;
+
+  renderMobileChips(mobileChipsEl, {
+    feeds: flatFeedList(),
+    selectedFeedId: state.selectedFeedId,
+    onSelectFeed: selectFeed,
+    onSelectAll: clearFeedSelection,
+  });
+
+  const { entries, showFeedName, emptyHint } = currentArticles();
+  renderMobileList(mobileListEl, {
+    entries,
+    feedTitleById: state.feedTitleById,
+    expandedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
+    query,
+    isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
+    onToggle: mobileToggleEntry,
+    showFeedName,
+    emptyHint,
+  });
+}
+
+function clearFeedSelection() {
+  state.selectedFeedId = null;
+  state.selectedEntry = null;
+  render();
+}
+
+// Tapping the already-expanded entry collapses it; tapping another one
+// opens that one instead (openEntry also marks it, and possibly its whole
+// feed, as read — same as everywhere else in the app).
+function mobileToggleEntry(entry) {
+  if (state.selectedEntry && state.selectedEntry.id === entry.id) {
+    state.selectedEntry = null;
+    render();
+    return;
+  }
+  openEntry(entry);
 }
 
 // Advances a feed's read state (readUntil watermark and/or content-hash
@@ -374,6 +436,10 @@ function wireApp() {
   setupPaneResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
+  // Re-render across the mobile/desktop breakpoint (window resize, or a
+  // foldable/rotation crossing 600px) so the right layout's markup is kept
+  // up to date even if it wasn't the active one a moment ago.
+  mobileQuery.addEventListener("change", () => render());
 }
 
 async function startApp() {
