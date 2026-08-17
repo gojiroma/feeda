@@ -87,6 +87,7 @@ export async function pullUpdates() {
       etag: existing ? existing.etag : null,
       lastModified: existing ? existing.lastModified : null,
       latestContentHash: existing ? existing.latestContentHash : null,
+      nextCheckAt: existing ? existing.nextCheckAt : null,
     });
   }
 

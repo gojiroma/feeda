@@ -8,6 +8,24 @@ const GROUPS = [
 const UNKNOWN_GROUP = { key: "unknown", label: "頻度不明" };
 const SAMPLE_SIZE = 20;
 
+// How long to wait before re-fetching a feed, based on its own posting
+// frequency. Kept client-side only (see nextCheckAt on the feed record) so
+// a large subscription list doesn't mean re-fetching everything, from every
+// origin server, on every page load — daily feeds get checked often, rare
+// ones rarely.
+const CHECK_INTERVAL_MS = {
+  daily: 2 * 60 * 60 * 1000,
+  "several-per-week": 6 * 60 * 60 * 1000,
+  weekly: 24 * 60 * 60 * 1000,
+  monthly: 3 * 24 * 60 * 60 * 1000,
+  rare: 7 * 24 * 60 * 60 * 1000,
+  unknown: 6 * 60 * 60 * 1000,
+};
+
+export function nextCheckDelayMs(groupKey) {
+  return CHECK_INTERVAL_MS[groupKey] ?? CHECK_INTERVAL_MS.unknown;
+}
+
 export function computeFrequencyGroup(entries) {
   const dated = entries
     .map((e) => e.pubDate)

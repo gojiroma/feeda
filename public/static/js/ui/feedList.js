@@ -1,10 +1,12 @@
-export function renderFeedList(container, { groups, selectedFeedId, onSelect, onMarkAllRead, onDeleteFeed }) {
+import { highlightText } from "../highlight.js";
+
+export function renderFeedList(container, { groups, selectedFeedId, query, onSelect }) {
   container.innerHTML = "";
 
   if (groups.length === 0) {
     const hint = document.createElement("p");
     hint.className = "empty-hint";
-    hint.textContent = "まだフィードが登録されていません。上のフォームから追加するか、Tampermonkeyスクリプトで自動登録してください。";
+    hint.textContent = "まだフィードが登録されていません。Tampermonkeyスクリプトで自動登録してください。";
     container.appendChild(hint);
     return;
   }
@@ -28,7 +30,7 @@ export function renderFeedList(container, { groups, selectedFeedId, onSelect, on
 
       const nameSpan = document.createElement("span");
       nameSpan.className = "feed-name";
-      nameSpan.textContent = feed.title || feed.url;
+      nameSpan.appendChild(highlightText(feed.title || feed.url, query));
       li.appendChild(nameSpan);
 
       if (feed.hasUnread) {
@@ -38,30 +40,6 @@ export function renderFeedList(container, { groups, selectedFeedId, onSelect, on
         li.appendChild(dot);
       }
 
-      const actions = document.createElement("span");
-      actions.className = "feed-actions";
-
-      const readBtn = document.createElement("button");
-      readBtn.type = "button";
-      readBtn.textContent = "既読";
-      readBtn.title = "すべて既読にする";
-      readBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        onMarkAllRead(feed.feedId);
-      });
-      actions.appendChild(readBtn);
-
-      const delBtn = document.createElement("button");
-      delBtn.type = "button";
-      delBtn.textContent = "×";
-      delBtn.title = "購読解除";
-      delBtn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        onDeleteFeed(feed.feedId);
-      });
-      actions.appendChild(delBtn);
-
-      li.appendChild(actions);
       ul.appendChild(li);
     }
 

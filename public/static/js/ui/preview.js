@@ -1,6 +1,7 @@
 import { sanitizeHtmlToFragment } from "../sanitize.js";
+import { highlightText, highlightFragment } from "../highlight.js";
 
-export function renderPreview(container, entry) {
+export function renderPreview(container, entry, query) {
   container.innerHTML = "";
 
   if (!entry) {
@@ -13,7 +14,7 @@ export function renderPreview(container, entry) {
 
   const h2 = document.createElement("h2");
   h2.className = "preview-title";
-  h2.textContent = entry.title || "(タイトルなし)";
+  h2.appendChild(highlightText(entry.title || "(タイトルなし)", query));
   container.appendChild(h2);
 
   const meta = document.createElement("div");
@@ -36,6 +37,8 @@ export function renderPreview(container, entry) {
 
   const body = document.createElement("div");
   body.className = "preview-body";
-  body.appendChild(sanitizeHtmlToFragment(entry.content || entry.summary || ""));
+  const bodyFragment = sanitizeHtmlToFragment(entry.content || entry.summary || "");
+  highlightFragment(bodyFragment, query);
+  body.appendChild(bodyFragment);
   container.appendChild(body);
 }

@@ -1,5 +1,6 @@
-import { putFeed, putEntries } from "./db.js";
+import { putFeed, putEntries, getEntriesByFeed } from "./db.js";
 import { getSession } from "./session.js";
+import { computeFrequencyGroup, nextCheckDelayMs } from "./frequency.js";
 
 function apiUrl(path) {
   const { apiBase } = getSession();
@@ -95,7 +96,8 @@ export async function fetchFeed(feed) {
   const res = await fetch(apiUrl("/api/fetch-feed"), { headers });
 
   if (res.status === 304) {
-    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString() });
+    const nextCheckAt = await computeNextCheckAt(feed.feedId);
+    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString(), nextCheckAt });
     return [];
   }
   if (!res.ok) {
@@ -112,6 +114,7 @@ export async function fetchFeed(feed) {
 
   const isDateless = dbEntries.length > 0 && !dbEntries.some((e) => e.pubDate);
   const latestContentHash = isDateless ? await hashEntryList(dbEntries) : null;
+  const nextCheckAt = await computeNextCheckAt(feed.feedId);
 
   await putFeed({
     ...feed,
@@ -120,7 +123,18 @@ export async function fetchFeed(feed) {
     etag: res.headers.get("ETag") || null,
     lastModified: res.headers.get("Last-Modified") || null,
     latestContentHash,
+    nextCheckAt,
   });
 
   return dbEntries;
+}
+
+// Schedules the next fetch based on the feed's own posting frequency
+// (computed from its full cached history, same as the UI's grouping) so a
+// large subscription list doesn't mean re-fetching everything on every
+// visit. Purely local — never synced to the server.
+async function computeNextCheckAt(feedId) {
+  const allEntries = await getEntriesByFeed(feedId);
+  const group = computeFrequencyGroup(allEntries);
+  return new Date(Date.now() + nextCheckDelayMs(group.key)).toISOString();
 }

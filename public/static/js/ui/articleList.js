@@ -1,10 +1,12 @@
-export function renderArticleList(container, { entries, feedTitleById, selectedEntryId, isUnread, onSelect, showFeedName }) {
+import { highlightText } from "../highlight.js";
+
+export function renderArticleList(container, { entries, feedTitleById, selectedEntryId, query, isUnread, onSelect, showFeedName, emptyHint }) {
   container.innerHTML = "";
 
   if (entries.length === 0) {
     const hint = document.createElement("p");
     hint.className = "empty-hint";
-    hint.textContent = "記事がありません。";
+    hint.textContent = emptyHint || "記事がありません。";
     container.appendChild(hint);
     return;
   }
@@ -22,7 +24,7 @@ export function renderArticleList(container, { entries, feedTitleById, selectedE
 
     const title = document.createElement("div");
     title.className = "article-title";
-    title.textContent = entry.title || "(タイトルなし)";
+    title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
     li.appendChild(title);
 
     const meta = document.createElement("div");

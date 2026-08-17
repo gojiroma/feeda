@@ -111,6 +111,10 @@ input[type="text"], input[type="url"], input[type="search"] {
 .pane {
   overflow-y: auto;
   padding: 8px;
+  box-shadow: inset 0 0 0 2px transparent;
+}
+.pane.focused {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .feed-pane {
   width: 260px;
@@ -126,13 +130,20 @@ input[type="text"], input[type="url"], input[type="search"] {
   flex: 1;
   min-width: 0;
 }
+.pane-resizer {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+}
+.pane-resizer:hover,
+.pane-resizer.dragging {
+  background: var(--accent);
+}
 
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
 
 /* Feed list */
-.add-feed { display: flex; gap: 6px; margin-bottom: 10px; }
-.add-feed input { flex: 1; min-width: 0; }
-
 .feed-group summary {
   cursor: pointer;
   font-size: 0.8rem;
@@ -152,7 +163,6 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .feed-item:hover { background: var(--bg-alt); }
 .feed-item.selected { background: var(--accent); color: var(--accent-fg); }
-.feed-item.selected .feed-actions button { color: var(--text); }
 .feed-name {
   flex: 1;
   overflow: hidden;
@@ -167,9 +177,6 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-radius: 50%;
   background: var(--danger);
 }
-.feed-actions { display: none; gap: 4px; }
-.feed-item:hover .feed-actions { display: flex; }
-.feed-actions button { padding: 1px 6px; font-size: 0.75rem; }
 
 /* Article list */
 .article-list { list-style: none; margin: 0; padding: 0; }
@@ -197,3 +204,28 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .preview-body { line-height: 1.7; font-size: 0.95rem; }
 .preview-body img { max-width: 100%; height: auto; }
+
+.search-highlight {
+  background: #fde047;
+  color: #111;
+  font-weight: 700;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* Status bar */
+.status-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 10;
+}

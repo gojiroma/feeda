@@ -1,6 +1,6 @@
-import { generateSeed, isValidSeed, deriveFeedId } from "./crypto.js";
-import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
-import { getAllFeeds, getEntriesByFeed, putFeed, getFeed } from "./db.js";
+import { generateSeed, isValidSeed } from "./crypto.js";
+import { loadStoredSeed, loadStoredApiBase, initSession } from "./session.js";
+import { getAllFeeds, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency } from "./frequency.js";
@@ -9,12 +9,17 @@ import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { setupSearchBar } from "./ui/searchBar.js";
+import { setupPaneResizing } from "./ui/resizer.js";
+import { updateFavicon } from "./favicon.js";
 
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
 const feedListEl = document.getElementById("feed-list");
 const articleListEl = document.getElementById("article-list");
 const previewEl = document.getElementById("preview");
+const statusBarEl = document.getElementById("status-bar");
+
+const PANE_ORDER = ["feed", "article", "preview"];
 
 const state = {
   feedsById: new Map(),
@@ -23,6 +28,7 @@ const state = {
   selectedFeedId: null,
   selectedEntry: null,
   searchQuery: "",
+  focusedPane: "article",
 };
 
 function isUnread(entry, feed) {
@@ -30,8 +36,7 @@ function isUnread(entry, feed) {
   if (!entry || !entry.pubDate) {
     // No date to compare against the readUntil watermark — fall back to
     // the feed's content-hash signal: everything in a date-less feed reads
-    // as unread as a block until the feed itself is marked caught-up (see
-    // hashEntryList in feedFetch.js and the catch-up logic in selectFeed).
+    // as unread as a block until the feed itself is marked caught-up.
     return Boolean(feed.latestContentHash) && feed.latestContentHash !== feed.contentHash;
   }
   const pub = new Date(entry.pubDate).getTime();
@@ -44,6 +49,20 @@ function isUnread(entry, feed) {
 function hasUnread(feed) {
   const entries = state.entriesByFeed.get(feed.feedId) || [];
   return entries.some((e) => isUnread(e, feed));
+}
+
+function countUnreadSources() {
+  let count = 0;
+  for (const feed of state.feedsById.values()) {
+    if (hasUnread(feed)) count++;
+  }
+  return count;
+}
+
+function sortedEntriesForFeed(feedId) {
+  return (state.entriesByFeed.get(feedId) || [])
+    .slice()
+    .sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
 }
 
 async function loadAppData() {
@@ -77,70 +96,84 @@ function currentFeedGroups() {
   return groupFeedsByFrequency(feedsWithEntries);
 }
 
+function flatFeedList() {
+  return currentFeedGroups().flatMap((g) => g.feeds);
+}
+
 function currentArticles() {
   const query = state.searchQuery;
   if (query) {
     const allEntries = [...state.entriesByFeed.values()].flat();
     const matched = searchEntries(query, allEntries, state.feedTitleById);
     matched.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    return { entries: matched.slice(0, 200), showFeedName: true };
+    return { entries: matched.slice(0, 200), showFeedName: true, emptyHint: "検索結果がありません。" };
   }
-  if (!state.selectedFeedId) return { entries: [], showFeedName: false };
-  const entries = (state.entriesByFeed.get(state.selectedFeedId) || [])
-    .slice()
-    .sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-  return { entries, showFeedName: false };
+  if (state.selectedFeedId) {
+    return { entries: sortedEntriesForFeed(state.selectedFeedId), showFeedName: false, emptyHint: "記事がありません。" };
+  }
+  // Nothing selected: show unread entries across all feeds, newest first
+  // (date-less unread entries have no position to sort by, so they sink to
+  // the end — see the pubDate-less comparator behavior below).
+  const unread = [];
+  for (const feed of state.feedsById.values()) {
+    for (const entry of state.entriesByFeed.get(feed.feedId) || []) {
+      if (isUnread(entry, feed)) unread.push(entry);
+    }
+  }
+  unread.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
+  return { entries: unread, showFeedName: true, emptyHint: "未読の記事はありません。" };
 }
 
 function render() {
+  const query = state.searchQuery;
+
   renderFeedList(feedListEl, {
     groups: currentFeedGroups(),
     selectedFeedId: state.selectedFeedId,
+    query,
     onSelect: selectFeed,
-    onMarkAllRead: markAllRead,
-    onDeleteFeed: deleteFeedHandler,
   });
 
-  const { entries, showFeedName } = currentArticles();
+  const { entries, showFeedName, emptyHint } = currentArticles();
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
     selectedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
+    query,
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onSelect: openEntry,
     showFeedName,
+    emptyHint,
   });
 
-  renderPreview(previewEl, state.selectedEntry);
+  renderPreview(previewEl, state.selectedEntry, query);
+  updateFavicon(countUnreadSources());
 }
 
-async function selectFeed(feedId) {
-  state.selectedFeedId = feedId;
-  state.selectedEntry = null;
-  render();
-
-  // Date-less feeds have no per-article signal to advance (see isUnread),
-  // so viewing the feed is what catches it up instead of clicking an entry.
-  const feed = state.feedsById.get(feedId);
-  if (feed && feed.latestContentHash && feed.latestContentHash !== feed.contentHash) {
-    const updated = { ...feed, contentHash: feed.latestContentHash };
-    await markFeedDirty(updated);
-    state.feedsById.set(feedId, updated);
-    render();
-    syncNow().catch((err) => console.error("sync failed", err));
-  }
-}
-
-async function openEntry(entry) {
-  state.selectedEntry = entry;
-  render();
-
+// Advances a feed's read state (readUntil watermark and/or content-hash
+// catch-up) based on the entry being viewed. Used both when clicking an
+// article directly and when selecting a feed (which opens its top entry).
+async function advanceProgress(entry) {
   const feed = state.feedsById.get(entry.feedId);
-  if (!feed || !entry.pubDate) return;
-  const pubTime = new Date(entry.pubDate).getTime();
-  const currentReadUntil = feed.readUntil ? new Date(feed.readUntil).getTime() : 0;
-  if (pubTime > currentReadUntil && pubTime <= Date.now()) {
-    const updated = { ...feed, readUntil: entry.pubDate };
+  if (!feed) return;
+
+  let updated = feed;
+  let changed = false;
+
+  if (entry.pubDate) {
+    const pubTime = new Date(entry.pubDate).getTime();
+    const currentReadUntil = updated.readUntil ? new Date(updated.readUntil).getTime() : 0;
+    if (pubTime > currentReadUntil && pubTime <= Date.now()) {
+      updated = { ...updated, readUntil: entry.pubDate };
+      changed = true;
+    }
+  }
+  if (updated.latestContentHash && updated.latestContentHash !== updated.contentHash) {
+    updated = { ...updated, contentHash: updated.latestContentHash };
+    changed = true;
+  }
+
+  if (changed) {
     await markFeedDirty(updated);
     state.feedsById.set(feed.feedId, updated);
     render();
@@ -148,73 +181,20 @@ async function openEntry(entry) {
   }
 }
 
-async function markAllRead(feedId) {
-  const feed = state.feedsById.get(feedId);
-  if (!feed) return;
-  const updated = {
-    ...feed,
-    readUntil: new Date().toISOString(),
-    contentHash: feed.latestContentHash || feed.contentHash,
-  };
-  await markFeedDirty(updated);
-  state.feedsById.set(feedId, updated);
+async function selectFeed(feedId) {
+  state.selectedFeedId = feedId;
+  const topEntry = sortedEntriesForFeed(feedId)[0] || null;
+  state.selectedEntry = topEntry;
+  setFocusedPane("feed");
   render();
-  syncNow().catch((err) => console.error("sync failed", err));
+  if (topEntry) await advanceProgress(topEntry);
 }
 
-async function deleteFeedHandler(feedId) {
-  const feed = state.feedsById.get(feedId);
-  if (!feed) return;
-  if (!confirm(`「${feed.title || feed.url}」の購読を解除しますか？`)) return;
-  const tombstoned = { ...feed, deletedAt: new Date().toISOString() };
-  await markFeedDirty(tombstoned);
-  if (state.selectedFeedId === feedId) state.selectedFeedId = null;
-  if (state.selectedEntry && state.selectedEntry.feedId === feedId) state.selectedEntry = null;
-  await loadAppData();
+async function openEntry(entry) {
+  state.selectedEntry = entry;
+  setFocusedPane("article");
   render();
-  syncNow().catch((err) => console.error("sync failed", err));
-}
-
-async function addFeedByUrl(rawUrl) {
-  const url = rawUrl.trim();
-  if (!url) return;
-  const { seed } = getSession();
-  const feedId = await deriveFeedId(seed, url);
-  const existing = await getFeed(feedId);
-  if (existing && !existing.deletedAt) {
-    state.selectedFeedId = feedId;
-    render();
-    return;
-  }
-
-  const now = new Date().toISOString();
-  const feed = {
-    feedId,
-    url,
-    title: "",
-    addedAt: now,
-    readUntil: null,
-    contentHash: null,
-    deletedAt: null,
-    clientUpdatedAt: now,
-    dirty: true,
-    lastFetchedAt: null,
-    etag: null,
-    lastModified: null,
-    latestContentHash: null,
-  };
-  await putFeed(feed);
-  await loadAppData();
-  render();
-
-  try {
-    await fetchFeed(feed);
-  } catch (err) {
-    console.error("initial feed fetch failed", err);
-  }
-  await loadAppData();
-  render();
-  syncNow().catch((err) => console.error("sync failed", err));
+  await advanceProgress(entry);
 }
 
 async function refreshAll() {
@@ -226,15 +206,100 @@ async function refreshAll() {
   await loadAppData();
   render();
 
-  for (const feed of state.feedsById.values()) {
+  // Only fetch feeds that are actually due, per their own posting-frequency
+  // schedule (see computeNextCheckAt in feedFetch.js) — with a large
+  // subscription list, re-fetching everything on every visit doesn't scale.
+  const now = Date.now();
+  const dueFeeds = [...state.feedsById.values()].filter(
+    (feed) => !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now
+  );
+
+  for (let i = 0; i < dueFeeds.length; i++) {
+    const feed = dueFeeds[i];
+    showStatus(`フィードを取得中… (${i + 1}/${dueFeeds.length}) ${feed.title || feed.url}`);
     try {
       await fetchFeed(feed);
     } catch (err) {
       console.error(`fetch failed for ${feed.url}`, err);
     }
   }
+  hideStatus();
   await loadAppData();
   render();
+}
+
+function showStatus(text) {
+  statusBarEl.textContent = text;
+  statusBarEl.classList.remove("hidden");
+}
+
+function hideStatus() {
+  statusBarEl.classList.add("hidden");
+}
+
+// --- pane focus + keyboard navigation ---------------------------------
+
+function setFocusedPane(pane) {
+  state.focusedPane = pane;
+  for (const el of document.querySelectorAll(".pane")) el.classList.remove("focused");
+  const el = document.getElementById(`${pane}-pane`);
+  if (el) el.classList.add("focused");
+}
+
+function isTypingTarget(el) {
+  return Boolean(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+}
+
+function moveFeedSelection(delta) {
+  const feeds = flatFeedList();
+  if (feeds.length === 0) return;
+  const idx = feeds.findIndex((f) => f.feedId === state.selectedFeedId);
+  const targetIdx = idx === -1 ? (delta > 0 ? 0 : feeds.length - 1) : Math.min(Math.max(idx + delta, 0), feeds.length - 1);
+  selectFeed(feeds[targetIdx].feedId);
+}
+
+function moveArticleSelection(delta) {
+  const entries = currentArticles().entries;
+  if (entries.length === 0) return;
+  const idx = entries.findIndex((e) => state.selectedEntry && e.id === state.selectedEntry.id);
+  const targetIdx = idx === -1 ? (delta > 0 ? 0 : entries.length - 1) : Math.min(Math.max(idx + delta, 0), entries.length - 1);
+  openEntry(entries[targetIdx]);
+}
+
+function scrollPreview(delta) {
+  document.getElementById("preview-pane").scrollBy({ top: delta, behavior: "smooth" });
+}
+
+function wireKeyboardNav() {
+  document.addEventListener("keydown", (ev) => {
+    if (isTypingTarget(document.activeElement)) return;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
+    ev.preventDefault();
+
+    if (ev.key === "ArrowLeft") {
+      const idx = PANE_ORDER.indexOf(state.focusedPane);
+      setFocusedPane(PANE_ORDER[Math.max(idx - 1, 0)]);
+      return;
+    }
+    if (ev.key === "ArrowRight") {
+      const idx = PANE_ORDER.indexOf(state.focusedPane);
+      setFocusedPane(PANE_ORDER[Math.min(idx + 1, PANE_ORDER.length - 1)]);
+      return;
+    }
+    if (ev.key === "ArrowUp") {
+      if (state.focusedPane === "feed") moveFeedSelection(-1);
+      else if (state.focusedPane === "article") moveArticleSelection(-1);
+      else scrollPreview(-80);
+      return;
+    }
+    if (ev.key === "ArrowDown") {
+      if (state.focusedPane === "feed") moveFeedSelection(1);
+      else if (state.focusedPane === "article") moveArticleSelection(1);
+      else scrollPreview(80);
+    }
+  });
+
+  document.getElementById("preview-pane").addEventListener("click", () => setFocusedPane("preview"));
 }
 
 function wireApp() {
@@ -242,19 +307,14 @@ function wireApp() {
     state.searchQuery = query;
     render();
   });
-  document.getElementById("refresh-btn").addEventListener("click", () => refreshAll());
-  document.getElementById("add-feed-form").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const input = document.getElementById("add-feed-url");
-    const url = input.value;
-    input.value = "";
-    await addFeedByUrl(url);
-  });
+  setupPaneResizing();
+  wireKeyboardNav();
 }
 
 async function startApp() {
   appRoot.classList.remove("hidden");
   wireApp();
+  setFocusedPane("article");
   await loadAppData();
   render();
   refreshAll();

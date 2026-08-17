@@ -35,23 +35,21 @@
     <header class="topbar">
       <div class="brand">feeda</div>
       <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
-      <button id="refresh-btn" type="button" title="すべてのフィードを更新">更新</button>
     </header>
     <div class="panes">
-      <aside class="pane feed-pane">
-        <form id="add-feed-form" class="add-feed">
-          <input id="add-feed-url" type="url" placeholder="フィードURLを追加" required>
-          <button type="submit">追加</button>
-        </form>
+      <aside class="pane feed-pane" id="feed-pane">
         <div id="feed-list"></div>
       </aside>
-      <section class="pane article-pane">
+      <div class="pane-resizer" data-resizer="0"></div>
+      <section class="pane article-pane" id="article-pane">
         <div id="article-list"></div>
       </section>
-      <section class="pane preview-pane">
+      <div class="pane-resizer" data-resizer="1"></div>
+      <section class="pane preview-pane" id="preview-pane">
         <div id="preview"></div>
       </section>
     </div>
+    <div id="status-bar" class="status-bar hidden"></div>
   </div>
 
   <script type="module" src="./static/js/main.js"></script>
