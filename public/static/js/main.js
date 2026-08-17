@@ -3,7 +3,7 @@ import { loadStoredSeed, loadStoredApiBase, initSession } from "./session.js";
 import { getAllFeeds, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { fetchFeed } from "./feedFetch.js";
-import { groupFeedsByFrequency, FREQUENCY_ORDER } from "./frequency.js";
+import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
@@ -31,6 +31,11 @@ function isMobileLayout() {
 }
 
 const PANE_ORDER = ["feed", "article", "preview"];
+
+// Reverse of FREQUENCY_ORDER (which is most-frequent-first, used to decide
+// fetch order) — least-frequent-first, used to decide mobile's unread
+// reading order instead.
+const MOBILE_FREQUENCY_ORDER = [...FREQUENCY_ORDER].reverse();
 
 const state = {
   feedsById: new Map(),
@@ -119,6 +124,23 @@ function flatFeedList() {
   return currentFeedGroups().flatMap((g) => g.feeds);
 }
 
+// Buckets entries by their feed's (live-computed, same as the feed list's
+// own grouping) frequency, least-frequent group first, newest-first within
+// each bucket.
+function sortMobileUnreadByFrequency(entries) {
+  const priorityByFeedId = new Map();
+  for (const feed of state.feedsById.values()) {
+    const group = computeFrequencyGroup(state.entriesByFeed.get(feed.feedId) || []);
+    priorityByFeedId.set(feed.feedId, MOBILE_FREQUENCY_ORDER.indexOf(group.key));
+  }
+  return entries.slice().sort((a, b) => {
+    const pa = priorityByFeedId.get(a.feedId) ?? MOBILE_FREQUENCY_ORDER.length;
+    const pb = priorityByFeedId.get(b.feedId) ?? MOBILE_FREQUENCY_ORDER.length;
+    if (pa !== pb) return pa - pb;
+    return (b.pubDate || "").localeCompare(a.pubDate || "");
+  });
+}
+
 function currentArticles() {
   const query = state.searchQuery;
   if (query) {
@@ -157,6 +179,7 @@ function render() {
     renderDesktop();
   }
   updateFavicon(countUnreadSources());
+  updateNextFetchIndicator();
 }
 
 function renderDesktop() {
@@ -192,7 +215,12 @@ function renderDesktop() {
 // wired up below.
 function renderMobile() {
   const query = state.searchQuery;
-  const { entries, showFeedName, emptyHint } = currentArticles();
+  const { entries: baseEntries, showFeedName, emptyHint } = currentArticles();
+  // Unread browsing (no search query) prioritizes low-frequency feeds: a
+  // rare post from a feed that hardly ever posts is easy to lose in a flood
+  // of daily-feed articles if everything's just sorted by date. Search
+  // results keep the plain newest-first order from currentArticles().
+  const entries = query ? baseEntries : sortMobileUnreadByFrequency(baseEntries);
 
   mobileReadObserver?.disconnect();
   mobileReadObserver = new IntersectionObserver(handleMobileScrollIntersections, {
@@ -303,7 +331,9 @@ async function openEntry(entry) {
   await advanceProgress(entry);
 }
 
-async function refreshAll() {
+// force:true bypasses the due-schedule filter entirely (used by tapping the
+// next-fetch indicator) — otherwise only feeds actually due get fetched.
+async function refreshAll({ force = false } = {}) {
   try {
     await syncNow();
   } catch (err) {
@@ -321,7 +351,7 @@ async function refreshAll() {
   // up before time is spent on rarely-updated ones.
   const now = Date.now();
   const dueFeeds = [...state.feedsById.values()]
-    .filter((feed) => !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
+    .filter((feed) => force || !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
     .sort((a, b) => {
       const ai = FREQUENCY_ORDER.indexOf(a.frequencyGroup || "unknown");
       const bi = FREQUENCY_ORDER.indexOf(b.frequencyGroup || "unknown");
@@ -351,6 +381,32 @@ function showStatus(text, fraction) {
 function hideStatus() {
   statusBarEl.classList.add("hidden");
   statusBarFillEl.style.width = "0%";
+}
+
+// --- next-fetch indicator ------------------------------------------------
+// Shown for the first 30s after load only (see wireApp), on both mobile and
+// desktop — a quick orientation of "when will feeda next check anything",
+// with a tap-to-force-fetch escape hatch, without being a permanent fixture
+// once the user has settled in.
+
+const nextFetchBarEl = document.getElementById("next-fetch-bar");
+const nextFetchTimeEl = document.getElementById("next-fetch-time");
+let nextFetchIndicatorExpired = false;
+
+function updateNextFetchIndicator() {
+  if (nextFetchIndicatorExpired) return;
+
+  const feeds = [...state.feedsById.values()];
+  if (feeds.length === 0) {
+    nextFetchBarEl.classList.add("hidden");
+    return;
+  }
+
+  const now = Date.now();
+  const soonest = Math.min(...feeds.map((f) => (f.nextCheckAt ? new Date(f.nextCheckAt).getTime() : now)));
+  nextFetchTimeEl.textContent =
+    soonest <= now ? "まもなく" : new Date(soonest).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  nextFetchBarEl.classList.remove("hidden");
 }
 
 // --- pane focus + keyboard navigation ---------------------------------
@@ -467,6 +523,16 @@ function wireApp() {
   // foldable/rotation crossing 600px) so the right layout's markup is kept
   // up to date even if it wasn't the active one a moment ago.
   mobileQuery.addEventListener("change", () => render());
+
+  nextFetchBarEl.addEventListener("click", () => {
+    refreshAll({ force: true }).catch((err) => console.error("forced refresh failed", err));
+  });
+  // Only worth showing right after load, as a quick orientation — not a
+  // permanent fixture once the user has settled into reading.
+  setTimeout(() => {
+    nextFetchIndicatorExpired = true;
+    nextFetchBarEl.classList.add("hidden");
+  }, 30000);
 }
 
 async function startApp() {

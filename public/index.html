@@ -36,6 +36,9 @@
       <button type="button" id="brand-btn" class="brand" title="クリックで全画面表示を切り替え">feeda</button>
       <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
     </header>
+    <button type="button" id="next-fetch-bar" class="next-fetch-bar hidden">
+      次回取得: <span id="next-fetch-time">--:--</span>（タップで今すぐ取得）
+    </button>
     <div class="panes">
       <aside class="pane feed-pane" id="feed-pane">
         <div id="feed-list"></div>
