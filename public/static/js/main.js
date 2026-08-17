@@ -29,6 +29,7 @@ const state = {
   selectedEntry: null,
   searchQuery: "",
   focusedPane: "article",
+  keyboardNavActive: false,
 };
 
 function isUnread(entry, feed) {
@@ -241,6 +242,10 @@ function hideStatus() {
 
 function setFocusedPane(pane) {
   state.focusedPane = pane;
+  // The outline exists to orient keyboard navigation; don't show it until a
+  // real key press has actually happened, so touch devices (which click
+  // panes but never fire keydown) never see it.
+  if (!state.keyboardNavActive) return;
   for (const el of document.querySelectorAll(".pane")) el.classList.remove("focused");
   const el = document.getElementById(`${pane}-pane`);
   if (el) el.classList.add("focused");
@@ -276,6 +281,11 @@ function wireKeyboardNav() {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
     ev.preventDefault();
 
+    if (!state.keyboardNavActive) {
+      state.keyboardNavActive = true;
+      setFocusedPane(state.focusedPane); // show the outline now that a real key press confirmed a keyboard is in use
+    }
+
     if (ev.key === "ArrowLeft") {
       const idx = PANE_ORDER.indexOf(state.focusedPane);
       setFocusedPane(PANE_ORDER[Math.max(idx - 1, 0)]);
@@ -302,6 +312,14 @@ function wireKeyboardNav() {
   document.getElementById("preview-pane").addEventListener("click", () => setFocusedPane("preview"));
 }
 
+function toggleFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch((err) => console.error("exit fullscreen failed", err));
+  } else {
+    document.documentElement.requestFullscreen().catch((err) => console.error("fullscreen request failed", err));
+  }
+}
+
 function wireApp() {
   setupSearchBar(document.getElementById("search-input"), (query) => {
     state.searchQuery = query;
@@ -309,6 +327,7 @@ function wireApp() {
   });
   setupPaneResizing();
   wireKeyboardNav();
+  document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
 }
 
 async function startApp() {

@@ -21,6 +21,14 @@ function firstNonEmpty(...values) {
   return values.find((v) => v) || "";
 }
 
+// Dublin Core's dc:date, used for the publish date instead of RSS 2.0's
+// <pubDate> by RSS 1.0/RDF feeds (e.g. Hatena Bookmark's user feeds).
+// Matched by local name only so it works regardless of which prefix the
+// feed bound the Dublin Core namespace to.
+function dcDate(el) {
+  return text(el.getElementsByTagNameNS("*", "date")[0]);
+}
+
 // Feeds with no publish dates on their entries can't use the readUntil
 // watermark at all — there's nothing to compare against "now". Fall back to
 // fingerprinting the entry list itself: if the fingerprint changes, the feed
@@ -45,7 +53,7 @@ function parseRss(doc, channel) {
       guid: guid || crypto.randomUUID(),
       title: text(item.querySelector("title")),
       link: text(item.querySelector("link")),
-      pubDate: parseDate(text(item.querySelector("pubDate"))),
+      pubDate: parseDate(firstNonEmpty(text(item.querySelector("pubDate")), dcDate(item))),
       summary: text(item.querySelector("description")),
       content,
       author: firstNonEmpty(text(item.querySelector("author")), text(item.getElementsByTagNameNS("*", "creator")[0])),
@@ -64,7 +72,7 @@ function parseAtom(feedEl) {
       guid: firstNonEmpty(text(entry.querySelector("id")), linkEl ? linkEl.getAttribute("href") : ""),
       title: text(entry.querySelector("title")),
       link: linkEl ? linkEl.getAttribute("href") : "",
-      pubDate: parseDate(firstNonEmpty(text(entry.querySelector("published")), text(entry.querySelector("updated")))),
+      pubDate: parseDate(firstNonEmpty(text(entry.querySelector("published")), text(entry.querySelector("updated")), dcDate(entry))),
       summary: text(entry.querySelector("summary")),
       content: firstNonEmpty(text(entry.querySelector("content")), text(entry.querySelector("summary"))),
       author: text(entry.querySelector("author > name")),

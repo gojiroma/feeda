@@ -100,7 +100,16 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
 }
-.brand { font-weight: 700; }
+.brand {
+  font: inherit;
+  font-weight: 700;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.brand:hover { opacity: 0.75; }
 .search-input { flex: 1; }
 
 .panes {
@@ -211,6 +220,37 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-weight: 700;
   border-radius: 2px;
   padding: 0 1px;
+}
+
+/* Tablet portrait: only feed-list + article-list fit side by side, so
+   preview moves below them instead of being a third column. */
+@media (orientation: portrait) {
+  .panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 35% 1fr;
+    grid-template-areas:
+      "feed article"
+      "preview preview";
+  }
+  .feed-pane {
+    grid-area: feed;
+    width: auto !important;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .article-pane {
+    grid-area: article;
+    width: auto !important;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview-pane {
+    grid-area: preview;
+  }
+  .pane-resizer {
+    display: none;
+  }
 }
 
 /* Status bar */
