@@ -31,11 +31,11 @@ export function renderFeedList(container, { groups, selectedFeedId, onSelect, on
       nameSpan.textContent = feed.title || feed.url;
       li.appendChild(nameSpan);
 
-      if (feed.unreadCount > 0) {
-        const badge = document.createElement("span");
-        badge.className = "unread-badge";
-        badge.textContent = String(feed.unreadCount);
-        li.appendChild(badge);
+      if (feed.hasUnread) {
+        const dot = document.createElement("span");
+        dot.className = "unread-dot";
+        dot.title = "未読あり";
+        li.appendChild(dot);
       }
 
       const actions = document.createElement("span");

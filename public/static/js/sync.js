@@ -20,6 +20,7 @@ function feedToPayload(feed) {
     title: feed.title,
     addedAt: feed.addedAt,
     readUntil: feed.readUntil,
+    contentHash: feed.contentHash || null,
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -78,12 +79,14 @@ export async function pullUpdates() {
       title: payload.title,
       addedAt: payload.addedAt,
       readUntil: payload.readUntil,
+      contentHash: payload.contentHash || null,
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,
       lastFetchedAt: existing ? existing.lastFetchedAt : null,
       etag: existing ? existing.etag : null,
       lastModified: existing ? existing.lastModified : null,
+      latestContentHash: existing ? existing.latestContentHash : null,
     });
   }
 

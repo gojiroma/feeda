@@ -30,14 +30,21 @@ def resolve_safe_ip(hostname):
     except socket.gaierror as exc:
         raise SSRFError(f"DNS resolution failed for {hostname!r}") from exc
 
-    resolved_ips = {info[4][0] for info in infos}
+    resolved_ips = list(dict.fromkeys(info[4][0] for info in infos))  # de-dup, keep order
     if not resolved_ips:
         raise SSRFError(f"no addresses resolved for {hostname!r}")
 
     safe_ips = [ip for ip in resolved_ips if not _is_blocked_ip(ip)]
     if not safe_ips:
         raise SSRFError(f"{hostname!r} resolves only to disallowed addresses")
-    return safe_ips[0]
+
+    # Prefer IPv4: many serverless runtimes (Vercel's Python functions
+    # included) have flaky or absent IPv6 egress, so pinning to an IPv6
+    # address that happened to come first would fail to connect even
+    # though the same hostname resolves and connects fine via normal
+    # (unpinned) DNS, which prefers IPv4 by default on most resolvers.
+    ipv4_ips = [ip for ip in safe_ips if ":" not in ip]
+    return ipv4_ips[0] if ipv4_ips else safe_ips[0]
 
 
 def validate_fetch_url(url):

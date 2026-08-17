@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import urljoin
 
 from flask import Blueprint, Response, jsonify, request
@@ -8,6 +9,7 @@ from config import Config
 from ssrf_guard import SSRFError, safe_get
 
 proxy_bp = Blueprint("proxy", __name__)
+logger = logging.getLogger(__name__)
 
 MAX_REDIRECTS = 5
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
@@ -42,29 +44,36 @@ def fetch_feed():
             return jsonify(error="too many redirects"), 502
     except SSRFError as exc:
         return jsonify(error=str(exc)), 400
-    except Exception:
-        return jsonify(error="failed to fetch feed"), 502
+    except Exception as exc:
+        # Log with the real hostname (not the full URL/query) for
+        # debuggability, without putting the whole feed URL in logs.
+        logger.exception("fetch-feed connect failed for host=%s", request.headers.get("X-Feed-Url", "")[:200])
+        return jsonify(error=f"failed to fetch feed: {type(exc).__name__}: {exc}"), 502
 
-    with resp:
-        if resp.status_code == 304:
-            return Response(status=304)
+    try:
+        with resp:
+            if resp.status_code == 304:
+                return Response(status=304)
 
-        if resp.status_code >= 400:
-            return jsonify(error=f"origin returned {resp.status_code}"), 502
+            if resp.status_code >= 400:
+                return jsonify(error=f"origin returned {resp.status_code}"), 502
 
-        body = bytearray()
-        for chunk in resp.iter_content(chunk_size=65536):
-            body.extend(chunk)
-            if len(body) > Config.PROXY_MAX_BYTES:
-                return jsonify(error="feed too large"), 502
+            body = bytearray()
+            for chunk in resp.iter_content(chunk_size=65536):
+                body.extend(chunk)
+                if len(body) > Config.PROXY_MAX_BYTES:
+                    return jsonify(error="feed too large"), 502
 
-        headers = {}
-        content_type = resp.headers.get("Content-Type")
-        if content_type:
-            headers["Content-Type"] = content_type
-        if etag := resp.headers.get("ETag"):
-            headers["ETag"] = etag
-        if last_modified := resp.headers.get("Last-Modified"):
-            headers["Last-Modified"] = last_modified
+            headers = {}
+            content_type = resp.headers.get("Content-Type")
+            if content_type:
+                headers["Content-Type"] = content_type
+            if etag := resp.headers.get("ETag"):
+                headers["ETag"] = etag
+            if last_modified := resp.headers.get("Last-Modified"):
+                headers["Last-Modified"] = last_modified
 
-        return Response(bytes(body), status=200, headers=headers)
+            return Response(bytes(body), status=200, headers=headers)
+    except Exception as exc:
+        logger.exception("fetch-feed body read failed for host=%s", target_url[:200])
+        return jsonify(error=f"failed to read feed body: {type(exc).__name__}: {exc}"), 502

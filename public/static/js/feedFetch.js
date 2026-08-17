@@ -20,6 +20,19 @@ function firstNonEmpty(...values) {
   return values.find((v) => v) || "";
 }
 
+// Feeds with no publish dates on their entries can't use the readUntil
+// watermark at all — there's nothing to compare against "now". Fall back to
+// fingerprinting the entry list itself: if the fingerprint changes, the feed
+// has new/changed content and is shown as unread as a whole (see isUnread in
+// main.js), since there's no per-entry date to say exactly which is new.
+async function hashEntryList(entries) {
+  const key = entries.map((e) => e.guid).join("\n");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function parseRss(doc, channel) {
   const title = text(channel.querySelector(":scope > title"));
   const items = Array.from(doc.querySelectorAll("item"));
@@ -97,12 +110,16 @@ export async function fetchFeed(feed) {
     .map((e) => ({ id: `${feed.feedId}:${e.guid}`, feedId: feed.feedId, ...e }));
   await putEntries(dbEntries);
 
+  const isDateless = dbEntries.length > 0 && !dbEntries.some((e) => e.pubDate);
+  const latestContentHash = isDateless ? await hashEntryList(dbEntries) : null;
+
   await putFeed({
     ...feed,
     title: feed.title || title,
     lastFetchedAt: new Date().toISOString(),
     etag: res.headers.get("ETag") || null,
     lastModified: res.headers.get("Last-Modified") || null,
+    latestContentHash,
   });
 
   return dbEntries;

@@ -26,17 +26,24 @@ const state = {
 };
 
 function isUnread(entry, feed) {
-  if (!entry || !entry.pubDate) return true;
+  if (!feed) return true;
+  if (!entry || !entry.pubDate) {
+    // No date to compare against the readUntil watermark — fall back to
+    // the feed's content-hash signal: everything in a date-less feed reads
+    // as unread as a block until the feed itself is marked caught-up (see
+    // hashEntryList in feedFetch.js and the catch-up logic in selectFeed).
+    return Boolean(feed.latestContentHash) && feed.latestContentHash !== feed.contentHash;
+  }
   const pub = new Date(entry.pubDate).getTime();
   const now = Date.now();
   if (pub > now) return false; // future-dated entries are always treated as read
-  const readUntil = feed && feed.readUntil ? new Date(feed.readUntil).getTime() : 0;
+  const readUntil = feed.readUntil ? new Date(feed.readUntil).getTime() : 0;
   return pub > readUntil;
 }
 
-function countUnread(feed) {
+function hasUnread(feed) {
   const entries = state.entriesByFeed.get(feed.feedId) || [];
-  return entries.filter((e) => isUnread(e, feed)).length;
+  return entries.some((e) => isUnread(e, feed));
 }
 
 async function loadAppData() {
@@ -64,7 +71,7 @@ function currentFeedGroups() {
     feeds = feeds.filter((f) => matchingFeedIds.has(f.feedId));
   }
   const feedsWithEntries = feeds.map((feed) => ({
-    feed: { ...feed, unreadCount: countUnread(feed) },
+    feed: { ...feed, hasUnread: hasUnread(feed) },
     entries: state.entriesByFeed.get(feed.feedId) || [],
   }));
   return groupFeedsByFrequency(feedsWithEntries);
@@ -107,10 +114,21 @@ function render() {
   renderPreview(previewEl, state.selectedEntry);
 }
 
-function selectFeed(feedId) {
+async function selectFeed(feedId) {
   state.selectedFeedId = feedId;
   state.selectedEntry = null;
   render();
+
+  // Date-less feeds have no per-article signal to advance (see isUnread),
+  // so viewing the feed is what catches it up instead of clicking an entry.
+  const feed = state.feedsById.get(feedId);
+  if (feed && feed.latestContentHash && feed.latestContentHash !== feed.contentHash) {
+    const updated = { ...feed, contentHash: feed.latestContentHash };
+    await markFeedDirty(updated);
+    state.feedsById.set(feedId, updated);
+    render();
+    syncNow().catch((err) => console.error("sync failed", err));
+  }
 }
 
 async function openEntry(entry) {
@@ -133,7 +151,11 @@ async function openEntry(entry) {
 async function markAllRead(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
-  const updated = { ...feed, readUntil: new Date().toISOString() };
+  const updated = {
+    ...feed,
+    readUntil: new Date().toISOString(),
+    contentHash: feed.latestContentHash || feed.contentHash,
+  };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
   render();
@@ -172,12 +194,14 @@ async function addFeedByUrl(rawUrl) {
     title: "",
     addedAt: now,
     readUntil: null,
+    contentHash: null,
     deletedAt: null,
     clientUpdatedAt: now,
     dirty: true,
     lastFetchedAt: null,
     etag: null,
     lastModified: null,
+    latestContentHash: null,
   };
   await putFeed(feed);
   await loadAppData();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.1.2
+// @version      1.1.3
 // @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Does nothing for feeds you already subscribe to. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
@@ -225,6 +225,7 @@
             title,
             addedAt: new Date().toISOString(),
             readUntil: null,
+            contentHash: null,
             deletedAt: null,
           };
           return {
@@ -325,6 +326,7 @@
       title: document.title || "",
       addedAt: new Date().toISOString(),
       readUntil: null,
+      contentHash: null,
       deletedAt: null,
     };
     const row = {
