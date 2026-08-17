@@ -33,8 +33,9 @@ python backend/app.py
 
 このリポジトリは**リポジトリのルートをそのままVercelプロジェクトのRoot Directoryとして**デプロイする構成になっています。WebアプリとFlask APIが同一ドメイン・同一デプロイで公開されます。
 
-- `public/` はVercelのZero-Config規約で認識される静的ファイルディレクトリなので、ビルドコマンド無しで`/`が`public/index.html`に対応します（`vercel.json`に`outputDirectory`のような追加設定は不要かつ、buildCommandを設定しない限り効かないため使いません）。
-- `vercel.json` の`rewrites`が `/api/*` へのリクエストを `api/index.py`（`backend/`のFlaskアプリをラップしたエントリポイント）にルーティングします。
+- `vercel.json` は明示的な`builds`/`routes`形式（Flask公式ガイドと同じ、いわゆるBuild Output API v1形式）を使っています。`rewrites`（新しいZero-Config向けの書き方）はWSGIアプリへのキャッチオールでは実際のリクエストパスがFlask側に渡らず、全ルートが404になる問題があったため使っていません。
+  - `api/index.py`（`backend/`のFlaskアプリをラップしたエントリポイント）が`@vercel/python`でビルドされ、`/api/*`宛のリクエストはすべてそこにルーティングされます（元のパスがそのままFlaskに渡ります）。
+  - `public/**`が`@vercel/static`でビルドされ、それ以外のリクエストは静的ファイルとして配信されます。
 - `requirements.txt` はルート直下に置いてあります（Vercelのビルドがここから依存関係を検出します）。
 - **データベース接続文字列の環境変数名は`NEON_DATABASE_URL`・`DATABASE_URL`・`POSTGRES_URL`のいずれでも構いません**（この順で探します）。VercelのStorageタブからNeon連携を追加した場合は`DATABASE_URL`/`POSTGRES_URL`が自動設定されるので、追加の設定は不要です。手動でNeonプロジェクトを作った場合はEnvironment Variablesに`NEON_DATABASE_URL`を追加してください。
   - **環境変数の追加・変更は既存のデプロイには反映されません。** 保存後、Deployments画面から最新デプロイを選び「Redeploy」するか、`git push`等で新しいデプロイをトリガーしてください。

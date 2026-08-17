@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.1.1
+// @version      1.1.2
 // @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Does nothing for feeds you already subscribe to. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
@@ -241,9 +241,13 @@
         headers: { Authorization: `Bearer ${accountId}`, "Content-Type": "application/json" },
         data: JSON.stringify(rows),
       });
-      if (res.status >= 200 && res.status < 300) {
-        appliedCount += JSON.parse(res.responseText).applied.length;
+      if (res.status < 200 || res.status >= 300) {
+        // Surface the failure instead of silently leaving appliedCount at 0 —
+        // otherwise a broken API base URL or server error looks identical to
+        // "everything was already registered".
+        throw new Error(`サーバーエラー (HTTP ${res.status}): ${res.responseText.slice(0, 300)}`);
       }
+      appliedCount += JSON.parse(res.responseText).applied.length;
     }
 
     return appliedCount;
