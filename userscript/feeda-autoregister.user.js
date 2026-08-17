@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.0.0
-// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Does nothing for feeds you already subscribe to.
+// @version      1.1.0
+// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Does nothing for feeds you already subscribe to. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -22,6 +22,12 @@
   const KNOWN_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // refresh the "already known" cache at most every 6h
 
   GM_registerMenuCommand("feeda: シードとAPIを設定", setup);
+  GM_registerMenuCommand("feeda: OPMLをインポート", () => {
+    importOpml().catch((err) => {
+      console.error("[feeda]", err);
+      alert(`feeda: OPMLインポートに失敗しました: ${err.message}`);
+    });
+  });
 
   function setup() {
     const currentSeed = GM_getValue(SEED_KEY, "");
@@ -125,11 +131,129 @@
       .filter(Boolean);
   }
 
+  // --- OPML import ---------------------------------------------------------
+
+  function pickFile(accept) {
+    return new Promise((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = accept;
+      input.style.display = "none";
+      input.addEventListener(
+        "change",
+        () => {
+          resolve(input.files[0] || null);
+          input.remove();
+        },
+        { once: true }
+      );
+      document.body.appendChild(input);
+      input.click();
+    });
+  }
+
+  function extractFeedsFromOpml(xmlText) {
+    const doc = new DOMParser().parseFromString(xmlText, "text/xml");
+    if (doc.querySelector("parsererror")) throw new Error("OPMLの解析に失敗しました");
+
+    const seen = new Set();
+    const feeds = [];
+    for (const outline of Array.from(doc.querySelectorAll("outline[xmlUrl]"))) {
+      const url = (outline.getAttribute("xmlUrl") || "").trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      const title = outline.getAttribute("title") || outline.getAttribute("text") || "";
+      feeds.push({ url, title });
+    }
+    return feeds;
+  }
+
+  async function importFeedsBatch(accountId, encKey, apiBase, feedsToAdd) {
+    const CHUNK_SIZE = 400; // stay under the server's per-request row cap
+    let appliedCount = 0;
+
+    for (let i = 0; i < feedsToAdd.length; i += CHUNK_SIZE) {
+      const chunk = feedsToAdd.slice(i, i + CHUNK_SIZE);
+      const rows = await Promise.all(
+        chunk.map(async ({ feedId, url, title }) => {
+          const payload = {
+            url,
+            title,
+            addedAt: new Date().toISOString(),
+            readUntil: null,
+            deletedAt: null,
+          };
+          return {
+            feedId,
+            ciphertext: await encryptJson(encKey, payload),
+            clientUpdatedAt: payload.addedAt,
+          };
+        })
+      );
+
+      const res = await gmRequest({
+        method: "PUT",
+        url: `${apiBase}/api/sync`,
+        headers: { Authorization: `Bearer ${accountId}`, "Content-Type": "application/json" },
+        data: JSON.stringify(rows),
+      });
+      if (res.status >= 200 && res.status < 300) {
+        appliedCount += JSON.parse(res.responseText).applied.length;
+      }
+    }
+
+    return appliedCount;
+  }
+
+  async function importOpml() {
+    const seed = GM_getValue(SEED_KEY, "");
+    const apiBase = GM_getValue(API_BASE_KEY, "");
+    if (!seed || !apiBase) {
+      alert("feeda: 先に「feeda: シードとAPIを設定」からセットアップしてください。");
+      return;
+    }
+
+    const file = await pickFile(".opml,.xml,text/x-opml,text/xml");
+    if (!file) return;
+
+    const feeds = extractFeedsFromOpml(await file.text());
+    if (feeds.length === 0) {
+      alert("feeda: OPML内にフィードが見つかりませんでした。");
+      return;
+    }
+
+    const [accountId, encKey] = await Promise.all([deriveAccountId(seed), deriveEncKey(seed)]);
+    // Force a fresh check against the server rather than the 6h-cached set,
+    // since a bulk import is a deliberate one-off action worth the extra request.
+    const knownFeedIds = await getKnownFeedIds(accountId, apiBase, { force: true });
+
+    const withIds = await Promise.all(
+      feeds.map(async (feed) => ({ ...feed, feedId: await deriveFeedId(seed, feed.url) }))
+    );
+    const newFeeds = withIds.filter((feed) => !knownFeedIds.has(feed.feedId));
+
+    if (newFeeds.length === 0) {
+      alert(`feeda: OPML内の${feeds.length}件はすべて登録済みでした。`);
+      return;
+    }
+
+    const appliedCount = await importFeedsBatch(accountId, encKey, apiBase, newFeeds);
+    for (const feed of newFeeds) knownFeedIds.add(feed.feedId);
+    GM_setValue(KNOWN_FEED_IDS_KEY, Array.from(knownFeedIds));
+    GM_setValue(KNOWN_FEED_IDS_TS_KEY, Date.now());
+
+    const skipped = feeds.length - newFeeds.length;
+    alert(
+      `feeda: OPMLインポート完了\n${feeds.length}件中 ${appliedCount}件を新規登録しました` +
+        (skipped > 0 ? `（${skipped}件は登録済みのためスキップ）` : "")
+    );
+  }
+
   // --- main ---------------------------------------------------------------
 
-  async function refreshKnownFeedIdsIfStale(accountId, apiBase) {
+  async function getKnownFeedIds(accountId, apiBase, { force = false } = {}) {
     const lastRefresh = GM_getValue(KNOWN_FEED_IDS_TS_KEY, 0);
-    if (Date.now() - lastRefresh < KNOWN_CACHE_TTL_MS) {
+    if (!force && Date.now() - lastRefresh < KNOWN_CACHE_TTL_MS) {
       return new Set(GM_getValue(KNOWN_FEED_IDS_KEY, []));
     }
     const res = await gmRequest({
@@ -178,7 +302,7 @@
     if (feedUrls.length === 0) return;
 
     const [accountId, encKey] = await Promise.all([deriveAccountId(seed), deriveEncKey(seed)]);
-    const knownFeedIds = await refreshKnownFeedIdsIfStale(accountId, apiBase);
+    const knownFeedIds = await getKnownFeedIds(accountId, apiBase);
 
     for (const feedUrl of feedUrls) {
       const feedId = await deriveFeedId(seed, feedUrl);
