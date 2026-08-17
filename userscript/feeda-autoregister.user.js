@@ -226,6 +226,7 @@
             addedAt: new Date().toISOString(),
             readUntil: null,
             contentHash: null,
+            frequencyGroup: null,
             deletedAt: null,
           };
           return {
@@ -327,6 +328,7 @@
       addedAt: new Date().toISOString(),
       readUntil: null,
       contentHash: null,
+      frequencyGroup: null,
       deletedAt: null,
     };
     const row = {

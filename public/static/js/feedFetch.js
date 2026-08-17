@@ -104,8 +104,8 @@ export async function fetchFeed(feed) {
   const res = await fetch(apiUrl("/api/fetch-feed"), { headers });
 
   if (res.status === 304) {
-    const nextCheckAt = await computeNextCheckAt(feed.feedId);
-    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString(), nextCheckAt });
+    const schedule = await computeSchedule(feed);
+    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString(), ...schedule });
     return [];
   }
   if (!res.ok) {
@@ -122,7 +122,7 @@ export async function fetchFeed(feed) {
 
   const isDateless = dbEntries.length > 0 && !dbEntries.some((e) => e.pubDate);
   const latestContentHash = isDateless ? await hashEntryList(dbEntries) : null;
-  const nextCheckAt = await computeNextCheckAt(feed.feedId);
+  const schedule = await computeSchedule(feed);
 
   await putFeed({
     ...feed,
@@ -131,7 +131,7 @@ export async function fetchFeed(feed) {
     etag: res.headers.get("ETag") || null,
     lastModified: res.headers.get("Last-Modified") || null,
     latestContentHash,
-    nextCheckAt,
+    ...schedule,
   });
 
   return dbEntries;
@@ -140,9 +140,17 @@ export async function fetchFeed(feed) {
 // Schedules the next fetch based on the feed's own posting frequency
 // (computed from its full cached history, same as the UI's grouping) so a
 // large subscription list doesn't mean re-fetching everything on every
-// visit. Purely local — never synced to the server.
-async function computeNextCheckAt(feedId) {
-  const allEntries = await getEntriesByFeed(feedId);
+// visit. nextCheckAt is purely local — never synced. frequencyGroup *is*
+// synced (only when it actually changes, to avoid needless writes) so a
+// fresh device with no fetch history of its own can still order its first
+// scan by how often each feed tends to post — see main.js's refreshAll.
+async function computeSchedule(feed) {
+  const allEntries = await getEntriesByFeed(feed.feedId);
   const group = computeFrequencyGroup(allEntries);
-  return new Date(Date.now() + nextCheckDelayMs(group.key)).toISOString();
+  const nextCheckAt = new Date(Date.now() + nextCheckDelayMs(group.key)).toISOString();
+
+  if (feed.frequencyGroup === group.key) {
+    return { nextCheckAt };
+  }
+  return { nextCheckAt, frequencyGroup: group.key, dirty: true, clientUpdatedAt: new Date().toISOString() };
 }

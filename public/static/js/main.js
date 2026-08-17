@@ -3,7 +3,7 @@ import { loadStoredSeed, loadStoredApiBase, initSession } from "./session.js";
 import { getAllFeeds, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { fetchFeed } from "./feedFetch.js";
-import { groupFeedsByFrequency } from "./frequency.js";
+import { groupFeedsByFrequency, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
@@ -18,6 +18,8 @@ const feedListEl = document.getElementById("feed-list");
 const articleListEl = document.getElementById("article-list");
 const previewEl = document.getElementById("preview");
 const statusBarEl = document.getElementById("status-bar");
+const statusBarFillEl = document.getElementById("status-bar-fill");
+const statusBarTextEl = document.getElementById("status-bar-text");
 
 const PANE_ORDER = ["feed", "article", "preview"];
 
@@ -222,16 +224,24 @@ async function refreshAll() {
   render();
 
   // Only fetch feeds that are actually due, per their own posting-frequency
-  // schedule (see computeNextCheckAt in feedFetch.js) — with a large
+  // schedule (see computeSchedule in feedFetch.js) — with a large
   // subscription list, re-fetching everything on every visit doesn't scale.
+  // Due feeds are fetched most-frequent-first (using frequencyGroup, which
+  // is synced — see sync.js — so even a fresh device with no local fetch
+  // history yet can prioritize by it) so daily feeds' fresh content shows
+  // up before time is spent on rarely-updated ones.
   const now = Date.now();
-  const dueFeeds = [...state.feedsById.values()].filter(
-    (feed) => !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now
-  );
+  const dueFeeds = [...state.feedsById.values()]
+    .filter((feed) => !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
+    .sort((a, b) => {
+      const ai = FREQUENCY_ORDER.indexOf(a.frequencyGroup || "unknown");
+      const bi = FREQUENCY_ORDER.indexOf(b.frequencyGroup || "unknown");
+      return ai - bi;
+    });
 
   for (let i = 0; i < dueFeeds.length; i++) {
     const feed = dueFeeds[i];
-    showStatus(`フィードを取得中… (${i + 1}/${dueFeeds.length}) ${feed.title || feed.url}`);
+    showStatus(`フィードを取得中… (${i + 1}/${dueFeeds.length}) ${feed.title || feed.url}`, i / dueFeeds.length);
     try {
       await fetchFeed(feed);
     } catch (err) {
@@ -243,13 +253,15 @@ async function refreshAll() {
   render();
 }
 
-function showStatus(text) {
-  statusBarEl.textContent = text;
+function showStatus(text, fraction) {
+  statusBarTextEl.textContent = text;
+  statusBarFillEl.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
   statusBarEl.classList.remove("hidden");
 }
 
 function hideStatus() {
   statusBarEl.classList.add("hidden");
+  statusBarFillEl.style.width = "0%";
 }
 
 // --- pane focus + keyboard navigation ---------------------------------
@@ -265,8 +277,18 @@ function setFocusedPane(pane) {
   if (el) el.classList.add("focused");
 }
 
-function isTypingTarget(el) {
-  return Boolean(el) && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+// Only reserve the arrow keys an editable field actually uses natively.
+// A single-line <input> (our search box) only uses Left/Right to move the
+// text cursor — Up/Down do nothing in it natively, so leaving focus there
+// (e.g. after typing a search query without clicking elsewhere) shouldn't
+// also block pane navigation via Up/Down. Multi-line/contentEditable
+// fields use all four, so those still block everything.
+function shouldIgnoreArrowKey(key) {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.tagName === "TEXTAREA" || el.isContentEditable) return true;
+  if (el.tagName === "INPUT") return key === "ArrowLeft" || key === "ArrowRight";
+  return false;
 }
 
 function moveFeedSelection(delta) {
@@ -291,8 +313,8 @@ function scrollPreview(delta) {
 
 function wireKeyboardNav() {
   document.addEventListener("keydown", (ev) => {
-    if (isTypingTarget(document.activeElement)) return;
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
+    if (shouldIgnoreArrowKey(ev.key)) return;
     ev.preventDefault();
 
     if (!state.keyboardNavActive) {

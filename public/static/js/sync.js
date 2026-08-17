@@ -21,6 +21,7 @@ function feedToPayload(feed) {
     addedAt: feed.addedAt,
     readUntil: feed.readUntil,
     contentHash: feed.contentHash || null,
+    frequencyGroup: feed.frequencyGroup || null,
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -80,6 +81,7 @@ export async function pullUpdates() {
       addedAt: payload.addedAt,
       readUntil: payload.readUntil,
       contentHash: payload.contentHash || null,
+      frequencyGroup: payload.frequencyGroup || null,
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,

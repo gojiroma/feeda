@@ -8,6 +8,12 @@ const GROUPS = [
 const UNKNOWN_GROUP = { key: "unknown", label: "頻度不明" };
 const SAMPLE_SIZE = 20;
 
+// Most-frequent-first, so an initial scan (or one on a fresh device that
+// has no local fetch history yet but did pull synced frequencyGroup values
+// from other devices — see feed.frequencyGroup) fetches daily feeds before
+// rarely-updated ones.
+export const FREQUENCY_ORDER = [...GROUPS.map((g) => g.key), UNKNOWN_GROUP.key];
+
 // How long to wait before re-fetching a feed, based on its own posting
 // frequency. Kept client-side only (see nextCheckAt on the feed record) so
 // a large subscription list doesn't mean re-fetching everything, from every
@@ -46,15 +52,32 @@ export function computeFrequencyGroup(entries) {
   return GROUPS.find((g) => avgDays <= g.maxAvgDays) || GROUPS[GROUPS.length - 1];
 }
 
+// Feeds with dated entries sort by their newest entry's date, newest first.
+// Date-less feeds have no publish date to go by, so they sort by when they
+// were last fetched instead — a freshly-fetched date-less feed (which just
+// had its content-hash checked and possibly changed) rises to the top.
+function feedSortTimestamp(feed, entries) {
+  const dated = entries
+    .map((e) => e.pubDate)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter((t) => !Number.isNaN(t));
+  if (dated.length > 0) return Math.max(...dated);
+  return feed.lastFetchedAt ? new Date(feed.lastFetchedAt).getTime() : 0;
+}
+
 export function groupFeedsByFrequency(feedsWithEntries) {
   const groups = new Map();
   for (const { feed, entries } of feedsWithEntries) {
     const group = computeFrequencyGroup(entries);
     if (!groups.has(group.key)) groups.set(group.key, { group, feeds: [] });
-    groups.get(group.key).feeds.push(feed);
+    groups.get(group.key).feeds.push({ feed, sortTimestamp: feedSortTimestamp(feed, entries) });
   }
-  const order = [...GROUPS, UNKNOWN_GROUP].map((g) => g.key);
-  return order
-    .filter((key) => groups.has(key))
-    .map((key) => groups.get(key));
+  for (const { feeds } of groups.values()) {
+    feeds.sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+  }
+  return FREQUENCY_ORDER.filter((key) => groups.has(key)).map((key) => {
+    const { group, feeds } = groups.get(key);
+    return { group, feeds: feeds.map((f) => f.feed) };
+  });
 }
