@@ -8,7 +8,7 @@ import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
-import { renderMobileChips, renderMobileList } from "./ui/mobile.js";
+import { renderMobileList } from "./ui/mobile.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { updateFavicon } from "./favicon.js";
@@ -21,7 +21,6 @@ const previewEl = document.getElementById("preview");
 const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
-const mobileChipsEl = document.getElementById("mobile-feed-chips");
 const mobileListEl = document.getElementById("mobile-article-list");
 
 // Kept in sync with the max-width:600px breakpoint in style.css that
@@ -185,56 +184,76 @@ function renderDesktop() {
   renderPreview(previewEl, state.selectedEntry, query);
 }
 
-// Small-phone layout: a horizontal feed-chip strip instead of a feed pane
-// (tap a chip to filter, no navigating into/back out of a feed), and
-// articles expand in place — see ui/mobile.js.
+// Small-phone layout: no per-feed navigation at all, just the same
+// cross-feed unread timeline as desktop's "nothing selected" view — see
+// ui/mobile.js. Rows are real links to the article's origin site; reading
+// happens there, not in-app. Scrolling an unread row out of view (past the
+// top) marks it read too, same as tapping it, via the IntersectionObserver
+// wired up below.
 function renderMobile() {
   const query = state.searchQuery;
-
-  renderMobileChips(mobileChipsEl, {
-    feeds: flatFeedList(),
-    selectedFeedId: state.selectedFeedId,
-    onSelectFeed: selectFeed,
-    onSelectAll: clearFeedSelection,
-  });
-
   const { entries, showFeedName, emptyHint } = currentArticles();
+
+  mobileReadObserver?.disconnect();
+  mobileReadObserver = new IntersectionObserver(handleMobileScrollIntersections, {
+    root: mobileListEl,
+    threshold: 0,
+  });
+  mobileScrollEntries = new Map(entries.map((e) => [e.id, e]));
+
   renderMobileList(mobileListEl, {
     entries,
     feedTitleById: state.feedTitleById,
-    expandedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
     query,
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
-    onToggle: mobileToggleEntry,
+    onOpen: openEntry,
+    onRowMounted: (li, entry) => {
+      li.dataset.entryId = entry.id;
+      mobileReadObserver.observe(li);
+    },
     showFeedName,
     emptyHint,
   });
 }
 
-function clearFeedSelection() {
-  state.selectedFeedId = null;
-  state.selectedEntry = null;
-  render();
+let mobileReadObserver = null;
+let mobileScrollEntries = new Map();
+let mobileSyncDebounceTimer = null;
+
+function handleMobileScrollIntersections(observerEntries) {
+  for (const oe of observerEntries) {
+    // Only care about rows that scrolled *past* (exited above the visible
+    // area) — not ones below the fold that haven't been seen yet, and not
+    // the initial "not intersecting yet" report some browsers fire on
+    // observe() for elements already off-screen below.
+    if (oe.isIntersecting || !oe.rootBounds) continue;
+    if (oe.boundingClientRect.bottom > oe.rootBounds.top) continue;
+
+    const entry = mobileScrollEntries.get(oe.target.dataset.entryId);
+    if (entry) markReadOnScroll(entry, oe.target);
+  }
 }
 
-// Tapping the already-expanded entry collapses it; tapping another one
-// opens that one instead (openEntry also marks it, and possibly its whole
-// feed, as read — same as everywhere else in the app).
-function mobileToggleEntry(entry) {
-  if (state.selectedEntry && state.selectedEntry.id === entry.id) {
-    state.selectedEntry = null;
-    render();
-    return;
-  }
-  openEntry(entry);
+async function markReadOnScroll(entry, liEl) {
+  const updated = await advanceReadState(entry);
+  if (!updated) return;
+  liEl.classList.remove("unread");
+  // Debounce the actual network sync: flicking past a long run of unread
+  // items would otherwise fire one push+pull per item in quick succession.
+  clearTimeout(mobileSyncDebounceTimer);
+  mobileSyncDebounceTimer = setTimeout(() => {
+    syncNow().catch((err) => console.error("sync failed", err));
+  }, 1000);
 }
 
 // Advances a feed's read state (readUntil watermark and/or content-hash
-// catch-up) based on the entry being viewed. Used both when clicking an
-// article directly and when selecting a feed (which opens its top entry).
-async function advanceProgress(entry) {
+// catch-up) based on the entry being viewed, persists it, and returns the
+// updated feed — or null if nothing changed. Doesn't render or sync itself;
+// callers decide whether that should happen immediately (advanceProgress)
+// or be batched (markReadOnScroll, for rapid scrolling).
+async function advanceReadState(entry) {
   const feed = state.feedsById.get(entry.feedId);
-  if (!feed) return;
+  if (!feed) return null;
 
   let updated = feed;
   let changed = false;
@@ -252,9 +271,17 @@ async function advanceProgress(entry) {
     changed = true;
   }
 
-  if (changed) {
-    await markFeedDirty(updated);
-    state.feedsById.set(feed.feedId, updated);
+  if (!changed) return null;
+  await markFeedDirty(updated);
+  state.feedsById.set(feed.feedId, updated);
+  return updated;
+}
+
+// Used when the user directly acts on an entry (tap/click, keyboard nav,
+// selecting a feed) — advances read state and re-renders/syncs right away.
+async function advanceProgress(entry) {
+  const updated = await advanceReadState(entry);
+  if (updated) {
     render();
     syncNow().catch((err) => console.error("sync failed", err));
   }

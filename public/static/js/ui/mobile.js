@@ -1,34 +1,11 @@
-import { highlightText, highlightFragment } from "../highlight.js";
-import { sanitizeHtmlToFragment } from "../sanitize.js";
+import { highlightText } from "../highlight.js";
 
-// Small-phone layout: no separate feed pane — feeds are a horizontally
-// scrollable strip of chips so switching feeds never means navigating up
-// and back down a hierarchy. Tapping an article expands it in place
-// (accordion-style) instead of opening a separate preview pane, so the
-// list and the preview are the same surface.
+// Small-phone layout: a single flat, cross-feed unread list — no per-feed
+// navigation at all. Articles are read on their origin site: each row is a
+// real link that opens in a new tab; there's no in-app preview to keep in
+// sync with a separate pane.
 
-export function renderMobileChips(container, { feeds, selectedFeedId, onSelectFeed, onSelectAll }) {
-  container.innerHTML = "";
-
-  const allChip = document.createElement("button");
-  allChip.type = "button";
-  allChip.className = "feed-chip" + (selectedFeedId ? "" : " active");
-  allChip.textContent = "すべて";
-  allChip.addEventListener("click", onSelectAll);
-  container.appendChild(allChip);
-
-  for (const feed of feeds) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className =
-      "feed-chip" + (feed.feedId === selectedFeedId ? " active" : "") + (feed.hasUnread ? " has-unread" : "");
-    chip.textContent = feed.title || feed.url;
-    chip.addEventListener("click", () => onSelectFeed(feed.feedId));
-    container.appendChild(chip);
-  }
-}
-
-export function renderMobileList(container, { entries, feedTitleById, expandedEntryId, query, isUnread, onToggle, showFeedName, emptyHint }) {
+export function renderMobileList(container, { entries, feedTitleById, query, isUnread, onOpen, onRowMounted, showFeedName, emptyHint }) {
   container.innerHTML = "";
 
   if (entries.length === 0) {
@@ -43,14 +20,15 @@ export function renderMobileList(container, { entries, feedTitleById, expandedEn
   ul.className = "mobile-article-list-inner";
 
   for (const entry of entries) {
-    const expanded = entry.id === expandedEntryId;
-
     const li = document.createElement("li");
-    li.className = "mobile-article-item" + (expanded ? " expanded" : "") + (isUnread(entry) ? " unread" : "");
+    li.className = "mobile-article-item" + (isUnread(entry) ? " unread" : "");
 
-    const row = document.createElement("div");
+    const row = document.createElement("a");
     row.className = "mobile-article-row";
-    row.addEventListener("click", () => onToggle(entry));
+    row.href = entry.link || "#";
+    row.target = "_blank";
+    row.rel = "noopener noreferrer";
+    row.addEventListener("click", () => onOpen(entry));
 
     const title = document.createElement("div");
     title.className = "article-title";
@@ -66,46 +44,9 @@ export function renderMobileList(container, { entries, feedTitleById, expandedEn
     row.appendChild(meta);
 
     li.appendChild(row);
-
-    if (expanded) {
-      li.appendChild(renderExpandedBody(entry, query));
-    }
-
     ul.appendChild(li);
+    onRowMounted?.(li, entry);
   }
 
   container.appendChild(ul);
-}
-
-function renderExpandedBody(entry, query) {
-  const body = document.createElement("div");
-  body.className = "mobile-article-body";
-
-  if (entry.author || entry.pubDate) {
-    const meta = document.createElement("div");
-    meta.className = "preview-meta";
-    meta.textContent = [entry.author, entry.pubDate ? new Date(entry.pubDate).toLocaleString("ja-JP") : ""]
-      .filter(Boolean)
-      .join(" ・ ");
-    body.appendChild(meta);
-  }
-
-  if (entry.link) {
-    const link = document.createElement("a");
-    link.href = entry.link;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.className = "preview-link";
-    link.textContent = entry.link;
-    body.appendChild(link);
-  }
-
-  const content = document.createElement("div");
-  content.className = "preview-body";
-  const fragment = sanitizeHtmlToFragment(entry.content || entry.summary || "");
-  highlightFragment(fragment, query);
-  content.appendChild(fragment);
-  body.appendChild(content);
-
-  return body;
 }
