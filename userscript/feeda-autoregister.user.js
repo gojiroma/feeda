@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.1.0
+// @version      1.1.1
 // @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Does nothing for feeds you already subscribe to. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
@@ -22,12 +22,56 @@
   const KNOWN_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // refresh the "already known" cache at most every 6h
 
   GM_registerMenuCommand("feeda: シードとAPIを設定", setup);
-  GM_registerMenuCommand("feeda: OPMLをインポート", () => {
-    importOpml().catch((err) => {
-      console.error("[feeda]", err);
-      alert(`feeda: OPMLインポートに失敗しました: ${err.message}`);
+  GM_registerMenuCommand("feeda: OPMLをインポート", showOpmlImportPrompt);
+
+  // A click coming from GM_registerMenuCommand originates in the browser's
+  // extension UI, not the page, so it doesn't count as user activation
+  // there — calling input.click() directly from the menu handler gets
+  // silently blocked ("File chooser dialog can only be shown with a user
+  // activation"). Show a real on-page button instead; a click on *that*
+  // is a genuine DOM gesture, so the file picker opens from its handler.
+  function showOpmlImportPrompt() {
+    const overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,0.45);" +
+      "display:flex;align-items:center;justify-content:center;font-family:sans-serif;";
+
+    const box = document.createElement("div");
+    box.style.cssText =
+      "background:#fff;color:#111;padding:20px 24px;border-radius:8px;max-width:320px;" +
+      "text-align:center;box-shadow:0 4px 24px rgba(0,0,0,.35);";
+    box.innerHTML = '<p style="margin:0 0 14px;font-size:14px;line-height:1.5;">feedaにOPMLファイルをインポートします。</p>';
+
+    const btn = document.createElement("button");
+    btn.textContent = "OPMLファイルを選択";
+    btn.style.cssText =
+      "padding:8px 16px;font-size:14px;cursor:pointer;border:1px solid #2563eb;" +
+      "background:#2563eb;color:#fff;border-radius:6px;";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "キャンセル";
+    cancelBtn.style.cssText =
+      "padding:8px 16px;font-size:14px;cursor:pointer;border:1px solid #ccc;" +
+      "background:#fff;color:#111;border-radius:6px;margin-left:8px;";
+
+    box.appendChild(btn);
+    box.appendChild(cancelBtn);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    cancelBtn.addEventListener("click", () => overlay.remove());
+    overlay.addEventListener("click", (ev) => {
+      if (ev.target === overlay) overlay.remove();
     });
-  });
+
+    btn.addEventListener("click", () => {
+      overlay.remove();
+      importOpml().catch((err) => {
+        console.error("[feeda]", err);
+        alert(`feeda: OPMLインポートに失敗しました: ${err.message}`);
+      });
+    });
+  }
 
   function setup() {
     const currentSeed = GM_getValue(SEED_KEY, "");
