@@ -6,14 +6,18 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from config import Config
-from db import init_db
 
 limiter = Limiter(key_func=get_remote_address)
 
 
 def create_app():
+    # Deliberately does nothing that touches the database or requires
+    # NEON_DATABASE_URL to be set. This function runs at import time on
+    # every cold start (see api/index.py); if it raised here, a missing/
+    # misconfigured env var would take down every route, including ones
+    # that don't need the database (like this health check). DB access is
+    # deferred to request time in routes/sync.py via db.ensure_schema().
     app = Flask(__name__)
-    Config.validate()
 
     CORS(
         app,
@@ -32,8 +36,6 @@ def create_app():
     logging.basicConfig(level=logging.INFO)
     # Keep access logs free of full request query strings (feed URLs, tokens).
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-
-    init_db()
 
     from routes.sync import sync_bp
     from routes.proxy import proxy_bp

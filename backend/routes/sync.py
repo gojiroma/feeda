@@ -6,13 +6,21 @@ from flask import Blueprint, g, jsonify, request
 from app import limiter
 from auth import require_account_id
 from config import Config
-from db import get_pool
+from db import ensure_schema, get_pool
 
 sync_bp = Blueprint("sync", __name__)
 
 FEED_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_CIPHERTEXT_LEN = 8192
 MAX_BATCH_SIZE = 500
+
+
+@sync_bp.errorhandler(RuntimeError)
+def _handle_db_not_configured(err):
+    # Raised by db.get_pool() when NEON_DATABASE_URL/DATABASE_URL/POSTGRES_URL
+    # isn't set. Kept here (request time) rather than at import time so a
+    # misconfigured env var only breaks the routes that need the database.
+    return jsonify(error=str(err)), 500
 
 
 def _parse_iso8601(value):
@@ -28,6 +36,7 @@ def _parse_iso8601(value):
 @limiter.limit(lambda: Config.RATE_LIMIT_SYNC)
 @require_account_id
 def get_sync():
+    ensure_schema()
     since = _parse_iso8601(request.args.get("since", ""))
 
     pool = get_pool()
@@ -88,6 +97,7 @@ def _validate_row(row):
 @limiter.limit(lambda: Config.RATE_LIMIT_SYNC)
 @require_account_id
 def put_sync():
+    ensure_schema()
     payload = request.get_json(silent=True)
     if not isinstance(payload, list):
         return jsonify(error="body must be a JSON array of rows"), 400

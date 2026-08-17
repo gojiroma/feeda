@@ -9,7 +9,15 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 
 class Config:
-    NEON_DATABASE_URL = os.environ.get("NEON_DATABASE_URL", "")
+    # NEON_DATABASE_URL is the name we document, but Vercel's native Neon
+    # integration (Storage tab) injects DATABASE_URL/POSTGRES_URL instead —
+    # accept any of them so it works either way without extra setup.
+    NEON_DATABASE_URL = (
+        os.environ.get("NEON_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or os.environ.get("POSTGRES_URL")
+        or ""
+    )
     ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "http://localhost:8000")
     PROXY_TIMEOUT_SECONDS = float(os.environ.get("PROXY_TIMEOUT_SECONDS", "10"))
     PROXY_MAX_BYTES = int(os.environ.get("PROXY_MAX_BYTES", str(5 * 1024 * 1024)))
@@ -17,6 +25,7 @@ class Config:
     RATE_LIMIT_PROXY = os.environ.get("RATE_LIMIT_PROXY", "120 per minute")
 
     @classmethod
-    def validate(cls):
+    def require_database_url(cls):
         if not cls.NEON_DATABASE_URL:
-            raise RuntimeError("NEON_DATABASE_URL is not set")
+            raise RuntimeError("NEON_DATABASE_URL (or DATABASE_URL / POSTGRES_URL) is not set")
+        return cls.NEON_DATABASE_URL
