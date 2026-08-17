@@ -23,6 +23,10 @@ function feedToPayload(feed) {
     contentHash: feed.contentHash || null,
     frequencyGroup: feed.frequencyGroup || null,
     paused: feed.paused || false,
+    // Set once the user has ever manually toggled pause on this feed (via
+    // right-click/long-press) — synced so the auto-dedupe-by-host cleanup
+    // (see main.js) never fights a deliberate un-pause on another device.
+    userManagedPause: feed.userManagedPause || false,
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -84,6 +88,7 @@ export async function pullUpdates() {
       contentHash: payload.contentHash || null,
       frequencyGroup: payload.frequencyGroup || null,
       paused: payload.paused || false,
+      userManagedPause: payload.userManagedPause || false,
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,

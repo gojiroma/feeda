@@ -216,14 +216,62 @@ function renderDesktop() {
 // Right-click or long-press a feed name to toggle whether it gets fetched
 // at all — paused feeds sort into their own "取得しない" group (see
 // frequency.js) and are skipped entirely by refreshAll, even when forced.
+// Marks the feed userManagedPause so autoPauseDuplicateHosts (below) never
+// overrides a deliberate choice the user made either way.
 async function togglePauseFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
-  const updated = { ...feed, paused: !feed.paused };
+  const updated = { ...feed, paused: !feed.paused, userManagedPause: true };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
   render();
   syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// One-time cleanup run at startup: feeds that share the same location.host
+// are very likely accidental duplicates (e.g. the Tampermonkey script
+// picking up more than one <link rel="alternate"> across different pages of
+// the same site) rather than deliberately-subscribed distinct feeds, so the
+// newer ones are auto-paused, keeping just the earliest-added one active.
+// Never touches a feed the user has manually paused/unpaused before
+// (userManagedPause) — that's an explicit choice to keep it, even alongside
+// others on the same host — but a userManagedPause feed still counts as
+// "the keeper" for its host, so other untouched duplicates still get paused.
+async function autoPauseDuplicateHosts() {
+  const activeFeeds = [...state.feedsById.values()].filter((f) => !f.paused);
+  const byHost = new Map();
+  for (const feed of activeFeeds) {
+    let host;
+    try {
+      host = new URL(feed.url).host;
+    } catch {
+      continue; // malformed URL — nothing sensible to dedupe on
+    }
+    if (!byHost.has(host)) byHost.set(host, []);
+    byHost.get(host).push(feed);
+  }
+
+  const toPause = [];
+  for (const feeds of byHost.values()) {
+    if (feeds.length < 2) continue;
+    const userManagedKeeper = feeds.find((f) => f.userManagedPause);
+    const candidates = feeds.filter((f) => !f.userManagedPause);
+    if (candidates.length === 0) continue; // every one already user-decided
+
+    const keeper = userManagedKeeper || candidates.slice().sort((a, b) => (a.addedAt || "").localeCompare(b.addedAt || ""))[0];
+    for (const candidate of candidates) {
+      if (candidate !== keeper) toPause.push(candidate);
+    }
+  }
+
+  for (const feed of toPause) {
+    const updated = { ...feed, paused: true };
+    await markFeedDirty(updated);
+    state.feedsById.set(feed.feedId, updated);
+  }
+  if (toPause.length > 0) {
+    syncNow().catch((err) => console.error("sync failed", err));
+  }
 }
 
 async function copyFeedUrl(feed, li) {
@@ -571,6 +619,7 @@ async function startApp() {
   wireApp();
   setFocusedPane("article");
   await loadAppData();
+  await autoPauseDuplicateHosts();
   render();
   refreshAll();
 }
