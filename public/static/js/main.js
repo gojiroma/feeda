@@ -291,12 +291,21 @@ function shouldIgnoreArrowKey(key) {
   return false;
 }
 
+// render() runs synchronously (before the first await) inside both
+// selectFeed and openEntry, so the newly-selected .selected element already
+// exists in the DOM by the time the call below returns — safe to scroll to
+// it immediately without awaiting the async read-state work that follows.
+function scrollSelectedIntoView(containerEl, selector) {
+  containerEl.querySelector(selector)?.scrollIntoView({ block: "nearest" });
+}
+
 function moveFeedSelection(delta) {
   const feeds = flatFeedList();
   if (feeds.length === 0) return;
   const idx = feeds.findIndex((f) => f.feedId === state.selectedFeedId);
   const targetIdx = idx === -1 ? (delta > 0 ? 0 : feeds.length - 1) : Math.min(Math.max(idx + delta, 0), feeds.length - 1);
   selectFeed(feeds[targetIdx].feedId);
+  scrollSelectedIntoView(feedListEl, ".feed-item.selected");
 }
 
 function moveArticleSelection(delta) {
@@ -305,6 +314,7 @@ function moveArticleSelection(delta) {
   const idx = entries.findIndex((e) => state.selectedEntry && e.id === state.selectedEntry.id);
   const targetIdx = idx === -1 ? (delta > 0 ? 0 : entries.length - 1) : Math.min(Math.max(idx + delta, 0), entries.length - 1);
   openEntry(entries[targetIdx]);
+  scrollSelectedIntoView(articleListEl, ".article-item.selected");
 }
 
 function scrollPreview(delta) {
