@@ -34,8 +34,11 @@ const PANE_ORDER = ["feed", "article", "preview"];
 
 // Reverse of FREQUENCY_ORDER (which is most-frequent-first, used to decide
 // fetch order) — least-frequent-first, used to decide mobile's unread
-// reading order instead.
-const MOBILE_FREQUENCY_ORDER = [...FREQUENCY_ORDER].reverse();
+// reading order instead. "paused" is pinned to the end either way: a
+// feed the user stopped fetching shouldn't jump to the front just because
+// reversing put "infrequent" first — its backlog is the least urgent thing
+// to surface, not the most.
+const MOBILE_FREQUENCY_ORDER = [...FREQUENCY_ORDER.filter((key) => key !== "paused")].reverse().concat("paused");
 
 const state = {
   feedsById: new Map(),
@@ -130,8 +133,8 @@ function flatFeedList() {
 function sortMobileUnreadByFrequency(entries) {
   const priorityByFeedId = new Map();
   for (const feed of state.feedsById.values()) {
-    const group = computeFrequencyGroup(state.entriesByFeed.get(feed.feedId) || []);
-    priorityByFeedId.set(feed.feedId, MOBILE_FREQUENCY_ORDER.indexOf(group.key));
+    const groupKey = feed.paused ? "paused" : computeFrequencyGroup(state.entriesByFeed.get(feed.feedId) || []).key;
+    priorityByFeedId.set(feed.feedId, MOBILE_FREQUENCY_ORDER.indexOf(groupKey));
   }
   return entries.slice().sort((a, b) => {
     const pa = priorityByFeedId.get(a.feedId) ?? MOBILE_FREQUENCY_ORDER.length;
@@ -187,9 +190,12 @@ function renderDesktop() {
 
   renderFeedList(feedListEl, {
     groups: currentFeedGroups(),
+    totalFeedCount: state.feedsById.size,
     selectedFeedId: state.selectedFeedId,
     query,
     onSelect: selectFeed,
+    onTogglePause: togglePauseFeed,
+    onCopyUrl: copyFeedUrl,
   });
 
   const { entries, showFeedName, emptyHint } = currentArticles();
@@ -205,6 +211,29 @@ function renderDesktop() {
   });
 
   renderPreview(previewEl, state.selectedEntry, query);
+}
+
+// Right-click or long-press a feed name to toggle whether it gets fetched
+// at all — paused feeds sort into their own "取得しない" group (see
+// frequency.js) and are skipped entirely by refreshAll, even when forced.
+async function togglePauseFeed(feedId) {
+  const feed = state.feedsById.get(feedId);
+  if (!feed) return;
+  const updated = { ...feed, paused: !feed.paused };
+  await markFeedDirty(updated);
+  state.feedsById.set(feedId, updated);
+  render();
+  syncNow().catch((err) => console.error("sync failed", err));
+}
+
+async function copyFeedUrl(feed, li) {
+  try {
+    await navigator.clipboard.writeText(feed.url);
+    li.classList.add("copy-flash");
+    setTimeout(() => li.classList.remove("copy-flash"), 800);
+  } catch (err) {
+    console.error("clipboard copy failed", err);
+  }
 }
 
 // Small-phone layout: no per-feed navigation at all, just the same
@@ -331,8 +360,9 @@ async function openEntry(entry) {
   await advanceProgress(entry);
 }
 
-// force:true bypasses the due-schedule filter entirely (used by tapping the
-// next-fetch indicator) — otherwise only feeds actually due get fetched.
+// force:true bypasses the due-schedule filter (used by tapping the
+// next-fetch indicator) — a paused feed is skipped either way, since
+// pausing is an explicit "don't fetch this at all" rather than a schedule.
 async function refreshAll({ force = false } = {}) {
   try {
     await syncNow();
@@ -351,6 +381,7 @@ async function refreshAll({ force = false } = {}) {
   // up before time is spent on rarely-updated ones.
   const now = Date.now();
   const dueFeeds = [...state.feedsById.values()]
+    .filter((feed) => !feed.paused)
     .filter((feed) => force || !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
     .sort((a, b) => {
       const ai = FREQUENCY_ORDER.indexOf(a.frequencyGroup || "unknown");

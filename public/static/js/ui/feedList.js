@@ -1,7 +1,16 @@
 import { highlightText } from "../highlight.js";
 
-export function renderFeedList(container, { groups, selectedFeedId, query, onSelect }) {
+const LONG_PRESS_MS = 550;
+
+export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, onSelect, onTogglePause, onCopyUrl }) {
   container.innerHTML = "";
+
+  if (typeof totalFeedCount === "number") {
+    const summary = document.createElement("p");
+    summary.className = "feed-list-total";
+    summary.textContent = `${totalFeedCount}件のフィードを登録`;
+    container.appendChild(summary);
+  }
 
   if (groups.length === 0) {
     const hint = document.createElement("p");
@@ -25,8 +34,9 @@ export function renderFeedList(container, { groups, selectedFeedId, query, onSel
 
     for (const feed of feeds) {
       const li = document.createElement("li");
-      li.className = "feed-item" + (feed.feedId === selectedFeedId ? " selected" : "");
-      li.addEventListener("click", () => onSelect(feed.feedId));
+      li.className =
+        "feed-item" + (feed.feedId === selectedFeedId ? " selected" : "") + (feed.paused ? " paused" : "");
+      li.title = "右クリック／長押し: 取得の一時停止切替　中クリック: URLをコピー";
 
       const nameSpan = document.createElement("span");
       nameSpan.className = "feed-name";
@@ -40,10 +50,50 @@ export function renderFeedList(container, { groups, selectedFeedId, query, onSel
         li.appendChild(dot);
       }
 
+      attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl });
       ul.appendChild(li);
     }
 
     details.appendChild(ul);
     container.appendChild(details);
   }
+}
+
+function attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }) {
+  let longPressTimer = null;
+  let longPressTriggered = false;
+  const cancelLongPress = () => clearTimeout(longPressTimer);
+
+  li.addEventListener("click", () => {
+    if (longPressTriggered) {
+      longPressTriggered = false;
+      return;
+    }
+    onSelect(feed.feedId);
+  });
+
+  li.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    onTogglePause(feed.feedId);
+  });
+
+  li.addEventListener("auxclick", (ev) => {
+    if (ev.button !== 1) return;
+    ev.preventDefault();
+    onCopyUrl(feed, li);
+  });
+
+  // Long-press is the touch equivalent of right-click, since touchscreens
+  // have no contextmenu event of their own for a custom action like this.
+  li.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType !== "touch") return;
+    longPressTriggered = false;
+    longPressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      onTogglePause(feed.feedId);
+    }, LONG_PRESS_MS);
+  });
+  li.addEventListener("pointerup", cancelLongPress);
+  li.addEventListener("pointercancel", cancelLongPress);
+  li.addEventListener("pointermove", cancelLongPress);
 }

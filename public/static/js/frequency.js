@@ -6,13 +6,17 @@ const GROUPS = [
   { key: "rare", label: "それ以下", maxAvgDays: Infinity },
 ];
 const UNKNOWN_GROUP = { key: "unknown", label: "頻度不明" };
+// Feeds the user paused (long-press/right-click on the feed name) sort into
+// their own group at the very bottom regardless of actual posting
+// frequency — see groupFeedsByFrequency below.
+const PAUSED_GROUP = { key: "paused", label: "取得しない" };
 const SAMPLE_SIZE = 20;
 
 // Most-frequent-first, so an initial scan (or one on a fresh device that
 // has no local fetch history yet but did pull synced frequencyGroup values
 // from other devices — see feed.frequencyGroup) fetches daily feeds before
 // rarely-updated ones.
-export const FREQUENCY_ORDER = [...GROUPS.map((g) => g.key), UNKNOWN_GROUP.key];
+export const FREQUENCY_ORDER = [...GROUPS.map((g) => g.key), UNKNOWN_GROUP.key, PAUSED_GROUP.key];
 
 // How long to wait before re-fetching a feed, based on its own posting
 // frequency. Kept client-side only (see nextCheckAt on the feed record) so
@@ -69,7 +73,7 @@ function feedSortTimestamp(feed, entries) {
 export function groupFeedsByFrequency(feedsWithEntries) {
   const groups = new Map();
   for (const { feed, entries } of feedsWithEntries) {
-    const group = computeFrequencyGroup(entries);
+    const group = feed.paused ? PAUSED_GROUP : computeFrequencyGroup(entries);
     if (!groups.has(group.key)) groups.set(group.key, { group, feeds: [] });
     groups.get(group.key).feeds.push({ feed, sortTimestamp: feedSortTimestamp(feed, entries) });
   }

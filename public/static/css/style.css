@@ -184,6 +184,12 @@ input[type="text"], input[type="url"], input[type="search"] {
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
 
 /* Feed list */
+.feed-list-total {
+  margin: 0 0 8px;
+  padding: 4px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
 .feed-group summary {
   cursor: pointer;
   font-size: 0.8rem;
@@ -200,9 +206,12 @@ input[type="text"], input[type="url"], input[type="search"] {
   padding: 6px 8px;
   border-radius: 6px;
   cursor: pointer;
+  user-select: none; /* avoid text selection flashing during long-press */
 }
 .feed-item:hover { background: var(--bg-alt); }
 .feed-item.selected { background: var(--accent); color: var(--accent-fg); }
+.feed-item.paused { opacity: 0.55; }
+.feed-item.copy-flash { background: var(--accent); color: var(--accent-fg); transition: background 0.15s ease, color 0.15s ease; }
 .feed-name {
   flex: 1;
   overflow: hidden;
