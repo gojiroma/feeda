@@ -7,6 +7,7 @@
 - `backend/` — Flask API（`/api/sync`, `/api/fetch-feed`）。Neon Postgresに暗号化ブロブを保存するだけで、フィード内容は保存・パースしません。
 - `webapp/` — 3ペイン（フィード一覧 / 記事一覧 / プレビュー）のRSSリーダー本体。素のHTML/CSS/JS、ビルド不要。
 - `userscript/` — Tampermonkeyスクリプト。閲覧中のページからRSS/Atomフィードを検出し、未登録のものだけ購読リストに自動追加します。
+- `api/index.py`, `vercel.json` — リポジトリ全体を1つのVercelプロジェクトとしてデプロイするためのエントリポイント（Webアプリの静的配信とFlask APIを同一ドメインで提供）。
 
 ## 1. Neonのセットアップ
 
@@ -15,35 +16,38 @@
 
 ## 2. バックエンド（Flask）をローカルで動かす
 
+リポジトリのルートで実行します（`requirements.txt`はルート直下にあります）。
+
 ```bash
-cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-# .env の NEON_DATABASE_URL を実際の接続文字列に、ALLOWED_ORIGIN をwebappのオリジンに書き換える
-python app.py
+cp backend/.env.example backend/.env
+# backend/.env の NEON_DATABASE_URL を実際の接続文字列に、ALLOWED_ORIGIN をwebappのオリジンに書き換える
+python backend/app.py
 ```
 
-`http://localhost:5000/healthz` が `{"status": "ok"}` を返せば起動成功です。
+`http://localhost:5000/api/healthz` が `{"status": "ok"}` を返せば起動成功です。
 
-## 3. Vercelへのデプロイ
+## 3. Vercelへのデプロイ（Webアプリ + APIを1プロジェクトで）
 
-このリポジトリでは `backend/` をVercelプロジェクトのRoot Directoryに指定してください。
+このリポジトリは**リポジトリのルートをそのままVercelプロジェクトのRoot Directoryとして**デプロイする構成になっています。WebアプリとFlask APIが同一ドメイン・同一デプロイで公開されます。
 
-- `backend/vercel.json` がすべてのリクエストを `backend/api/index.py`（Flask WSGIアプリ）にルーティングします。
-- Vercelのプロジェクト設定 → Environment Variables に `NEON_DATABASE_URL` と `ALLOWED_ORIGIN`（webappを配信するオリジン）を設定してください。
+- `vercel.json` の `outputDirectory: "webapp"` により `webapp/` 配下が静的サイトとして配信されます（`/`が`webapp/index.html`に対応）。
+- `vercel.json` の`rewrites`が `/api/*` へのリクエストを `api/index.py`（`backend/`のFlaskアプリをラップしたエントリポイント）にルーティングします。
+- `requirements.txt` はルート直下に置いてあります（Vercelのビルドがここから依存関係を検出します）。
+- Vercelのプロジェクト設定 → Environment Variables に `NEON_DATABASE_URL` を設定してください。`ALLOWED_ORIGIN` は同一ドメイン配信なら省略可（Webアプリからのfetchは同一オリジンになるためCORSは実質不要）。別ドメインからAPIを叩く場合のみそのオリジンを設定してください。
 - フィード取得プロキシ（`/api/fetch-feed`）は対象URLをクエリ文字列ではなく `X-Feed-Url` ヘッダーで受け取ります。これはVercelのリライトを経由すると、クエリ文字列中のスラッシュがエンコードされて元のURLと食い違うことがあるための対策です。
 
 ## 4. Webアプリを開く
 
-`webapp/`を任意の静的ホスティング（Vercel、GitHub Pages、あるいはローカルなら`python -m http.server`）で配信し、ブラウザで開きます。
+上記のVercelデプロイ後、そのURL（例: `https://your-app.vercel.app`）を開きます。ローカルでWebアプリだけを動かしたい場合は`webapp/`を`python -m http.server`等で配信してください。
 
 初回起動時にセットアップ画面が表示されます。
 
 - 新規に始める場合は「新しいシードを生成」を押し、表示されたシードを安全な場所に保管してください（**シードを失うと同期データには二度とアクセスできません**）。
 - 別端末で既に使っている場合は、そのシードを貼り付けてください。
-- 「APIベースURL」には手順3でデプロイしたFlask APIのURL（例: `https://your-app.vercel.app`）を入力します。
+- 「APIベースURL」は、手順3のように**WebアプリとAPIを同一ドメインでデプロイしている場合は空欄のまま**で構いません（同一オリジンへの相対パスでアクセスします）。ドメインが別の場合のみ、APIのURL（例: `https://your-app.vercel.app`）を入力してください。
 
 ## 5. Tampermonkeyスクリプトのインストール
 

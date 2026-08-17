@@ -1,0 +1,6 @@
+{
+  "outputDirectory": "webapp",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index" }
+  ]
+}

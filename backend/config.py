@@ -2,7 +2,10 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Resolve relative to this file so config loads correctly regardless of the
+# process's current working directory (e.g. running `python backend/app.py`
+# from the repo root instead of from inside backend/).
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 
 class Config:

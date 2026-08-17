@@ -41,7 +41,7 @@ def create_app():
     app.register_blueprint(sync_bp)
     app.register_blueprint(proxy_bp)
 
-    @app.get("/healthz")
+    @app.get("/api/healthz")
     def healthz():
         return {"status": "ok"}
 
