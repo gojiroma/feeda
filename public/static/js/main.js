@@ -717,4 +717,12 @@ async function boot() {
   }
 }
 
+// Registered unconditionally (not gated on a seed being set up yet) so the
+// app is installable as soon as it's visited at all.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((err) => console.error("service worker registration failed", err));
+  });
+}
+
 boot();
