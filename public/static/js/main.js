@@ -1,6 +1,6 @@
 import { generateSeed, isValidSeed } from "./crypto.js";
 import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
-import { getAllFeeds, getEntriesByFeed } from "./db.js";
+import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
@@ -104,6 +104,24 @@ async function loadAppData() {
   if (state.selectedFeedId && !state.feedsById.has(state.selectedFeedId)) {
     state.selectedFeedId = null;
   }
+  state.unreadTimelineSnapshot = null;
+}
+
+// Lighter-weight sibling of loadAppData for refreshAll's fetch loop: pulls
+// just the one feed that was just fetched back out of IndexedDB, instead of
+// re-reading every feed and every feed's entries on every iteration (which
+// would make a full re-scan of an N-feed subscription list do O(N^2) reads).
+async function refreshFeedInState(feedId) {
+  const [freshFeed, entries] = await Promise.all([getFeed(feedId), getEntriesByFeed(feedId)]);
+  if (!freshFeed) return;
+  state.feedsById.set(feedId, freshFeed);
+  state.feedTitleById.set(feedId, freshFeed.title || freshFeed.url);
+  state.entriesByFeed.set(feedId, entries);
+  // Newly-fetched unread entries need to be able to show up in the no-feed-
+  // selected cross-feed timeline right away too, so its frozen snapshot
+  // (see currentArticles) has to be invalidated here — safe to do mid-fetch
+  // since that freeze only ever exists to stop an entry the user is reading
+  // *now* from vanishing mid-read, not to hide brand-new arrivals.
   state.unreadTimelineSnapshot = null;
 }
 
@@ -526,6 +544,12 @@ async function refreshAll({ force = false } = {}) {
     showStatus(`フィードを取得中… (${i + 1}/${dueFeeds.length}) ${feed.title || feed.url}`, i / dueFeeds.length);
     try {
       await fetchFeed(feed);
+      // Reflect this one feed's new entries right away instead of waiting
+      // for every other due feed to finish fetching too — with a large
+      // subscription list, that wait could be a while, and there's no
+      // reason to sit on unread content we already know about.
+      await refreshFeedInState(feed.feedId);
+      render();
     } catch (err) {
       console.error(`fetch failed for ${feed.url}`, err);
     }
