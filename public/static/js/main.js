@@ -728,6 +728,12 @@ if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
       .register("./sw.js", { updateViaCache: "none" })
+      // Belt-and-suspenders on top of the browser's own automatic
+      // navigation-triggered update check: explicitly ask right away too,
+      // so an already-installed (pre-network-first) worker gets replaced
+      // as promptly as possible rather than waiting on that check's normal
+      // timing.
+      .then((reg) => reg.update().catch(() => {}))
       .catch((err) => console.error("service worker registration failed", err));
   });
 }
