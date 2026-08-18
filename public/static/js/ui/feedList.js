@@ -50,7 +50,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
         li.appendChild(dot);
       }
 
-      attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl });
+      attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }, selectedFeedId);
       ul.appendChild(li);
     }
 
@@ -59,7 +59,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
   }
 }
 
-function attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }) {
+function attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }, selectedFeedId) {
   let longPressTimer = null;
   let longPressTriggered = false;
   const cancelLongPress = () => clearTimeout(longPressTimer);
@@ -69,6 +69,16 @@ function attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }
       longPressTriggered = false;
       return;
     }
+    onSelect(feed.feedId);
+  });
+
+  // Hovering navigates too (touch has no hover, so this is mouse/stylus
+  // only — no need to gate on pointerType). Skipped when this feed is
+  // already selected: onSelect triggers a full re-render, which tears
+  // down and rebuilds this <li>; without the guard, the pointer landing
+  // on its own replacement would re-fire mouseenter and loop.
+  li.addEventListener("mouseenter", () => {
+    if (feed.feedId === selectedFeedId) return;
     onSelect(feed.feedId);
   });
 

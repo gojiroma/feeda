@@ -15,8 +15,25 @@ const SAMPLE_SIZE = 20;
 // Most-frequent-first, so an initial scan (or one on a fresh device that
 // has no local fetch history yet but did pull synced frequencyGroup values
 // from other devices — see feed.frequencyGroup) fetches daily feeds before
-// rarely-updated ones.
+// rarely-updated ones. Also the basis for MOBILE_FREQUENCY_ORDER (main.js),
+// which reverses it. Deliberately NOT used for the feed-list sidebar's
+// display order — see FEED_LIST_ORDER below.
 export const FREQUENCY_ORDER = [...GROUPS.map((g) => g.key), UNKNOWN_GROUP.key, PAUSED_GROUP.key];
+
+// Display order for the desktop feed-list sidebar (see groupFeedsByFrequency
+// below). Deliberately different from FREQUENCY_ORDER: with "daily" pinned
+// at the very top, it's too easy to only ever check the same handful of
+// very active feeds and let everything else go unread. Bumping "daily" down
+// to just above the paused group — while every other group keeps the same
+// relative order — puts the easy-to-miss, less-frequent feeds first without
+// touching fetch priority, which still fetches daily feeds first (see
+// refreshAll in main.js, which sorts by FREQUENCY_ORDER, not this).
+export const FEED_LIST_ORDER = [
+  ...GROUPS.filter((g) => g.key !== "daily").map((g) => g.key),
+  UNKNOWN_GROUP.key,
+  "daily",
+  PAUSED_GROUP.key,
+];
 
 // How long to wait before re-fetching a feed, based on its own posting
 // frequency. Kept client-side only (see nextCheckAt on the feed record) so
@@ -80,7 +97,7 @@ export function groupFeedsByFrequency(feedsWithEntries) {
   for (const { feeds } of groups.values()) {
     feeds.sort((a, b) => b.sortTimestamp - a.sortTimestamp);
   }
-  return FREQUENCY_ORDER.filter((key) => groups.has(key)).map((key) => {
+  return FEED_LIST_ORDER.filter((key) => groups.has(key)).map((key) => {
     const { group, feeds } = groups.get(key);
     return { group, feeds: feeds.map((f) => f.feed) };
   });

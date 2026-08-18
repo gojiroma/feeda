@@ -37,21 +37,6 @@
     </div>
   </div>
 
-  <!--
-    Classic (non-module) script: unlike the deferred `main.js` module below,
-    this runs synchronously the instant the parser reaches it — before the
-    browser gets a chance to paint the setup screen — so which screen starts
-    visible is decided before first paint instead of flashing setup-screen
-    and then swapping to the app a moment later.
-  -->
-  <script>
-    if (localStorage.getItem("feeda:seed")) {
-      document.getElementById("app").classList.remove("hidden");
-    } else {
-      document.getElementById("setup-screen").classList.remove("hidden");
-    }
-  </script>
-
   <div id="app" class="app hidden">
     <header class="topbar">
       <button type="button" id="brand-btn" class="brand" title="クリックで全画面表示を切り替え">feeda</button>
@@ -104,6 +89,22 @@
       </div>
     </div>
   </div>
+
+  <!--
+    Classic (non-module) script: unlike the deferred `main.js` module below,
+    this runs synchronously the instant the parser reaches it — before the
+    browser gets a chance to paint the setup screen — so which screen starts
+    visible is decided before first paint instead of flashing setup-screen
+    and then swapping to the app a moment later. Must come after both
+    #setup-screen and #app so getElementById can actually find them.
+  -->
+  <script>
+    if (localStorage.getItem("feeda:seed")) {
+      document.getElementById("app").classList.remove("hidden");
+    } else {
+      document.getElementById("setup-screen").classList.remove("hidden");
+    }
+  </script>
 
   <script type="module" src="./static/js/main.js"></script>
 </body>
