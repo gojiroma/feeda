@@ -1,7 +1,8 @@
-// Bump this whenever any cached file below changes — a new value changes
-// this script's bytes, which is what makes the browser notice an update,
-// install the new worker, and (via activate below) drop the old cache.
-const CACHE_NAME = "feeda-shell-v1";
+// Only used as a fallback when offline (see the fetch handler below) — the
+// app shell is otherwise always fetched fresh from the network, so unlike
+// a cache-first design this name doesn't need to be bumped by hand on every
+// deploy just to make new code reach already-installed users.
+const CACHE_NAME = "feeda-shell-v2";
 
 const APP_SHELL = [
   "./",
@@ -49,10 +50,17 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Cache-first for the static app shell only. Anything under /api/ (sync,
-// fetch-feed) is per-account and must always hit the network — never
-// intercepted here — and cross-origin requests (e.g. a separately-hosted
-// API base) are left alone too.
+// Network-first for the static app shell. A cache-first strategy here meant
+// every deploy was invisible to anyone with the PWA already installed
+// unless this file's own bytes happened to change too (the only thing that
+// makes a browser notice a new service worker exists) — in effect, the app
+// kept "reverting" to whatever version was cached on first install. Now the
+// network is always tried first when online, so fixes and feature changes
+// reach installed users immediately; the cache is only a fallback for when
+// there's no network at all. Anything under /api/ (sync, fetch-feed) is
+// per-account and must always hit the network — never intercepted here —
+// and cross-origin requests (e.g. a separately-hosted API base) are left
+// alone too.
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (event.request.method !== "GET" || url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
@@ -60,17 +68,19 @@ self.addEventListener("fetch", (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return res;
-        })
-        .catch(() => caches.match("./index.html"));
-    })
+    // no-store bypasses the browser's own HTTP cache layer too, not just
+    // this file's Cache Storage bucket — without it, a fetch() here can
+    // still be quietly served from the browser's disk cache instead of
+    // actually hitting the network, defeating the whole point of trying
+    // the network first.
+    fetch(event.request, { cache: "no-store" })
+      .then((res) => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
   );
 });

@@ -718,10 +718,17 @@ async function boot() {
 }
 
 // Registered unconditionally (not gated on a seed being set up yet) so the
-// app is installable as soon as it's visited at all.
+// app is installable as soon as it's visited at all. updateViaCache:"none"
+// makes the browser always fetch sw.js itself fresh (bypassing HTTP cache)
+// when checking for updates, instead of potentially reusing a stale copy
+// for up to 24h — sw.js's own network-first fetch handler already keeps
+// everything *it* serves current, but that only helps once the worker
+// itself has actually been updated.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch((err) => console.error("service worker registration failed", err));
+    navigator.serviceWorker
+      .register("./sw.js", { updateViaCache: "none" })
+      .catch((err) => console.error("service worker registration failed", err));
   });
 }
 
