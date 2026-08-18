@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="./static/css/style.css">
 </head>
 <body>
-  <div id="setup-screen" class="setup-screen">
+  <div id="setup-screen" class="setup-screen hidden">
     <div class="setup-card">
       <h1>feeda セットアップ</h1>
       <p>
@@ -31,10 +31,26 @@
     </div>
   </div>
 
+  <!--
+    Classic (non-module) script: unlike the deferred `main.js` module below,
+    this runs synchronously the instant the parser reaches it — before the
+    browser gets a chance to paint the setup screen — so which screen starts
+    visible is decided before first paint instead of flashing setup-screen
+    and then swapping to the app a moment later.
+  -->
+  <script>
+    if (localStorage.getItem("feeda:seed")) {
+      document.getElementById("app").classList.remove("hidden");
+    } else {
+      document.getElementById("setup-screen").classList.remove("hidden");
+    }
+  </script>
+
   <div id="app" class="app hidden">
     <header class="topbar">
       <button type="button" id="brand-btn" class="brand" title="クリックで全画面表示を切り替え">feeda</button>
       <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
+      <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
     </header>
     <button type="button" id="next-fetch-bar" class="next-fetch-bar hidden">
       次回取得: <span id="next-fetch-time">--:--</span>（タップで今すぐ取得）
@@ -58,6 +74,28 @@
     <div id="status-bar" class="status-bar hidden">
       <div id="status-bar-fill" class="status-bar-fill"></div>
       <span id="status-bar-text" class="status-bar-text"></span>
+    </div>
+  </div>
+
+  <div id="seed-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>シード</h1>
+      <p>
+        購読データの復号鍵はこのシードから作られます。安全な場所に保管してください。
+        別端末やTampermonkeyスクリプトに同じシードを設定すると、同じ同期データにアクセスできます。
+      </p>
+      <label class="setup-label">
+        シード
+        <input id="seed-display" type="text" readonly>
+      </label>
+      <label class="setup-label">
+        APIベースURL
+        <input id="seed-modal-api-base" type="text" readonly>
+      </label>
+      <div class="setup-row">
+        <button id="seed-copy-btn" type="button">コピー</button>
+        <button id="seed-modal-close-btn" type="button" class="primary">閉じる</button>
+      </div>
     </div>
   </div>
 

@@ -1,5 +1,5 @@
 import { generateSeed, isValidSeed } from "./crypto.js";
-import { loadStoredSeed, loadStoredApiBase, initSession } from "./session.js";
+import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
 import { getAllFeeds, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { fetchFeed } from "./feedFetch.js";
@@ -11,6 +11,7 @@ import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
+import { setupSeedModal } from "./ui/seedModal.js";
 import { updateFavicon } from "./favicon.js";
 
 const setupScreen = document.getElementById("setup-screen");
@@ -647,6 +648,10 @@ function wireApp() {
   setupPaneResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
+  setupSeedModal(document.getElementById("seed-btn"), document.getElementById("seed-modal"), {
+    getSeed: () => getSession().seed,
+    getApiBase: () => getSession().apiBase,
+  });
   // Re-render across the mobile/desktop breakpoint (window resize, or a
   // foldable/rotation crossing 600px) so the right layout's markup is kept
   // up to date even if it wasn't the active one a moment ago.
