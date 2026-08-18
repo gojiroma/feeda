@@ -117,6 +117,11 @@ function currentFeedGroups() {
     }
     feeds = feeds.filter((f) => matchingFeedIds.has(f.feedId));
   }
+  // Sidebar only surfaces feeds that still need attention: unread content,
+  // or paused ones (since pausing is a deliberate action the user should be
+  // able to review/undo). Everything fully read and still fetching normally
+  // just adds noise to a list that's meant to say "here's what's new".
+  feeds = feeds.filter((f) => f.paused || hasUnread(f));
   const feedsWithEntries = feeds.map((feed) => ({
     feed: { ...feed, hasUnread: hasUnread(feed) },
     entries: state.entriesByFeed.get(feed.feedId) || [],
