@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.1.5
+// @version      1.1.6
 // @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Does nothing for feeds you already subscribe to. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
@@ -167,12 +167,22 @@
 
   // --- feed discovery -----------------------------------------------------
 
+  // Returns {url, title} pairs. `document.title` is deliberately NOT used
+  // as a title guess here: a page can declare several feeds at once (posts
+  // feed, comments feed, per-category feeds, ...), and the page itself may
+  // be a single article's permalink rather than the site's front page — in
+  // either case the current page's title describes neither feed correctly.
+  // The <link>'s own `title` attribute (when a site bothers to set one) is
+  // the closest a page can honestly get to naming the feed it's pointing
+  // at without fetching it. Leaving it blank when absent is safer than
+  // guessing wrong: the UI falls back to the feed's URL until the first
+  // real fetch fills in the feed's own <title>.
   function discoverFeedLinks() {
     const feedTypeRe = /(rss|atom)\+xml/i;
     return Array.from(document.querySelectorAll('link[rel~="alternate"]'))
       .filter((el) => feedTypeRe.test(el.getAttribute("type") || ""))
-      .map((el) => el.href)
-      .filter(Boolean);
+      .map((el) => ({ url: el.href, title: el.getAttribute("title") || "" }))
+      .filter((feed) => Boolean(feed.url));
   }
 
   // --- OPML import ---------------------------------------------------------
@@ -323,10 +333,10 @@
     return new Set(ids);
   }
 
-  async function registerFeed(accountId, encKey, apiBase, feedId, feedUrl) {
+  async function registerFeed(accountId, encKey, apiBase, feedId, feedUrl, feedTitle) {
     const payload = {
       url: feedUrl,
-      title: document.title || "",
+      title: feedTitle || "",
       addedAt: new Date().toISOString(),
       readUntil: null,
       contentHash: null,
@@ -354,17 +364,17 @@
     const apiBase = GM_getValue(API_BASE_KEY, "");
     if (!seed || !apiBase) return; // not configured yet
 
-    const feedUrls = discoverFeedLinks();
-    if (feedUrls.length === 0) return;
+    const discoveredFeeds = discoverFeedLinks();
+    if (discoveredFeeds.length === 0) return;
 
     const [accountId, encKey] = await Promise.all([deriveAccountId(seed), deriveEncKey(seed)]);
     const knownFeedIds = await getKnownFeedIds(accountId, apiBase);
 
-    for (const feedUrl of feedUrls) {
+    for (const { url: feedUrl, title: feedTitle } of discoveredFeeds) {
       const feedId = await deriveFeedId(seed, feedUrl);
       if (knownFeedIds.has(feedId)) continue;
 
-      const ok = await registerFeed(accountId, encKey, apiBase, feedId, feedUrl);
+      const ok = await registerFeed(accountId, encKey, apiBase, feedId, feedUrl, feedTitle);
       if (ok) {
         knownFeedIds.add(feedId);
         GM_setValue(KNOWN_FEED_IDS_KEY, Array.from(knownFeedIds));

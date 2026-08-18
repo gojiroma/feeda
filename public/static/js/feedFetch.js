@@ -126,7 +126,14 @@ export async function fetchFeed(feed) {
 
   await putFeed({
     ...feed,
-    title: feed.title || title,
+    // The feed's own <title> is the source of truth for what to call it —
+    // prefer it over whatever guess was stored at registration time (e.g.
+    // the userscript's best-effort <link title> guess, or an OPML entry's
+    // title). This also self-heals feeds that were registered with a wrong
+    // guess: the next time each one is fetched, its real title takes over.
+    // Only fall back to the stored guess for the rare feed that omits
+    // <title> entirely.
+    title: title || feed.title,
     lastFetchedAt: new Date().toISOString(),
     etag: res.headers.get("ETag") || null,
     lastModified: res.headers.get("Last-Modified") || null,
