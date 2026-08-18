@@ -216,7 +216,7 @@ function renderDesktop() {
 // Right-click or long-press a feed name to toggle whether it gets fetched
 // at all — paused feeds sort into their own "取得しない" group (see
 // frequency.js) and are skipped entirely by refreshAll, even when forced.
-// Marks the feed userManagedPause so autoPauseDuplicateHosts (below) never
+// Marks the feed userManagedPause so autoPauseDuplicateFeeds (below) never
 // overrides a deliberate choice the user made either way.
 async function togglePauseFeed(feedId) {
   const feed = state.feedsById.get(feedId);
@@ -228,35 +228,81 @@ async function togglePauseFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// One-time cleanup run at startup: feeds that share the same location.host
-// are very likely accidental duplicates (e.g. the Tampermonkey script
-// picking up more than one <link rel="alternate"> across different pages of
-// the same site) rather than deliberately-subscribed distinct feeds, so the
-// newer ones are auto-paused, keeping just the earliest-added one active.
-// Never touches a feed the user has manually paused/unpaused before
-// (userManagedPause) — that's an explicit choice to keep it, even alongside
-// others on the same host — but a userManagedPause feed still counts as
-// "the keeper" for its host, so other untouched duplicates still get paused.
-async function autoPauseDuplicateHosts() {
+// Duplicate-feed cleanup: rather than grouping by URL/host (which falsely
+// lumps together completely unrelated feeds on platform sites where many
+// different users/channels share one domain, e.g. hatena/note/YouTube),
+// compare feeds by how much their *article lists* actually overlap — the
+// real-world case this catches is a site that publishes the same content as
+// both an RSS2 feed and an Atom feed at different URLs. Two feeds count as
+// duplicates when a large fraction of one's article links also appear in
+// the other's. Run after every refreshAll (not just at boot) since a
+// brand-new feed has no cached entries to compare until it's actually been
+// fetched at least once.
+const DUPLICATE_OVERLAP_THRESHOLD = 0.8;
+const DUPLICATE_MIN_ENTRIES = 3;
+
+function entryLinkSet(feedId) {
+  const entries = state.entriesByFeed.get(feedId) || [];
+  return new Set(entries.map((e) => e.link).filter(Boolean));
+}
+
+function overlapRatio(setA, setB) {
+  const [smaller, larger] = setA.size <= setB.size ? [setA, setB] : [setB, setA];
+  if (smaller.size === 0) return 0;
+  let shared = 0;
+  for (const link of smaller) {
+    if (larger.has(link)) shared++;
+  }
+  return shared / smaller.size;
+}
+
+async function autoPauseDuplicateFeeds() {
   const activeFeeds = [...state.feedsById.values()].filter((f) => !f.paused);
-  const byHost = new Map();
-  for (const feed of activeFeeds) {
-    let host;
-    try {
-      host = new URL(feed.url).host;
-    } catch {
-      continue; // malformed URL — nothing sensible to dedupe on
+  const linkSets = new Map(activeFeeds.map((f) => [f.feedId, entryLinkSet(f.feedId)]));
+
+  // Union-find over "enough article overlap" pairs, so A/B/C all matching
+  // pairwise end up in one cluster even if not every pair was compared.
+  const parent = new Map(activeFeeds.map((f) => [f.feedId, f.feedId]));
+  const find = (id) => {
+    while (parent.get(id) !== id) id = parent.get(id);
+    return id;
+  };
+  const union = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  for (let i = 0; i < activeFeeds.length; i++) {
+    const setA = linkSets.get(activeFeeds[i].feedId);
+    if (setA.size < DUPLICATE_MIN_ENTRIES) continue;
+    for (let j = i + 1; j < activeFeeds.length; j++) {
+      const setB = linkSets.get(activeFeeds[j].feedId);
+      if (setB.size < DUPLICATE_MIN_ENTRIES) continue;
+      if (overlapRatio(setA, setB) >= DUPLICATE_OVERLAP_THRESHOLD) {
+        union(activeFeeds[i].feedId, activeFeeds[j].feedId);
+      }
     }
-    if (!byHost.has(host)) byHost.set(host, []);
-    byHost.get(host).push(feed);
   }
 
+  const clusters = new Map();
+  for (const feed of activeFeeds) {
+    const root = find(feed.feedId);
+    if (!clusters.has(root)) clusters.set(root, []);
+    clusters.get(root).push(feed);
+  }
+
+  // Never touch a feed the user has manually paused/unpaused before
+  // (userManagedPause) — that's an explicit choice to keep it, even
+  // alongside others with near-identical content. It still counts as "the
+  // keeper" for its cluster, so other untouched duplicates get paused
+  // around it.
   const toPause = [];
-  for (const feeds of byHost.values()) {
+  for (const feeds of clusters.values()) {
     if (feeds.length < 2) continue;
     const userManagedKeeper = feeds.find((f) => f.userManagedPause);
     const candidates = feeds.filter((f) => !f.userManagedPause);
-    if (candidates.length === 0) continue; // every one already user-decided
+    if (candidates.length === 0) continue;
 
     const keeper = userManagedKeeper || candidates.slice().sort((a, b) => (a.addedAt || "").localeCompare(b.addedAt || ""))[0];
     for (const candidate of candidates) {
@@ -448,6 +494,9 @@ async function refreshAll({ force = false } = {}) {
   }
   hideStatus();
   await loadAppData();
+  // Runs after fetching (not before) since a newly-registered duplicate has
+  // no cached entries to compare until it's actually been fetched once.
+  await autoPauseDuplicateFeeds();
   render();
 }
 
@@ -619,7 +668,6 @@ async function startApp() {
   wireApp();
   setFocusedPane("article");
   await loadAppData();
-  await autoPauseDuplicateHosts();
   render();
   refreshAll();
 }
