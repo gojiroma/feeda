@@ -10,6 +10,11 @@ const UNKNOWN_GROUP = { key: "unknown", label: "頻度不明" };
 // their own group at the very bottom regardless of actual posting
 // frequency — see groupFeedsByFrequency below.
 const PAUSED_GROUP = { key: "paused", label: "取得しない" };
+// Feeds that are still fetching normally but have nothing unread right now
+// — kept out of the frequency groups (which are meant to say "here's what's
+// new") and parked in their own bucket just below the paused feeds instead
+// of being hidden entirely.
+const FETCHING_GROUP = { key: "fetching", label: "取得する" };
 const SAMPLE_SIZE = 20;
 
 // Most-frequent-first, so an initial scan (or one on a fresh device that
@@ -33,6 +38,7 @@ export const FEED_LIST_ORDER = [
   UNKNOWN_GROUP.key,
   "daily",
   PAUSED_GROUP.key,
+  FETCHING_GROUP.key,
 ];
 
 // How long to wait before re-fetching a feed, based on its own posting
@@ -90,7 +96,7 @@ function feedSortTimestamp(feed, entries) {
 export function groupFeedsByFrequency(feedsWithEntries) {
   const groups = new Map();
   for (const { feed, entries } of feedsWithEntries) {
-    const group = feed.paused ? PAUSED_GROUP : computeFrequencyGroup(entries);
+    const group = feed.paused ? PAUSED_GROUP : feed.hasUnread ? computeFrequencyGroup(entries) : FETCHING_GROUP;
     if (!groups.has(group.key)) groups.set(group.key, { group, feeds: [] });
     groups.get(group.key).feeds.push({ feed, sortTimestamp: feedSortTimestamp(feed, entries) });
   }

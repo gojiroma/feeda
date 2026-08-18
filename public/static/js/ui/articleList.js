@@ -1,6 +1,6 @@
 import { highlightText } from "../highlight.js";
 
-export function renderArticleList(container, { entries, feedTitleById, selectedEntryId, query, isUnread, onSelect, showFeedName, emptyHint }) {
+export function renderArticleList(container, { entries, feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, showFeedName, emptyHint }) {
   container.innerHTML = "";
 
   if (entries.length === 0) {
@@ -21,14 +21,15 @@ export function renderArticleList(container, { entries, feedTitleById, selectedE
       (entry.id === selectedEntryId ? " selected" : "") +
       (isUnread(entry) ? " unread" : "");
     li.addEventListener("click", () => onSelect(entry));
-    // Hovering navigates too (touch has no hover, so this is mouse/stylus
-    // only). Skipped when this entry is already selected: onSelect triggers
-    // a full re-render, which tears down and rebuilds this <li>; without
-    // the guard, the pointer landing on its own replacement would re-fire
+    // Hovering previews too (touch has no hover, so this is mouse/stylus
+    // only) but must NOT mark the entry read — see onHover in main.js.
+    // Skipped when this entry is already selected: onHover triggers a full
+    // re-render, which tears down and rebuilds this <li>; without the
+    // guard, the pointer landing on its own replacement would re-fire
     // mouseenter and loop.
     li.addEventListener("mouseenter", () => {
       if (entry.id === selectedEntryId) return;
-      onSelect(entry);
+      onHover(entry);
     });
 
     const title = document.createElement("div");

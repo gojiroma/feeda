@@ -2,7 +2,7 @@ import { highlightText } from "../highlight.js";
 
 const LONG_PRESS_MS = 550;
 
-export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, onSelect, onTogglePause, onCopyUrl }) {
+export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onCopyUrl }) {
   container.innerHTML = "";
 
   if (typeof totalFeedCount === "number") {
@@ -17,7 +17,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
     hint.className = "empty-hint";
     hint.textContent =
       totalFeedCount > 0
-        ? "未読または購読停止中のフィードはありません。"
+        ? "検索条件に一致するフィードがありません。"
         : "まだフィードが登録されていません。Tampermonkeyスクリプトで自動登録してください。";
     container.appendChild(hint);
     return;
@@ -25,8 +25,16 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
 
   for (const { group, feeds } of groups) {
     const details = document.createElement("details");
-    details.open = true;
+    details.open = !collapsedGroups.has(group.key);
     details.className = "feed-group";
+    // The list is fully rebuilt on every render (see container.innerHTML
+    // above), so this <details> is a brand-new element each time — the
+    // Set is what actually remembers the user's manual expand/collapse
+    // across renders, not the DOM node itself.
+    details.addEventListener("toggle", () => {
+      if (details.open) collapsedGroups.delete(group.key);
+      else collapsedGroups.add(group.key);
+    });
 
     const summary = document.createElement("summary");
     summary.textContent = `${group.label} (${feeds.length})`;
@@ -53,7 +61,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
         li.appendChild(dot);
       }
 
-      attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }, selectedFeedId);
+      attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onCopyUrl }, selectedFeedId);
       ul.appendChild(li);
     }
 
@@ -62,7 +70,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
   }
 }
 
-function attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }, selectedFeedId) {
+function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onCopyUrl }, selectedFeedId) {
   let longPressTimer = null;
   let longPressTriggered = false;
   const cancelLongPress = () => clearTimeout(longPressTimer);
@@ -75,14 +83,15 @@ function attachFeedInteractions(li, feed, { onSelect, onTogglePause, onCopyUrl }
     onSelect(feed.feedId);
   });
 
-  // Hovering navigates too (touch has no hover, so this is mouse/stylus
-  // only — no need to gate on pointerType). Skipped when this feed is
-  // already selected: onSelect triggers a full re-render, which tears
+  // Hovering previews too (touch has no hover, so this is mouse/stylus
+  // only — no need to gate on pointerType) but must NOT mark the feed's
+  // newest article read — see onHover in main.js. Skipped when this feed
+  // is already selected: onHover triggers a full re-render, which tears
   // down and rebuilds this <li>; without the guard, the pointer landing
   // on its own replacement would re-fire mouseenter and loop.
   li.addEventListener("mouseenter", () => {
     if (feed.feedId === selectedFeedId) return;
-    onSelect(feed.feedId);
+    onHover(feed.feedId);
   });
 
   li.addEventListener("contextmenu", (ev) => {

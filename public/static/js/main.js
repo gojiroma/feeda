@@ -117,16 +117,27 @@ function currentFeedGroups() {
     }
     feeds = feeds.filter((f) => matchingFeedIds.has(f.feedId));
   }
-  // Sidebar only surfaces feeds that still need attention: unread content,
-  // or paused ones (since pausing is a deliberate action the user should be
-  // able to review/undo). Everything fully read and still fetching normally
-  // just adds noise to a list that's meant to say "here's what's new".
-  feeds = feeds.filter((f) => f.paused || hasUnread(f));
   const feedsWithEntries = feeds.map((feed) => ({
     feed: { ...feed, hasUnread: hasUnread(feed) },
     entries: state.entriesByFeed.get(feed.feedId) || [],
   }));
   return groupFeedsByFrequency(feedsWithEntries);
+}
+
+// Which sidebar groups render collapsed. Computed once, lazily, the first
+// time the sidebar renders after load: groups with no unread feed start
+// collapsed, groups with at least one unread feed start open. From then on
+// this only changes via the user's own expand/collapse clicks (see
+// feedList.js's toggle listener, which mutates this Set directly) — later
+// re-renders (e.g. triggered by hovering an article) must not snap a group
+// the user opened back shut, so this is never recomputed after its first use.
+let collapsedGroups = null;
+
+function collapsedGroupsFor(groups) {
+  if (collapsedGroups === null) {
+    collapsedGroups = new Set(groups.filter((g) => !g.feeds.some((f) => f.hasUnread)).map((g) => g.group.key));
+  }
+  return collapsedGroups;
 }
 
 function flatFeedList() {
@@ -193,13 +204,16 @@ function render() {
 
 function renderDesktop() {
   const query = state.searchQuery;
+  const feedGroups = currentFeedGroups();
 
   renderFeedList(feedListEl, {
-    groups: currentFeedGroups(),
+    groups: feedGroups,
     totalFeedCount: state.feedsById.size,
     selectedFeedId: state.selectedFeedId,
     query,
+    collapsedGroups: collapsedGroupsFor(feedGroups),
     onSelect: selectFeed,
+    onHover: previewFeed,
     onTogglePause: togglePauseFeed,
     onCopyUrl: copyFeedUrl,
   });
@@ -212,6 +226,7 @@ function renderDesktop() {
     query,
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onSelect: openEntry,
+    onHover: previewEntry,
     showFeedName,
     emptyHint,
   });
@@ -234,16 +249,18 @@ async function togglePauseFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// Duplicate-feed cleanup: rather than grouping by URL/host (which falsely
-// lumps together completely unrelated feeds on platform sites where many
-// different users/channels share one domain, e.g. hatena/note/YouTube),
-// compare feeds by how much their *article lists* actually overlap — the
-// real-world case this catches is a site that publishes the same content as
-// both an RSS2 feed and an Atom feed at different URLs. Two feeds count as
-// duplicates when a large fraction of one's article links also appear in
-// the other's. Run after every refreshAll (not just at boot) since a
-// brand-new feed has no cached entries to compare until it's actually been
-// fetched at least once.
+// Duplicate-feed cleanup — DISABLED FOR NOW, not called from refreshAll
+// (see restorePreviouslyAutoPausedFeeds above). It was pausing feeds the
+// user didn't consider duplicates too often. Left in place in case the
+// overlap heuristic gets revisited later.
+//
+// Rather than grouping by URL/host (which falsely lumps together completely
+// unrelated feeds on platform sites where many different users/channels
+// share one domain, e.g. hatena/note/YouTube), it compared feeds by how
+// much their *article lists* actually overlap — the real-world case this
+// caught was a site that publishes the same content as both an RSS2 feed
+// and an Atom feed at different URLs. Two feeds counted as duplicates when
+// a large fraction of one's article links also appeared in the other's.
 const DUPLICATE_OVERLAP_THRESHOLD = 0.8;
 const DUPLICATE_MIN_ENTRIES = 3;
 
@@ -444,19 +461,34 @@ async function advanceProgress(entry) {
   }
 }
 
-async function selectFeed(feedId) {
+// Hover-only preview: just moves the selection/preview pane, without
+// advancing anything's read state. Used for mouseenter, where the pointer
+// merely passing over an item on its way elsewhere must never mark it (or
+// a feed's newest article) read — that was the "だるま落とし" bug, where
+// sweeping the cursor down the list read everything it crossed.
+function previewFeed(feedId) {
   state.selectedFeedId = feedId;
-  const topEntry = sortedEntriesForFeed(feedId)[0] || null;
-  state.selectedEntry = topEntry;
+  state.selectedEntry = sortedEntriesForFeed(feedId)[0] || null;
   setFocusedPane("feed");
   render();
+}
+
+function previewEntry(entry) {
+  state.selectedEntry = entry;
+  setFocusedPane("article");
+  render();
+}
+
+// Deliberate action (click, keyboard nav) — previews AND advances read
+// state right away.
+async function selectFeed(feedId) {
+  previewFeed(feedId);
+  const topEntry = state.selectedEntry;
   if (topEntry) await advanceProgress(topEntry);
 }
 
 async function openEntry(entry) {
-  state.selectedEntry = entry;
-  setFocusedPane("article");
-  render();
+  previewEntry(entry);
   await advanceProgress(entry);
 }
 
@@ -500,10 +532,24 @@ async function refreshAll({ force = false } = {}) {
   }
   hideStatus();
   await loadAppData();
-  // Runs after fetching (not before) since a newly-registered duplicate has
-  // no cached entries to compare until it's actually been fetched once.
-  await autoPauseDuplicateFeeds();
+  // autoPauseDuplicateFeeds is disabled for now — its overlap heuristic was
+  // pausing feeds the user didn't consider duplicates. Restore anything it
+  // paused in the past instead (feeds paused without userManagedPause could
+  // only have come from it, never from the user directly toggling pause).
+  await restorePreviouslyAutoPausedFeeds();
   render();
+}
+
+async function restorePreviouslyAutoPausedFeeds() {
+  const autoPaused = [...state.feedsById.values()].filter((f) => f.paused && !f.userManagedPause);
+  for (const feed of autoPaused) {
+    const updated = { ...feed, paused: false };
+    await markFeedDirty(updated);
+    state.feedsById.set(feed.feedId, updated);
+  }
+  if (autoPaused.length > 0) {
+    syncNow().catch((err) => console.error("sync failed", err));
+  }
 }
 
 function showStatus(text, fraction) {
