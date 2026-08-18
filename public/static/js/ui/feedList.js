@@ -15,7 +15,10 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
   if (groups.length === 0) {
     const hint = document.createElement("p");
     hint.className = "empty-hint";
-    hint.textContent = "まだフィードが登録されていません。Tampermonkeyスクリプトで自動登録してください。";
+    hint.textContent =
+      totalFeedCount > 0
+        ? "未読または購読停止中のフィードはありません。"
+        : "まだフィードが登録されていません。Tampermonkeyスクリプトで自動登録してください。";
     container.appendChild(hint);
     return;
   }
