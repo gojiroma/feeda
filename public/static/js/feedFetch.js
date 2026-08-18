@@ -109,7 +109,12 @@ export async function fetchFeed(feed) {
     return [];
   }
   if (!res.ok) {
-    throw new Error(`fetch-feed failed: ${res.status}`);
+    // Read whatever body came back (our backend's JSON {error: "..."} when
+    // it failed cleanly, or the platform's own plain-text/HTML page when
+    // the function was killed before our code could respond) so the reason
+    // actually shows up in the console instead of just a bare status code.
+    const detail = await res.text().catch(() => "");
+    throw new Error(`fetch-feed failed: ${res.status}${detail ? ` - ${detail.slice(0, 300)}` : ""}`);
   }
 
   const xmlText = await res.text();

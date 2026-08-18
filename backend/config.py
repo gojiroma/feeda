@@ -19,7 +19,11 @@ class Config:
         or ""
     )
     ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "http://localhost:8000")
-    PROXY_TIMEOUT_SECONDS = float(os.environ.get("PROXY_TIMEOUT_SECONDS", "10"))
+    # Kept comfortably under common serverless platform function-execution
+    # limits (e.g. Vercel's default is 10s) so a slow origin gets our own
+    # clean JSON 502 instead of the platform killing the process first and
+    # returning a bare, bodyless 502 of its own.
+    PROXY_TIMEOUT_SECONDS = float(os.environ.get("PROXY_TIMEOUT_SECONDS", "8"))
     PROXY_MAX_BYTES = int(os.environ.get("PROXY_MAX_BYTES", str(5 * 1024 * 1024)))
     RATE_LIMIT_SYNC = os.environ.get("RATE_LIMIT_SYNC", "60 per minute")
     RATE_LIMIT_PROXY = os.environ.get("RATE_LIMIT_PROXY", "120 per minute")

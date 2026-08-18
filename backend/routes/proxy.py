@@ -1,4 +1,5 @@
 import logging
+import time
 from urllib.parse import urljoin
 
 from flask import Blueprint, Response, jsonify, request
@@ -31,9 +32,19 @@ def fetch_feed():
         origin_headers["If-Modified-Since"] = if_modified_since
 
     url = target_url
+    # One deadline shared across every redirect hop, instead of handing each
+    # hop its own fresh PROXY_TIMEOUT_SECONDS budget: a slow-but-technically-
+    # responding origin could otherwise burn up to MAX_REDIRECTS times that
+    # before we ourselves gave up, well past the serverless platform's own
+    # function execution limit — which kills the process with a bare,
+    # bodyless 502 instead of the informative JSON error below.
+    deadline = time.monotonic() + Config.PROXY_TIMEOUT_SECONDS
     try:
         for _ in range(MAX_REDIRECTS):
-            resp = safe_get(url, headers=origin_headers, timeout=Config.PROXY_TIMEOUT_SECONDS, stream=True)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return jsonify(error="feed fetch timed out"), 502
+            resp = safe_get(url, headers=origin_headers, timeout=remaining, stream=True)
             if resp.status_code in REDIRECT_STATUSES and resp.headers.get("Location"):
                 next_url = urljoin(url, resp.headers["Location"])
                 resp.close()
