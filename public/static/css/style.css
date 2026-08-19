@@ -503,10 +503,26 @@ input[type="text"], input[type="url"], input[type="search"] {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.reflect-comment-toggle {
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 2px 8px;
+}
+/* Hidden by default — an input on every timeline row was too much visual
+   noise. Mouse hover reveals it for free; touch has no hover, so the toggle
+   button above (click handler in ui/reflect.js) drives .comments-open
+   instead. :focus-within keeps it visible while actually typing, even if
+   the pointer/finger has moved off the row. */
 .reflect-comment-form {
-  display: flex;
+  display: none;
   gap: 6px;
   margin-top: 8px;
+}
+.reflect-log-item:hover .reflect-comment-form,
+.reflect-log-item:focus-within .reflect-comment-form,
+.reflect-log-item.comments-open .reflect-comment-form {
+  display: flex;
 }
 .reflect-comment-input {
   flex: 1;

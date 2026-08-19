@@ -1,5 +1,5 @@
 const DB_NAME = "feeda";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 
@@ -28,6 +28,14 @@ export function openDb() {
         const logEntries = db.createObjectStore("logEntries", { keyPath: "id" });
         logEntries.createIndex("openedAt", "openedAt", { unique: false });
         logEntries.createIndex("feedId", "feedId", { unique: false });
+        logEntries.createIndex("entryId", "entryId", { unique: false });
+      }
+      // v2 -> v3: entryId index added after logEntries already existed for
+      // some users — createObjectStore only runs above for a brand-new
+      // store, so upgrading installs need it added separately.
+      const logStore = req.transaction.objectStore("logEntries");
+      if (!logStore.indexNames.contains("entryId")) {
+        logStore.createIndex("entryId", "entryId", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -135,6 +143,12 @@ export async function getLogEntriesInRange(startIso, endIso) {
   const db = await openDb();
   const index = tx(db, "logEntries", "readonly").objectStore("logEntries").index("openedAt");
   return reqToPromise(index.getAll(IDBKeyRange.bound(startIso, endIso, false, true)));
+}
+
+export async function getLogEntriesByEntryId(entryId) {
+  const db = await openDb();
+  const index = tx(db, "logEntries", "readonly").objectStore("logEntries").index("entryId");
+  return reqToPromise(index.getAll(IDBKeyRange.only(entryId)));
 }
 
 export async function getMeta(key) {

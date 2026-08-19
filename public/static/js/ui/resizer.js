@@ -1,6 +1,6 @@
 const STORAGE_KEY = "feeda:paneWidths";
 const MIN_WIDTH = 160;
-const MAX_WIDTH = 640;
+const MAX_WIDTH = 960;
 
 function loadWidths() {
   try {

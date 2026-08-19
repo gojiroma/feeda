@@ -3,7 +3,7 @@ import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./se
 import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { syncLogNow } from "./logSync.js";
-import { recordOpen, addComment, getEntriesForDay, dateStrOf, shiftDateStr } from "./logbook.js";
+import { recordOpen, addComment, getEntriesForDay, searchLogEntries, dateStrOf, shiftDateStr } from "./logbook.js";
 import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
@@ -232,10 +232,14 @@ function currentArticles() {
 }
 
 function render() {
-  if (state.mode === "reflect") {
-    renderReflect().catch((err) => console.error("reflect render failed", err));
-    return;
-  }
+  // The reflect screen never depends on feed/article state, so it must not
+  // be redrawn by the generic render() pump — refreshAll() calls render()
+  // once per feed as fetch progress advances, and rebuilding the timeline
+  // each time would tear down and recreate the comment <input>s mid-typing,
+  // stealing focus out from under the user. Reflect draws itself instead,
+  // from its own actions (toggleMode, changeReflectDate, jumpReflectToToday,
+  // handleAddComment) — see renderReflect callers below.
+  if (state.mode === "reflect") return;
   if (isMobileLayout()) {
     renderMobile();
   } else if (isTabletTwoPaneLayout()) {
@@ -251,7 +255,11 @@ function toggleMode() {
   state.mode = state.mode === "view" ? "reflect" : "view";
   appRoot.classList.toggle("reflect-mode", state.mode === "reflect");
   modeToggleBtn.textContent = state.mode === "reflect" ? "見るに戻る" : "振り返る";
-  render();
+  if (state.mode === "reflect") {
+    renderReflect().catch((err) => console.error("reflect render failed", err));
+  } else {
+    render();
+  }
 }
 
 function formatReflectDateLabel(dateStr) {
@@ -260,6 +268,17 @@ function formatReflectDateLabel(dateStr) {
 }
 
 async function renderReflect() {
+  const query = state.searchQuery.trim();
+  if (query) {
+    reflectDateLabelEl.textContent = `「${query}」の検索結果`;
+    const entries = await searchLogEntries(query);
+    renderReflectTimeline(reflectTimelineEl, {
+      entries,
+      onAddComment: handleAddComment,
+      emptyHint: "検索結果がありません。",
+    });
+    return;
+  }
   reflectDateLabelEl.textContent = formatReflectDateLabel(state.reflectDate);
   const entries = await getEntriesForDay(state.reflectDate);
   renderReflectTimeline(reflectTimelineEl, {
@@ -271,17 +290,17 @@ async function renderReflect() {
 async function handleAddComment(logId, text) {
   await addComment(logId, text);
   scheduleLogSync();
-  if (state.mode === "reflect") await renderReflect();
+  await renderReflect();
 }
 
 function changeReflectDate(deltaDays) {
   state.reflectDate = shiftDateStr(state.reflectDate, deltaDays);
-  render();
+  renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
 function jumpReflectToToday() {
   state.reflectDate = dateStrOf();
-  render();
+  renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
 let logSyncDebounceTimer = null;
@@ -831,7 +850,13 @@ function toggleFullscreen() {
 function wireApp() {
   setupSearchBar(document.getElementById("search-input"), (query) => {
     state.searchQuery = query;
-    render();
+    // render() is a no-op in reflect mode (see its own comment) — reflect
+    // draws itself directly so a search keystroke actually reaches it.
+    if (state.mode === "reflect") {
+      renderReflect().catch((err) => console.error("reflect render failed", err));
+    } else {
+      render();
+    }
   });
   setupPaneResizing();
   wireKeyboardNav();
