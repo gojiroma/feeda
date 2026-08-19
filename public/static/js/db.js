@@ -1,5 +1,5 @@
 const DB_NAME = "feeda";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise = null;
 
@@ -19,6 +19,15 @@ export function openDb() {
       }
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "key" });
+      }
+      // Reading-activity log: one row per article open, with its comment
+      // thread nested inside (see logbook.js). Separate from "entries"
+      // (the feed-content cache, which gets pruned/refetched) since this is
+      // a permanent history the user builds up deliberately.
+      if (!db.objectStoreNames.contains("logEntries")) {
+        const logEntries = db.createObjectStore("logEntries", { keyPath: "id" });
+        logEntries.createIndex("openedAt", "openedAt", { unique: false });
+        logEntries.createIndex("feedId", "feedId", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -98,6 +107,34 @@ export async function getEntriesByFeed(feedId) {
 export async function getAllEntries() {
   const db = await openDb();
   return reqToPromise(tx(db, "entries", "readonly").objectStore("entries").getAll());
+}
+
+export async function putLogEntry(logEntry) {
+  const db = await openDb();
+  const t = tx(db, "logEntries", "readwrite");
+  t.objectStore("logEntries").put(logEntry);
+  return new Promise((resolve, reject) => {
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+}
+
+export async function getLogEntry(id) {
+  const db = await openDb();
+  return reqToPromise(tx(db, "logEntries", "readonly").objectStore("logEntries").get(id));
+}
+
+export async function getAllLogEntries() {
+  const db = await openDb();
+  return reqToPromise(tx(db, "logEntries", "readonly").objectStore("logEntries").getAll());
+}
+
+// [startIso, endIso) — half-open, so callers pass a day boundary pair
+// without worrying about an entry landing exactly on midnight twice.
+export async function getLogEntriesInRange(startIso, endIso) {
+  const db = await openDb();
+  const index = tx(db, "logEntries", "readonly").objectStore("logEntries").index("openedAt");
+  return reqToPromise(index.getAll(IDBKeyRange.bound(startIso, endIso, false, true)));
 }
 
 export async function getMeta(key) {

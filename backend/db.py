@@ -22,6 +22,17 @@ CREATE TABLE IF NOT EXISTS feed_rows (
 );
 CREATE INDEX IF NOT EXISTS idx_feed_rows_account_updated
   ON feed_rows (account_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS log_rows (
+  account_id        TEXT NOT NULL,
+  log_id            TEXT NOT NULL,
+  ciphertext        TEXT NOT NULL,
+  client_updated_at TIMESTAMPTZ NOT NULL,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, log_id)
+);
+CREATE INDEX IF NOT EXISTS idx_log_rows_account_updated
+  ON log_rows (account_id, updated_at);
 """
 
 

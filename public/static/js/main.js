@@ -2,6 +2,8 @@ import { generateSeed, isValidSeed } from "./crypto.js";
 import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
 import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
+import { syncLogNow } from "./logSync.js";
+import { recordOpen, addComment, getEntriesForDay, dateStrOf, shiftDateStr } from "./logbook.js";
 import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
@@ -9,6 +11,7 @@ import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
+import { renderReflectTimeline } from "./ui/reflect.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
@@ -23,12 +26,24 @@ const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
 const mobileListEl = document.getElementById("mobile-article-list");
+const modeToggleBtn = document.getElementById("mode-toggle-btn");
+const reflectTimelineEl = document.getElementById("reflect-timeline");
+const reflectDateLabelEl = document.getElementById("reflect-date-label");
 
 // Kept in sync with the max-width:600px breakpoint in style.css that
 // switches to the single-column phone layout.
 const mobileQuery = window.matchMedia("(max-width: 600px)");
 function isMobileLayout() {
   return mobileQuery.matches;
+}
+
+// Kept in sync with the "orientation: portrait, min-width: 601px" breakpoint
+// in style.css — narrow-but-not-phone screens get feed+article side by side
+// with no preview pane at all; tapping an article opens its link directly,
+// same as the phone layout.
+const tabletQuery = window.matchMedia("(orientation: portrait) and (min-width: 601px)");
+function isTabletTwoPaneLayout() {
+  return tabletQuery.matches;
 }
 
 const PANE_ORDER = ["feed", "article", "preview"];
@@ -50,6 +65,12 @@ const state = {
   searchQuery: "",
   focusedPane: "article",
   keyboardNavActive: false,
+  // "view" is the normal reading UI; "reflect" swaps in the activity-log
+  // timeline (see renderReflect) — the two are different enough (no feed
+  // selection, date-scoped instead of unread-scoped) that they get their
+  // own top-level screen rather than sharing render().
+  mode: "view",
+  reflectDate: dateStrOf(),
   // Snapshot of the cross-feed "unread timeline" shown when no feed is
   // selected. Frozen at capture time so opening an entry (which marks it,
   // and possibly its whole feed, as read) doesn't yank it out of the list
@@ -211,13 +232,64 @@ function currentArticles() {
 }
 
 function render() {
+  if (state.mode === "reflect") {
+    renderReflect().catch((err) => console.error("reflect render failed", err));
+    return;
+  }
   if (isMobileLayout()) {
     renderMobile();
+  } else if (isTabletTwoPaneLayout()) {
+    renderTabletTwoPane();
   } else {
     renderDesktop();
   }
   updateFavicon(countUnreadSources());
   updateNextFetchIndicator();
+}
+
+function toggleMode() {
+  state.mode = state.mode === "view" ? "reflect" : "view";
+  appRoot.classList.toggle("reflect-mode", state.mode === "reflect");
+  modeToggleBtn.textContent = state.mode === "reflect" ? "見るに戻る" : "振り返る";
+  render();
+}
+
+function formatReflectDateLabel(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  return d.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+}
+
+async function renderReflect() {
+  reflectDateLabelEl.textContent = formatReflectDateLabel(state.reflectDate);
+  const entries = await getEntriesForDay(state.reflectDate);
+  renderReflectTimeline(reflectTimelineEl, {
+    entries,
+    onAddComment: handleAddComment,
+  });
+}
+
+async function handleAddComment(logId, text) {
+  await addComment(logId, text);
+  scheduleLogSync();
+  if (state.mode === "reflect") await renderReflect();
+}
+
+function changeReflectDate(deltaDays) {
+  state.reflectDate = shiftDateStr(state.reflectDate, deltaDays);
+  render();
+}
+
+function jumpReflectToToday() {
+  state.reflectDate = dateStrOf();
+  render();
+}
+
+let logSyncDebounceTimer = null;
+function scheduleLogSync() {
+  clearTimeout(logSyncDebounceTimer);
+  logSyncDebounceTimer = setTimeout(() => {
+    syncLogNow().catch((err) => console.error("log sync failed", err));
+  }, 1000);
 }
 
 function renderDesktop() {
@@ -250,6 +322,39 @@ function renderDesktop() {
   });
 
   renderPreview(previewEl, state.selectedEntry, query);
+}
+
+// Narrow-portrait layout (see the isTabletTwoPaneLayout breakpoint): same
+// feed pane as desktop so a feed can still be picked, but the article pane
+// renders as real links via renderMobileList instead of renderArticleList +
+// preview — there's no room for a third preview column, so reading happens
+// on the origin site same as the phone layout.
+function renderTabletTwoPane() {
+  const query = state.searchQuery;
+  const feedGroups = currentFeedGroups();
+
+  renderFeedList(feedListEl, {
+    groups: feedGroups,
+    totalFeedCount: state.feedsById.size,
+    selectedFeedId: state.selectedFeedId,
+    query,
+    collapsedGroups: collapsedGroupsFor(feedGroups),
+    onSelect: selectFeed,
+    onHover: previewFeed,
+    onTogglePause: togglePauseFeed,
+    onCopyUrl: copyFeedUrl,
+  });
+
+  const { entries, showFeedName, emptyHint } = currentArticles();
+  renderMobileList(articleListEl, {
+    entries,
+    feedTitleById: state.feedTitleById,
+    query,
+    isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
+    onOpen: openEntry,
+    showFeedName,
+    emptyHint,
+  });
 }
 
 // Right-click or long-press a feed name to toggle whether it gets fetched
@@ -507,6 +612,9 @@ async function selectFeed(feedId) {
 
 async function openEntry(entry) {
   previewEntry(entry);
+  recordOpen(entry, state.feedsById.get(entry.feedId))
+    .then(() => scheduleLogSync())
+    .catch((err) => console.error("log record failed", err));
   await advanceProgress(entry);
 }
 
@@ -518,6 +626,11 @@ async function refreshAll({ force = false } = {}) {
     await syncNow();
   } catch (err) {
     console.error("sync failed", err);
+  }
+  try {
+    await syncLogNow();
+  } catch (err) {
+    console.error("log sync failed", err);
   }
   await loadAppData();
   render();
@@ -727,10 +840,15 @@ function wireApp() {
     getSeed: () => getSession().seed,
     getApiBase: () => getSession().apiBase,
   });
-  // Re-render across the mobile/desktop breakpoint (window resize, or a
-  // foldable/rotation crossing 600px) so the right layout's markup is kept
-  // up to date even if it wasn't the active one a moment ago.
+  modeToggleBtn.addEventListener("click", toggleMode);
+  document.getElementById("reflect-prev-day").addEventListener("click", () => changeReflectDate(-1));
+  document.getElementById("reflect-next-day").addEventListener("click", () => changeReflectDate(1));
+  document.getElementById("reflect-today-btn").addEventListener("click", jumpReflectToToday);
+  // Re-render across the mobile/tablet/desktop breakpoints (window resize,
+  // or a foldable/rotation crossing one) so the right layout's markup is
+  // kept up to date even if it wasn't the active one a moment ago.
   mobileQuery.addEventListener("change", () => render());
+  tabletQuery.addEventListener("change", () => render());
 
   nextFetchBarEl.addEventListener("click", () => {
     refreshAll({ force: true }).catch((err) => console.error("forced refresh failed", err));

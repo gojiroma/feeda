@@ -38,9 +38,11 @@ def create_app():
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
     from routes.sync import sync_bp
+    from routes.log_sync import log_sync_bp
     from routes.proxy import proxy_bp
 
     app.register_blueprint(sync_bp)
+    app.register_blueprint(log_sync_bp)
     app.register_blueprint(proxy_bp)
 
     @app.get("/api/healthz")

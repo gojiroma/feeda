@@ -43,6 +43,7 @@
       <button type="button" id="brand-btn" class="brand" title="クリックで全画面表示を切り替え">feeda</button>
       <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
       <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
+      <button type="button" id="mode-toggle-btn" class="mode-toggle-btn">振り返る</button>
     </header>
     <button type="button" id="next-fetch-bar" class="next-fetch-bar hidden">
       次回取得: <span id="next-fetch-time">--:--</span>（タップで今すぐ取得）
@@ -62,6 +63,15 @@
     </div>
     <div class="mobile-view" id="mobile-view">
       <div id="mobile-article-list" class="mobile-article-list"></div>
+    </div>
+    <div class="reflect-view" id="reflect-view">
+      <div class="reflect-day-nav">
+        <button type="button" id="reflect-prev-day" aria-label="前の日">←</button>
+        <span id="reflect-date-label" class="reflect-date-label"></span>
+        <button type="button" id="reflect-next-day" aria-label="次の日">→</button>
+        <button type="button" id="reflect-today-btn">今日</button>
+      </div>
+      <div id="reflect-timeline" class="reflect-timeline"></div>
     </div>
     <div id="status-bar" class="status-bar hidden">
       <div id="status-bar-fill" class="status-bar-fill"></div>
