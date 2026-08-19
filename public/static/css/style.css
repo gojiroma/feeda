@@ -219,6 +219,19 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.78rem;
   color: var(--text-muted);
 }
+.feed-status-group summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 6px 4px;
+}
+.feed-status-group + .feed-status-group { margin-top: 4px; }
+.feed-group {
+  margin-left: 10px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
 .feed-group summary {
   cursor: pointer;
   font-size: 0.8rem;

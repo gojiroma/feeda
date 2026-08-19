@@ -163,24 +163,31 @@ function currentFeedGroups() {
   return groupFeedsByFrequency(feedsWithEntries);
 }
 
-// Which sidebar groups render collapsed. Computed once, lazily, the first
-// time the sidebar renders after load: groups with no unread feed start
-// collapsed, groups with at least one unread feed start open. From then on
-// this only changes via the user's own expand/collapse clicks (see
-// feedList.js's toggle listener, which mutates this Set directly) — later
-// re-renders (e.g. triggered by hovering an article) must not snap a group
-// the user opened back shut, so this is never recomputed after its first use.
+// Which sidebar groups (status-level and frequency-level, see feedList.js's
+// nested keys) render collapsed. Computed once, lazily, the first time the
+// sidebar renders after load: groups with no unread feed start collapsed,
+// groups with at least one unread feed start open. From then on this only
+// changes via the user's own expand/collapse clicks (see feedList.js's
+// toggle listener, which mutates this Set directly) — later re-renders
+// (e.g. triggered by hovering an article) must not snap a group the user
+// opened back shut, so this is never recomputed after its first use.
 let collapsedGroups = null;
 
-function collapsedGroupsFor(groups) {
+function collapsedGroupsFor(tree) {
   if (collapsedGroups === null) {
-    collapsedGroups = new Set(groups.filter((g) => !g.feeds.some((f) => f.hasUnread)).map((g) => g.group.key));
+    collapsedGroups = new Set();
+    for (const { status, subgroups } of tree) {
+      if (!subgroups.some((sg) => sg.feeds.some((f) => f.hasUnread))) collapsedGroups.add(status.key);
+      for (const sg of subgroups) {
+        if (!sg.feeds.some((f) => f.hasUnread)) collapsedGroups.add(`${status.key}:${sg.group.key}`);
+      }
+    }
   }
   return collapsedGroups;
 }
 
 function flatFeedList() {
-  return currentFeedGroups().flatMap((g) => g.feeds);
+  return currentFeedGroups().flatMap(({ subgroups }) => subgroups.flatMap((sg) => sg.feeds));
 }
 
 // Buckets entries by their feed's (live-computed, same as the feed list's
