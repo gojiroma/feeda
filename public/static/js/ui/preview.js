@@ -1,7 +1,7 @@
 import { sanitizeHtmlToFragment } from "../sanitize.js";
 import { highlightText, highlightFragment } from "../highlight.js";
 
-export function renderPreview(container, entry, query) {
+export function renderPreview(container, entry, query, { onLinkClick } = {}) {
   container.innerHTML = "";
 
   if (!entry) {
@@ -32,6 +32,7 @@ export function renderPreview(container, entry, query) {
     link.rel = "noopener noreferrer";
     link.className = "preview-link";
     link.textContent = entry.link;
+    if (onLinkClick) link.addEventListener("click", () => onLinkClick(entry));
     container.appendChild(link);
   }
 

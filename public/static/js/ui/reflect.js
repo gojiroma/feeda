@@ -67,19 +67,7 @@ function renderLogItem(logEntry, onAddComment) {
 
   // The add-comment form is hidden by default (see .reflect-comment-form in
   // style.css) — an input on every single entry was too much visual noise
-  // for a timeline meant to be skimmed. It shows on mouse hover for free via
-  // CSS; this toggle button is the touch/tap equivalent, since touch has no
-  // hover to reveal it with.
-  const toggleBtn = document.createElement("button");
-  toggleBtn.type = "button";
-  toggleBtn.className = "reflect-comment-toggle";
-  toggleBtn.textContent = "コメント";
-  toggleBtn.addEventListener("click", () => {
-    li.classList.toggle("comments-open");
-    if (li.classList.contains("comments-open")) input.focus();
-  });
-  body.appendChild(toggleBtn);
-
+  // for a timeline meant to be skimmed. It shows on mouse hover/focus.
   const form = document.createElement("form");
   form.className = "reflect-comment-form";
   const input = document.createElement("input");

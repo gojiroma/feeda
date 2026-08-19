@@ -340,7 +340,7 @@ function renderDesktop() {
     emptyHint,
   });
 
-  renderPreview(previewEl, state.selectedEntry, query);
+  renderPreview(previewEl, state.selectedEntry, query, { onLinkClick: logOpen });
 }
 
 // Narrow-portrait layout (see the isTabletTwoPaneLayout breakpoint): same
@@ -629,11 +629,20 @@ async function selectFeed(feedId) {
   if (topEntry) await advanceProgress(topEntry);
 }
 
-async function openEntry(entry) {
-  previewEntry(entry);
+// Shared by openEntry (selecting an article) and the preview pane's outbound
+// link (see renderDesktop's onLinkClick) — recordOpen's own chatter guard
+// means clicking through moments after selecting the same article won't
+// double-log it, but clicking through later (or on an article that was only
+// ever glanced at in the preview, not actually followed) still will.
+function logOpen(entry) {
   recordOpen(entry, state.feedsById.get(entry.feedId))
     .then(() => scheduleLogSync())
     .catch((err) => console.error("log record failed", err));
+}
+
+async function openEntry(entry) {
+  previewEntry(entry);
+  logOpen(entry);
   await advanceProgress(entry);
 }
 
