@@ -3,7 +3,15 @@ import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./se
 import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { syncLogNow } from "./logSync.js";
-import { recordOpen, addComment, getEntriesForDay, searchLogEntries, dateStrOf, shiftDateStr } from "./logbook.js";
+import {
+  recordOpen,
+  addComment,
+  setLogEntryColor,
+  getEntriesForDay,
+  searchLogEntries,
+  dateStrOf,
+  shiftDateStr,
+} from "./logbook.js";
 import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
@@ -324,6 +332,7 @@ async function renderReflect() {
     renderReflectTimeline(reflectTimelineEl, {
       entries,
       onAddComment: handleAddComment,
+      onSetColor: handleSetLogColor,
       emptyHint: "検索結果がありません。",
     });
     return;
@@ -333,6 +342,7 @@ async function renderReflect() {
   renderReflectTimeline(reflectTimelineEl, {
     entries,
     onAddComment: handleAddComment,
+    onSetColor: handleSetLogColor,
   });
 }
 
@@ -341,6 +351,11 @@ async function handleAddComment(logId, text) {
   // No separate scheduleLogSync() call needed here — renderReflect() below
   // now syncs (push+pull) immediately before it redraws, which already
   // covers pushing this comment.
+  await renderReflect();
+}
+
+async function handleSetLogColor(logId, color) {
+  await setLogEntryColor(logId, color);
   await renderReflect();
 }
 
@@ -435,7 +450,15 @@ function renderTabletTwoPane() {
 async function togglePauseFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
-  const updated = { ...feed, paused: !feed.paused, userManagedPause: true };
+  let updated = { ...feed, paused: !feed.paused, userManagedPause: true };
+  // Pausing means "I'm done with this feed for now" — catch it up to read
+  // at the same moment, the same way advanceReadState does for an entry
+  // actually viewed, so it doesn't keep sitting there with an unread dot
+  // under 更新停止 for something you've deliberately stopped following.
+  if (updated.paused) {
+    updated = { ...updated, readUntil: new Date().toISOString() };
+    if (updated.latestContentHash) updated = { ...updated, contentHash: updated.latestContentHash };
+  }
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
   render();

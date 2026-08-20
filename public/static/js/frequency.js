@@ -38,17 +38,23 @@ const STATUS_GROUPS = [
 // which reverses it.
 export const FREQUENCY_ORDER = [...GROUPS.map((g) => g.key), UNKNOWN_GROUP.key, "paused"];
 
-// Within a status bucket's frequency sub-tree, the daily-* tiers are shown
-// as a block just above "頻度不明" rather than up front — same reasoning as
-// the old single "daily" group: putting the most-frequent feeds first makes
-// it too easy to only ever check the same handful of very active feeds and
-// let the less-frequent ones go unnoticed. Fetch priority (FREQUENCY_ORDER
-// above) is unaffected by this — it still fetches daily feeds first.
-const DAILY_KEYS = GROUPS.filter((g) => g.key.startsWith("daily-")).map((g) => g.key);
+// Within a status bucket's frequency sub-tree, least-frequent first —
+// putting the most-frequent feeds up front makes it too easy to only ever
+// check the same handful of very active feeds and let the less-frequent
+// ones go unnoticed, so this is the reverse of GROUPS (which is ordered
+// most-frequent-first for the maxAvgDays lookup in computeFrequencyGroup).
+// "頻度不明" sits with the low-frequency end, between "それ以下" and the
+// daily tiers, since a feed with no posting history yet is closer to "no
+// signal" than to "posts often". Fetch priority (FREQUENCY_ORDER above) is
+// unaffected by this — it still fetches daily feeds first.
 const FREQUENCY_SUBGROUP_ORDER = [
-  ...GROUPS.filter((g) => !g.key.startsWith("daily-")).map((g) => g.key),
+  ...GROUPS.filter((g) => !g.key.startsWith("daily-"))
+    .map((g) => g.key)
+    .reverse(),
   UNKNOWN_GROUP.key,
-  ...DAILY_KEYS,
+  ...GROUPS.filter((g) => g.key.startsWith("daily-"))
+    .map((g) => g.key)
+    .reverse(),
 ];
 
 // How long to wait before re-fetching a feed, based on its own posting

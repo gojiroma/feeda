@@ -26,6 +26,7 @@ function logEntryToPayload(logEntry) {
     url: logEntry.url,
     openedAt: logEntry.openedAt,
     comments: logEntry.comments || [],
+    color: logEntry.color || null,
   };
 }
 
@@ -86,6 +87,7 @@ export async function pullLogUpdates() {
       url: payload.url,
       openedAt: payload.openedAt,
       comments: payload.comments || [],
+      color: payload.color || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,
     });

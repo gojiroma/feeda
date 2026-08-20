@@ -77,6 +77,21 @@ export async function addComment(logId, text) {
   return updated;
 }
 
+// color is one of reflect.js's COLOR_PALETTE keys, or null/undefined to
+// clear it. Synced like everything else on a log entry (see logSync.js).
+export async function setLogEntryColor(logId, color) {
+  const logEntry = await getLogEntry(logId);
+  if (!logEntry) return null;
+  const updated = {
+    ...logEntry,
+    color: color || null,
+    clientUpdatedAt: new Date().toISOString(),
+    dirty: true,
+  };
+  await putLogEntry(updated);
+  return updated;
+}
+
 // Display-time merge for duplicate rows logged before the chatter guard
 // above existed (or from any other source of near-simultaneous re-opens):
 // collapses runs of same-article rows within CHATTER_WINDOW_MS of each
@@ -114,8 +129,11 @@ function mergeDuplicates(entriesAscending) {
 export async function getEntriesForDay(dateStr) {
   const [start, end] = dayRangeIso(dateStr);
   const entries = await getLogEntriesInRange(start, end);
+  // mergeDuplicates expects oldest-first (it walks adjacent pairs forward
+  // in time), so the ascending sort stays internal — reverse only the
+  // final, already-merged result to show the day newest-first.
   entries.sort((a, b) => (a.openedAt || "").localeCompare(b.openedAt || ""));
-  return mergeDuplicates(entries);
+  return mergeDuplicates(entries).reverse();
 }
 
 const SEARCH_RESULT_LIMIT = 200;

@@ -501,8 +501,49 @@ input[type="text"], input[type="url"], input[type="search"] {
 .reflect-log-item {
   display: flex;
   gap: 12px;
-  padding: 12px 0;
+  padding: 12px 0 12px 10px;
   border-bottom: 1px solid var(--border);
+  border-left: 4px solid transparent;
+}
+/* --reflect-color is an "R,G,B" triplet set inline per item (see reflect.js)
+   — one shared palette definition instead of a CSS class per color. Kept
+   muted: a solid-but-not-bright border plus a low-alpha background tint
+   rather than a saturated fill, so the color reads as a quiet tag instead
+   of competing with the title text (and stays legible in both themes,
+   since the alpha blend adapts to whatever --bg already is). */
+.reflect-log-item--colored {
+  border-left-color: rgb(var(--reflect-color));
+  background: rgba(var(--reflect-color), 0.12);
+}
+.reflect-color-picker {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+.reflect-color-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: rgb(var(--reflect-color));
+  cursor: pointer;
+}
+.reflect-color-swatch.selected {
+  border-color: var(--text);
+}
+.reflect-color-swatch--clear {
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
 }
 .reflect-log-time {
   flex-shrink: 0;
