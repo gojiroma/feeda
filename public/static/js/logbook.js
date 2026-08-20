@@ -79,21 +79,27 @@ export async function addComment(logId, text) {
 
 // Display-time merge for duplicate rows logged before the chatter guard
 // above existed (or from any other source of near-simultaneous re-opens):
-// collapses runs of same-entryId rows within CHATTER_WINDOW_MS of each
+// collapses runs of same-article rows within CHATTER_WINDOW_MS of each
 // other into one, combining their comments. Non-destructive — it only
 // merges the list handed back to callers, never touches IndexedDB or the
 // sync'd rows, so there's no risk of losing a comment that lives on a
 // duplicate row. Expects entries already sorted oldest-first.
+//
+// "Same article" is entryId equality OR url equality (checked separately
+// since a row can have one without the other): the Tampermonkey userscript's
+// auto-log feature (see userscript/feeda-autoregister.user.js) logs pages
+// you read directly, with no feed entryId to key off of, so a page opened
+// from within feeda (logged immediately via recordOpen, entryId set) and
+// then auto-logged again seconds later by the script once its own tab
+// finishes loading (entryId null, same url) would otherwise show as two
+// separate rows despite being the same read.
 function mergeDuplicates(entriesAscending) {
   const result = [];
   for (const entry of entriesAscending) {
     const prev = result[result.length - 1];
-    if (
-      prev &&
-      entry.entryId &&
-      prev.entryId === entry.entryId &&
-      new Date(entry.openedAt).getTime() - new Date(prev.openedAt).getTime() <= CHATTER_WINDOW_MS
-    ) {
+    const sameArticle =
+      prev && ((entry.entryId && prev.entryId === entry.entryId) || (entry.url && prev.url === entry.url));
+    if (sameArticle && new Date(entry.openedAt).getTime() - new Date(prev.openedAt).getTime() <= CHATTER_WINDOW_MS) {
       const mergedComments = [...(prev.comments || []), ...(entry.comments || [])].sort((a, b) =>
         (a.createdAt || "").localeCompare(b.createdAt || "")
       );

@@ -258,13 +258,50 @@ function render() {
   updateNextFetchIndicator();
 }
 
+// While sitting on 振り返る, pick up log rows written from elsewhere —
+// mainly the Tampermonkey auto-log script (see userscript/feeda-
+// autoregister.user.js), which pushes straight to the server from whatever
+// site tab you're reading in, with no way to poke this tab about it.
+// refreshAll's own syncLogNow only runs once at load, before its feed-fetch
+// loop even starts, so without this a page freshly auto-logged mid-crawl
+// (or after the crawl, while this tab just sits open) wouldn't show up
+// until the next full reload. Covered two ways: a pull on every render
+// (see renderReflect) so switching to/around the screen is always fresh,
+// plus this interval so a tab left open on 振り返る updates on its own.
+const REFLECT_LIVE_REFRESH_MS = 2 * 60 * 1000;
+let reflectLiveRefreshTimer = null;
+
+function startReflectLiveRefresh() {
+  stopReflectLiveRefresh();
+  reflectLiveRefreshTimer = setInterval(() => {
+    renderReflect().catch((err) => console.error("reflect render failed", err));
+  }, REFLECT_LIVE_REFRESH_MS);
+}
+
+function stopReflectLiveRefresh() {
+  clearInterval(reflectLiveRefreshTimer);
+  reflectLiveRefreshTimer = null;
+}
+
+// A tab that was in the background (e.g. the one actually holding the
+// article you were reading) coming back to the foreground is exactly the
+// moment a stale reflect screen is most likely to be looked at — catch it
+// immediately instead of waiting for the interval above.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.mode === "reflect") {
+    renderReflect().catch((err) => console.error("reflect render failed", err));
+  }
+});
+
 function toggleMode() {
   state.mode = state.mode === "view" ? "reflect" : "view";
   appRoot.classList.toggle("reflect-mode", state.mode === "reflect");
   modeToggleBtn.textContent = state.mode === "reflect" ? "見るに戻る" : "振り返る";
   if (state.mode === "reflect") {
     renderReflect().catch((err) => console.error("reflect render failed", err));
+    startReflectLiveRefresh();
   } else {
+    stopReflectLiveRefresh();
     render();
   }
 }
@@ -274,7 +311,12 @@ function formatReflectDateLabel(dateStr) {
   return d.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
 }
 
+// Pulls fresh log rows before reading from local IndexedDB — see the
+// REFLECT_LIVE_REFRESH_MS comment above for why this can't just rely on
+// refreshAll's own startup sync. Sync failure (offline, server hiccup)
+// falls back to whatever's already local rather than blocking the render.
 async function renderReflect() {
+  await syncLogNow().catch((err) => console.error("log sync failed", err));
   const query = state.searchQuery.trim();
   if (query) {
     reflectDateLabelEl.textContent = `「${query}」の検索結果`;
@@ -296,7 +338,9 @@ async function renderReflect() {
 
 async function handleAddComment(logId, text) {
   await addComment(logId, text);
-  scheduleLogSync();
+  // No separate scheduleLogSync() call needed here — renderReflect() below
+  // now syncs (push+pull) immediately before it redraws, which already
+  // covers pushing this comment.
   await renderReflect();
 }
 
