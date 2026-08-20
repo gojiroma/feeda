@@ -132,7 +132,40 @@ input[type="text"], input[type="url"], input[type="search"] {
   cursor: pointer;
 }
 .brand:hover { opacity: 0.75; }
-.search-input { flex: 1; min-width: 0; }
+.search-wrap { position: relative; flex: 1; min-width: 0; }
+.search-input { width: 100%; }
+.search-history {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.search-history.hidden { display: none; }
+.search-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.search-history-item:hover,
+.search-history-item.active { background: var(--bg-alt); }
 /* Narrow phones fit brand + search + two buttons only if the buttons
    refuse to shrink into vertically-wrapped CJK text — search-input (the
    only flexible child) absorbs the squeeze instead. */

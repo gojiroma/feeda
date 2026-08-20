@@ -41,7 +41,10 @@
   <div id="app" class="app hidden">
     <header class="topbar">
       <button type="button" id="brand-btn" class="brand" title="クリックで全画面表示を切り替え">feeda</button>
-      <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
+      <div class="search-wrap">
+        <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
+        <ul id="search-history" class="search-history hidden"></ul>
+      </div>
       <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
       <button type="button" id="mode-toggle-btn" class="mode-toggle-btn">振り返る</button>
     </header>
