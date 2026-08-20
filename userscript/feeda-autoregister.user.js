@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.3.0
-// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages to your feeda reading log. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
+// @version      1.4.0
+// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages to your feeda reading log, with a manual "record this page" button for pages that aren't article-shaped. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -357,7 +357,9 @@
   //   No `<article>`-tag fallback when OGP/schema.org markup is absent —
   //   deliberately conservative, since that tag gets misused for layout
   //   often enough to produce false positives. A page that's missed can
-  //   still be added by hand from within the feeda webapp itself.
+  //   still be recorded by hand: from within the feeda webapp itself, or via
+  //   the corner widget's "このページを記録" button (see manualLogPage),
+  //   which bypasses both looksLikeArticle() and the whitelist check.
   //
   //   Removing a BUILTIN_BLACKLIST_HOSTS entry isn't supported yet (there's
   //   no "un-blacklist a built-in" override list) — not expected to matter
@@ -496,7 +498,16 @@
   // current host (see below) so the page being read right now gets logged
   // immediately instead of only from the next page load onward, and uses
   // the return value to tell the user whether that happened.
-  async function autoLogPage() {
+  //
+  // `manual: true` (see manualLogPage below) skips both the whitelist gate
+  // and looksLikeArticle(): those two checks exist only to keep the
+  // automatic, every-page-load path from over-logging, but a user
+  // deliberately clicking "record this page" on the page they're looking
+  // at is already as targeted a signal as the checks are trying to
+  // approximate — including for pages that aren't article-shaped (a
+  // listing page, a tool, a PDF viewer, ...) and so would never pass
+  // looksLikeArticle() no matter how long the host stays whitelisted.
+  async function logPage({ manual = false } = {}) {
     const seed = GM_getValue(SEED_KEY, "");
     const apiBase = GM_getValue(API_BASE_KEY, "");
     if (!seed || !apiBase) return false;
@@ -504,8 +515,10 @@
     const hostname = location.hostname;
     const blacklist = BUILTIN_BLACKLIST_HOSTS.concat(GM_getValue(AUTO_LOG_BLACKLIST_KEY, []));
     if (matchesAnyHost(blacklist, hostname)) return false;
-    if (!matchesAnyHost(GM_getValue(AUTO_LOG_WHITELIST_KEY, []), hostname)) return false;
-    if (!looksLikeArticle()) return false;
+    if (!manual) {
+      if (!matchesAnyHost(GM_getValue(AUTO_LOG_WHITELIST_KEY, []), hostname)) return false;
+      if (!looksLikeArticle()) return false;
+    }
 
     const url = location.href.split("#")[0];
     if (alreadyAutoLogged(url)) return false;
@@ -518,6 +531,14 @@
     });
     if (ok) markAutoLogged(url);
     return ok;
+  }
+
+  function autoLogPage() {
+    return logPage();
+  }
+
+  function manualLogPage() {
+    return logPage({ manual: true });
   }
 
   // A page's top frame only — an iframe (ad slot, embedded widget, ...)
@@ -640,7 +661,7 @@
           const logged = await autoLogPage();
           if (logged) return "許可リストに追加し、このページも記録しました。";
           if (!looksLikeArticle()) {
-            return "許可リストに追加しました。このページは記事として認識されなかったため、記録は次の記事ページからになります。";
+            return "許可リストに追加しました。このページは記事として認識されなかったため自動記録の対象外ですが、下の「このページを記録」ボタンで手動記録できます。";
           }
           return "許可リストに追加しました。（このページは記録済みか、記録に失敗しました）";
         });
@@ -659,6 +680,19 @@
         addActionButton("除外リストに追加", "danger", () => {
           const list = GM_getValue(AUTO_LOG_BLACKLIST_KEY, []);
           if (!list.includes(hostname)) GM_setValue(AUTO_LOG_BLACKLIST_KEY, [...list, hostname]);
+        });
+      }
+
+      // Manual log button: works on any non-blacklisted page regardless of
+      // whitelist status or looksLikeArticle(), so pages that don't declare
+      // OGP/schema.org article markup — or hosts you haven't whitelisted at
+      // all — can still be recorded with one click.
+      if (!blacklisted) {
+        addActionButton("このページを記録（記事形式でなくてもOK）", "", async () => {
+          const logged = await manualLogPage();
+          return logged
+            ? "このページを記録しました。"
+            : "記録できませんでした（既に記録済みの可能性があります）。";
         });
       }
     }
