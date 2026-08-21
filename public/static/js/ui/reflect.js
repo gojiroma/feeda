@@ -240,3 +240,29 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
   for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor));
   container.appendChild(ul);
 }
+
+// The trend strip inside the day-nav header (see main.js's renderReflect
+// and .reflect-day-chart in style.css) — one bar per day of counts (from
+// logbook.js's getDailyCounts), bar height scaled to the busiest day in the
+// window so a quiet stretch doesn't read as visually identical to a heavy
+// one. Bars double as date navigation: clicking one jumps straight there,
+// same as picking a day off a calendar, which is the "一体化" (merged into
+// the date display rather than a separate section) the chart was asked for.
+export function renderDayChart(container, { counts, selectedDate, onSelectDate }) {
+  container.innerHTML = "";
+  const max = Math.max(1, ...counts.map((c) => c.count));
+
+  for (const { date, count } of counts) {
+    const bar = document.createElement("button");
+    bar.type = "button";
+    bar.className =
+      "reflect-day-chart-bar" +
+      (date === selectedDate ? " selected" : "") +
+      (count === 0 ? " reflect-day-chart-bar--empty" : "");
+    bar.style.setProperty("--bar-fill", `${Math.round((count / max) * 100)}%`);
+    bar.title = `${date}: ${count}件`;
+    bar.setAttribute("aria-label", `${date}: ${count}件`);
+    bar.addEventListener("click", () => onSelectDate(date));
+    container.appendChild(bar);
+  }
+}

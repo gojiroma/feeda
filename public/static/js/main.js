@@ -8,6 +8,8 @@ import {
   addComment,
   setLogEntryColor,
   getEntriesForDay,
+  getDailyCounts,
+  getFeedAddedCounts,
   searchLogEntries,
   dateStrOf,
   shiftDateStr,
@@ -19,7 +21,7 @@ import { renderFeedList } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
-import { renderReflectTimeline } from "./ui/reflect.js";
+import { renderReflectTimeline, renderDayChart } from "./ui/reflect.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
@@ -37,6 +39,11 @@ const mobileListEl = document.getElementById("mobile-article-list");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
+const reflectDayChartEl = document.getElementById("reflect-day-chart");
+const reflectFeedChartEl = document.getElementById("reflect-feed-chart");
+
+// Width of the trend strip in the day-nav header — see renderDayChart.
+const REFLECT_DAY_CHART_DAYS = 21;
 
 // Kept in sync with the max-width:600px breakpoint in style.css that
 // switches to the single-column phone layout.
@@ -328,6 +335,8 @@ async function renderReflect() {
   const query = state.searchQuery.trim();
   if (query) {
     reflectDateLabelEl.textContent = `「${query}」の検索結果`;
+    reflectDayChartEl.innerHTML = ""; // no single day selected during search — nothing sensible to highlight
+    reflectFeedChartEl.innerHTML = "";
     const entries = await searchLogEntries(query);
     renderReflectTimeline(reflectTimelineEl, {
       entries,
@@ -338,7 +347,21 @@ async function renderReflect() {
     return;
   }
   reflectDateLabelEl.textContent = formatReflectDateLabel(state.reflectDate);
-  const entries = await getEntriesForDay(state.reflectDate);
+  const [entries, dailyCounts, feedCounts] = await Promise.all([
+    getEntriesForDay(state.reflectDate),
+    getDailyCounts(REFLECT_DAY_CHART_DAYS),
+    getFeedAddedCounts(REFLECT_DAY_CHART_DAYS),
+  ]);
+  renderDayChart(reflectDayChartEl, {
+    counts: dailyCounts,
+    selectedDate: state.reflectDate,
+    onSelectDate: jumpReflectToDate,
+  });
+  renderDayChart(reflectFeedChartEl, {
+    counts: feedCounts,
+    selectedDate: state.reflectDate,
+    onSelectDate: jumpReflectToDate,
+  });
   renderReflectTimeline(reflectTimelineEl, {
     entries,
     onAddComment: handleAddComment,
@@ -366,6 +389,14 @@ function changeReflectDate(deltaDays) {
 
 function jumpReflectToToday() {
   state.reflectDate = dateStrOf();
+  renderReflect().catch((err) => console.error("reflect render failed", err));
+}
+
+// Used by the day-chart bars (see renderDayChart) to jump straight to the
+// clicked date, same as changeReflectDate but to an absolute day instead of
+// a relative offset.
+function jumpReflectToDate(dateStr) {
+  state.reflectDate = dateStr;
   renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
@@ -906,6 +937,22 @@ function wireKeyboardNav() {
   document.addEventListener("keydown", (ev) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
     if (shouldIgnoreArrowKey(ev.key)) return;
+
+    // 振り返る has its own left/right day navigation instead of pane focus
+    // — there are no panes to focus there (see .app.reflect-mode's
+    // display:none rules). Up/down are left alone so the timeline still
+    // scrolls normally.
+    if (state.mode === "reflect") {
+      if (ev.key === "ArrowLeft") {
+        ev.preventDefault();
+        changeReflectDate(-1);
+      } else if (ev.key === "ArrowRight") {
+        ev.preventDefault();
+        changeReflectDate(1);
+      }
+      return;
+    }
+
     ev.preventDefault();
 
     if (!state.keyboardNavActive) {

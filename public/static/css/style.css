@@ -533,12 +533,17 @@ input[type="text"], input[type="url"], input[type="search"] {
 
 .reflect-day-nav {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-alt);
+}
+.reflect-day-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
 }
 .reflect-day-nav button {
   white-space: nowrap;
@@ -547,6 +552,69 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-weight: 600;
   min-width: 14em;
   text-align: center;
+}
+
+/* The two trend strips (记录/购読+ — see renderDayChart in ui/reflect.js)
+   live right under the date label rather than as their own section
+   further down the screen, so the bars read as part of the date display
+   itself: click one and the day nav above it jumps straight there. */
+.reflect-trend-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+}
+.reflect-trend-chart-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.reflect-trend-chart-label {
+  flex-shrink: 0;
+  width: 3em;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding-bottom: 2px;
+}
+.reflect-day-chart {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 28px;
+  min-width: 0;
+}
+.reflect-day-chart-bar {
+  flex: 1;
+  min-width: 2px;
+  height: max(3px, var(--bar-fill, 0%));
+  padding: 0;
+  border: none;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.35;
+  cursor: pointer;
+}
+.reflect-day-chart-bar:hover {
+  opacity: 0.65;
+}
+.reflect-day-chart-bar.selected {
+  opacity: 1;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.reflect-day-chart-bar--empty {
+  opacity: 0.12;
+}
+/* Second row's bars (new-feed-subscription counts) get their own hue so
+   they read as a distinct series from the reading-count row above, even
+   though both share the same .reflect-day-chart-bar base. */
+.reflect-day-chart--feed .reflect-day-chart-bar {
+  background: #16a34a;
+}
+.reflect-day-chart--feed .reflect-day-chart-bar.selected {
+  box-shadow: 0 0 0 1px #16a34a;
 }
 
 .reflect-timeline {
@@ -559,6 +627,22 @@ input[type="text"], input[type="url"], input[type="search"] {
   margin: 0 auto;
   padding: 0;
   max-width: 640px;
+}
+/* Wide monitors (2K–4K) have room to lay the timeline out in multiple
+   newspaper-style columns instead of one long, narrow, mostly-whitespace
+   column down the middle — `columns: 900px 4` auto-picks how many ~900px
+   columns fit (2 around 2K, 4 by 4K), capped at 4. break-inside keeps a
+   single log item (and its comment thread) from being split across a
+   column edge. */
+@media (min-width: 1920px) {
+  .reflect-timeline-list {
+    max-width: 3400px;
+    columns: 900px 4;
+    column-gap: 32px;
+  }
+  .reflect-log-item {
+    break-inside: avoid;
+  }
 }
 .reflect-log-item {
   display: flex;

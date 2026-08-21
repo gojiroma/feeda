@@ -1,4 +1,4 @@
-import { putLogEntry, getLogEntry, getLogEntriesInRange, getLogEntriesByEntryId, getAllLogEntries } from "./db.js";
+import { putLogEntry, getLogEntry, getLogEntriesInRange, getLogEntriesByEntryId, getAllLogEntries, getAllFeeds } from "./db.js";
 
 export function dateStrOf(date = new Date()) {
   const y = date.getFullYear();
@@ -134,6 +134,52 @@ export async function getEntriesForDay(dateStr) {
   // final, already-merged result to show the day newest-first.
   entries.sort((a, b) => (a.openedAt || "").localeCompare(b.openedAt || ""));
   return mergeDuplicates(entries).reverse();
+}
+
+// Per-day record counts for the `days` calendar days ending today (local),
+// oldest first — feeds the day-nav's trend bar chart (see renderDayChart in
+// ui/reflect.js). Runs the same chatter-merge as getEntriesForDay so the
+// bar heights agree with what the timeline itself would show for that day,
+// rather than counting duplicate near-simultaneous opens as separate reads.
+export async function getDailyCounts(days) {
+  const today = dateStrOf();
+  const startDate = shiftDateStr(today, -(days - 1));
+  const [start] = dayRangeIso(startDate);
+  const [, end] = dayRangeIso(today);
+  const entries = await getLogEntriesInRange(start, end);
+  entries.sort((a, b) => (a.openedAt || "").localeCompare(b.openedAt || ""));
+  const merged = mergeDuplicates(entries);
+
+  const counts = new Map();
+  for (let i = 0; i < days; i++) counts.set(shiftDateStr(startDate, i), 0);
+  for (const entry of merged) {
+    if (!entry.openedAt) continue;
+    const d = dateStrOf(new Date(entry.openedAt));
+    if (counts.has(d)) counts.set(d, counts.get(d) + 1);
+  }
+  return [...counts.entries()].map(([date, count]) => ({ date, count }));
+}
+
+// Sibling of getDailyCounts, feeding the day-nav's second trend strip: how
+// many feeds got newly subscribed each day (feed.addedAt, set once at
+// registration — see userscript/feeda-autoregister.user.js). Unlike reading
+// counts there's no retroactive gap to worry about: every feed already
+// carries its real addedAt from whenever it was actually added, not just
+// from whenever this chart was introduced. Deleted feeds are excluded so a
+// since-unsubscribed feed doesn't keep inflating a past day's bar forever.
+export async function getFeedAddedCounts(days) {
+  const feeds = await getAllFeeds();
+  const today = dateStrOf();
+  const startDate = shiftDateStr(today, -(days - 1));
+
+  const counts = new Map();
+  for (let i = 0; i < days; i++) counts.set(shiftDateStr(startDate, i), 0);
+  for (const feed of feeds) {
+    if (!feed.addedAt || feed.deletedAt) continue;
+    const d = dateStrOf(new Date(feed.addedAt));
+    if (counts.has(d)) counts.set(d, counts.get(d) + 1);
+  }
+  return [...counts.entries()].map(([date, count]) => ({ date, count }));
 }
 
 const SEARCH_RESULT_LIMIT = 200;
