@@ -104,9 +104,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
 }
 
 function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }, selectedFeedId) {
-  let longPressTimer = null;
   let longPressTriggered = false;
-  const cancelLongPress = () => clearTimeout(longPressTimer);
 
   li.addEventListener("click", () => {
     if (longPressTriggered) {
@@ -138,20 +136,56 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
     onCopyUrl(feed, li);
   });
 
-  // Long-press is the touch equivalent of right-click, since touchscreens
-  // have no contextmenu event of their own for a custom action like this.
+  // Touch has no hover, so without this there's no way to see what's in a
+  // feed before committing to a tap (select) or a long-press (menu) — you'd
+  // have to select it, look, then back out if it wasn't the one you meant.
+  // Preview it (see onHover) the instant a finger touches down instead,
+  // same as mouseenter does for a mouse. Skipped when this feed is already
+  // selected, same reason as mouseenter's guard above.
+  //
+  // That preview's re-render replaces this <li> immediately though, so the
+  // rest of the gesture (long-press-to-menu, tap-to-select) can't rely on
+  // events still landing on this now-detached element — it's tracked via
+  // document-level listeners keyed by this touch's pointerId instead, torn
+  // down the moment the pointer lifts, cancels, or moves at all (same
+  // threshold-free "any movement isn't a tap" rule the old per-element
+  // cancel used).
   li.addEventListener("pointerdown", (ev) => {
     if (ev.pointerType !== "touch") return;
     longPressTriggered = false;
-    const { clientX, clientY } = ev;
+    const { pointerId, clientX, clientY } = ev;
+    if (feed.feedId !== selectedFeedId) onHover(feed.feedId);
+
+    let longPressTimer;
+    const finish = () => {
+      clearTimeout(longPressTimer);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointercancel", onCancel, true);
+      document.removeEventListener("pointermove", onMove, true);
+    };
+    const onUp = (upEv) => {
+      if (upEv.pointerId !== pointerId) return;
+      finish();
+      onSelect(feed.feedId);
+    };
+    const onCancel = (cancelEv) => {
+      if (cancelEv.pointerId !== pointerId) return;
+      finish();
+    };
+    const onMove = (moveEv) => {
+      if (moveEv.pointerId !== pointerId) return;
+      finish();
+    };
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointercancel", onCancel, true);
+    document.addEventListener("pointermove", onMove, true);
+
     longPressTimer = setTimeout(() => {
       longPressTriggered = true;
+      finish();
       openFeedContextMenu(feed, clientX, clientY, { onTogglePause, onSetColor });
     }, LONG_PRESS_MS);
   });
-  li.addEventListener("pointerup", cancelLongPress);
-  li.addEventListener("pointercancel", cancelLongPress);
-  li.addEventListener("pointermove", cancelLongPress);
 }
 
 // One menu open at a time, tracked at module scope so opening a second one
