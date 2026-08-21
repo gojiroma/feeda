@@ -705,14 +705,18 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 /* Wide monitors (2K–4K) have room to lay the timeline out in multiple
    newspaper-style columns instead of one long, narrow, mostly-whitespace
-   column down the middle — `columns: 900px 4` auto-picks how many ~900px
-   columns fit (2 around 2K, 4 by 4K), capped at 4. break-inside keeps a
-   single log item (and its comment thread) from being split across a
-   column edge. */
+   column down the middle — `columns: 640px 4` auto-picks how many ~640px
+   columns fit, capped at 4. Deliberately sized to reach 4 well before an
+   actual 3840px-wide viewport: most "4K" displays run OS-level scaling
+   (150%/200%), so the browser's own CSS-pixel width is usually far short
+   of the panel's physical pixel count — 640px reaches 4 columns by ~2560
+   effective CSS px instead of needing the full unscaled 3840. break-inside
+   keeps a single log item (and its comment thread) from being split
+   across a column edge. */
 @media (min-width: 1920px) {
   .reflect-timeline-list {
     max-width: 3400px;
-    columns: 900px 4;
+    columns: 640px 4;
     column-gap: 32px;
   }
   .reflect-log-item {
