@@ -3,25 +3,12 @@
 // logbook.js for the data shape and main.js's renderReflect for how a day's
 // entries get here.
 
+import { COLOR_PALETTE, COLOR_BY_KEY } from "../colorPalette.js";
+
 // Right-click (desktop) or long-press (touch) an entry to tag it with one
-// of these — muted on purpose, meant to sit quietly behind the text rather
-// than compete with it. Values are the RGB triplet fed into --reflect-color
-// (see .reflect-log-item--colored / .reflect-color-swatch in style.css) —
-// the single source of truth for the palette, so nothing needs to be kept
-// in sync in CSS separately.
-const COLOR_PALETTE = [
-  { key: "1", rgb: "184,110,110" }, // dusty rose
-  { key: "2", rgb: "196,145,90" }, // clay
-  { key: "3", rgb: "190,165,90" }, // ochre
-  { key: "4", rgb: "120,150,100" }, // sage
-  { key: "5", rgb: "95,150,140" }, // teal
-  { key: "6", rgb: "100,130,170" }, // slate blue
-  { key: "7", rgb: "120,115,175" }, // indigo
-  { key: "8", rgb: "150,110,165" }, // mauve
-  { key: "9", rgb: "180,120,150" }, // dusty pink
-  { key: "10", rgb: "130,130,130" }, // gray
-];
-const COLOR_BY_KEY = new Map(COLOR_PALETTE.map((c) => [c.key, c.rgb]));
+// of COLOR_PALETTE's colors, shown as a left border + low-alpha background
+// tint via --reflect-color (see .reflect-log-item--colored /
+// .reflect-color-swatch in style.css).
 const LONG_PRESS_MS = 550;
 
 function formatTime(iso) {

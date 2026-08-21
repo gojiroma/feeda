@@ -27,6 +27,8 @@ function feedToPayload(feed) {
     // right-click/long-press) — synced so the auto-dedupe-by-host cleanup
     // (see main.js) never fights a deliberate un-pause on another device.
     userManagedPause: feed.userManagedPause || false,
+    // Context-menu color tag (see colorPalette.js) — a palette key or null.
+    color: feed.color || null,
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -89,6 +91,7 @@ export async function pullUpdates() {
       frequencyGroup: payload.frequencyGroup || null,
       paused: payload.paused || false,
       userManagedPause: payload.userManagedPause || false,
+      color: payload.color || null,
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,

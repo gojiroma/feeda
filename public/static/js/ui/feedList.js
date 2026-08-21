@@ -1,4 +1,5 @@
 import { highlightText } from "../highlight.js";
+import { COLOR_PALETTE, COLOR_BY_KEY } from "../colorPalette.js";
 
 const LONG_PRESS_MS = 550;
 
@@ -9,8 +10,9 @@ const LONG_PRESS_MS = 550;
 // keys the status level by its own key and the frequency level by
 // `${status.key}:${freqGroup.key}` (frequency keys repeat across status
 // buckets, so they need the status prefix to stay distinct).
-export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onCopyUrl }) {
+export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }) {
   container.innerHTML = "";
+  closeFeedContextMenu();
 
   if (typeof totalFeedCount === "number") {
     const summary = document.createElement("p");
@@ -69,7 +71,13 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
         const li = document.createElement("li");
         li.className =
           "feed-item" + (feed.feedId === selectedFeedId ? " selected" : "") + (feed.paused ? " paused" : "");
-        li.title = "右クリック／長押し: 取得の一時停止切替　中クリック: URLをコピー";
+        li.title = "右クリック／長押し: メニュー（更新の一時停止・色分け）　中クリック: URLをコピー";
+
+        const colorRgb = feed.color && COLOR_BY_KEY.get(feed.color);
+        if (colorRgb) {
+          li.classList.add("feed-item--colored");
+          li.style.setProperty("--feed-color", colorRgb);
+        }
 
         const nameSpan = document.createElement("span");
         nameSpan.className = "feed-name";
@@ -83,7 +91,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
           li.appendChild(dot);
         }
 
-        attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onCopyUrl }, selectedFeedId);
+        attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }, selectedFeedId);
         ul.appendChild(li);
       }
 
@@ -95,7 +103,7 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
   }
 }
 
-function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onCopyUrl }, selectedFeedId) {
+function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }, selectedFeedId) {
   let longPressTimer = null;
   let longPressTriggered = false;
   const cancelLongPress = () => clearTimeout(longPressTimer);
@@ -121,7 +129,7 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
 
   li.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
-    onTogglePause(feed.feedId);
+    openFeedContextMenu(feed, ev.clientX, ev.clientY, { onTogglePause, onSetColor });
   });
 
   li.addEventListener("auxclick", (ev) => {
@@ -135,12 +143,112 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
   li.addEventListener("pointerdown", (ev) => {
     if (ev.pointerType !== "touch") return;
     longPressTriggered = false;
+    const { clientX, clientY } = ev;
     longPressTimer = setTimeout(() => {
       longPressTriggered = true;
-      onTogglePause(feed.feedId);
+      openFeedContextMenu(feed, clientX, clientY, { onTogglePause, onSetColor });
     }, LONG_PRESS_MS);
   });
   li.addEventListener("pointerup", cancelLongPress);
   li.addEventListener("pointercancel", cancelLongPress);
   li.addEventListener("pointermove", cancelLongPress);
+}
+
+// One menu open at a time, tracked at module scope so opening a second one
+// (or clicking away, or a fresh renderFeedList rebuilding the list) always
+// closes whatever's currently showing — mirrors reflect.js's color-picker
+// singleton for the same reason.
+let activeMenu = null;
+let removeOutsideListeners = null;
+
+function closeFeedContextMenu() {
+  if (removeOutsideListeners) removeOutsideListeners();
+  removeOutsideListeners = null;
+  if (activeMenu) activeMenu.remove();
+  activeMenu = null;
+}
+
+// Right-click or long-press a feed for this menu: toggle whether it gets
+// fetched at all (paused feeds sort into their own "更新停止" group — see
+// frequency.js — and are skipped entirely by refreshAll), plus a row of
+// color swatches to tag the feed for at-a-glance grouping in the sidebar
+// (see .feed-item--colored in style.css).
+function openFeedContextMenu(feed, x, y, { onTogglePause, onSetColor }) {
+  closeFeedContextMenu();
+
+  const menu = document.createElement("div");
+  menu.className = "feed-context-menu";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const pauseItem = document.createElement("button");
+  pauseItem.type = "button";
+  pauseItem.className = "feed-context-menu-item";
+  pauseItem.textContent = feed.paused ? "更新を再開" : "更新を停止";
+  pauseItem.addEventListener("click", () => {
+    onTogglePause(feed.feedId);
+    closeFeedContextMenu();
+  });
+  menu.appendChild(pauseItem);
+
+  if (onSetColor) {
+    const swatchRow = document.createElement("div");
+    swatchRow.className = "feed-color-swatch-row";
+
+    for (const { key, rgb } of COLOR_PALETTE) {
+      const swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.className = "feed-color-swatch" + (feed.color === key ? " selected" : "");
+      swatch.style.setProperty("--feed-color", rgb);
+      swatch.title = `色${key}`;
+      swatch.addEventListener("click", () => {
+        onSetColor(feed.feedId, key);
+        closeFeedContextMenu();
+      });
+      swatchRow.appendChild(swatch);
+    }
+
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "feed-color-swatch feed-color-swatch--clear" + (!feed.color ? " selected" : "");
+    clearBtn.title = "色をクリア";
+    clearBtn.textContent = "×";
+    clearBtn.addEventListener("click", () => {
+      onSetColor(feed.feedId, null);
+      closeFeedContextMenu();
+    });
+    swatchRow.appendChild(clearBtn);
+
+    menu.appendChild(swatchRow);
+  }
+
+  document.body.appendChild(menu);
+  activeMenu = menu;
+
+  // Clamp inside the viewport now that the menu's own size is known —
+  // right-clicking/long-pressing near an edge shouldn't push part of it
+  // off-screen.
+  const rect = menu.getBoundingClientRect();
+  const maxLeft = window.innerWidth - rect.width - 8;
+  const maxTop = window.innerHeight - rect.height - 8;
+  menu.style.left = `${Math.max(8, Math.min(x, maxLeft))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, maxTop))}px`;
+
+  // Deferred a tick so the very pointerdown/contextmenu that opened this
+  // menu doesn't immediately bubble into the outside-click listener and
+  // close it again before the user sees it.
+  setTimeout(() => {
+    const onPointerDown = (ev) => {
+      if (!menu.contains(ev.target)) closeFeedContextMenu();
+    };
+    const onKeydown = (ev) => {
+      if (ev.key === "Escape") closeFeedContextMenu();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeydown, true);
+    removeOutsideListeners = () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeydown, true);
+    };
+  }, 0);
 }

@@ -390,6 +390,7 @@ function renderDesktop() {
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
+    onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
   });
 
@@ -427,6 +428,7 @@ function renderTabletTwoPane() {
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
+    onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
   });
 
@@ -442,11 +444,12 @@ function renderTabletTwoPane() {
   });
 }
 
-// Right-click or long-press a feed name to toggle whether it gets fetched
-// at all — paused feeds sort into their own "取得しない" group (see
-// frequency.js) and are skipped entirely by refreshAll, even when forced.
-// Marks the feed userManagedPause so autoPauseDuplicateFeeds (below) never
-// overrides a deliberate choice the user made either way.
+// "更新を停止/再開" in the feed context menu (see ui/feedList.js) — toggles
+// whether the feed gets fetched at all. Paused feeds sort into their own
+// "更新停止" group (see frequency.js) and are skipped entirely by
+// refreshAll, even when forced. Marks the feed userManagedPause so
+// autoPauseDuplicateFeeds (below) never overrides a deliberate choice the
+// user made either way.
 async function togglePauseFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -459,6 +462,20 @@ async function togglePauseFeed(feedId) {
     updated = { ...updated, readUntil: new Date().toISOString() };
     if (updated.latestContentHash) updated = { ...updated, contentHash: updated.latestContentHash };
   }
+  await markFeedDirty(updated);
+  state.feedsById.set(feedId, updated);
+  render();
+  syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// Right-click/long-press context menu's color row — tags a feed with one of
+// COLOR_PALETTE's colors (see colorPalette.js) for at-a-glance grouping in
+// the sidebar (.feed-item--colored in style.css), same mechanism as reflect
+// entry color-tagging. colorKey null clears the tag.
+async function setFeedColor(feedId, colorKey) {
+  const feed = state.feedsById.get(feedId);
+  if (!feed) return;
+  const updated = { ...feed, color: colorKey || null };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
   render();
