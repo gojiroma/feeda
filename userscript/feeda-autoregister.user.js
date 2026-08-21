@@ -2,7 +2,7 @@
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
 // @version      1.4.0
-// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages to your feeda reading log, with a manual "record this page" button for pages that aren't article-shaped. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
+// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages (or pages matching a user-registered URL pattern) to your feeda reading log. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -26,6 +26,7 @@
   // design this backs.
   const AUTO_LOG_WHITELIST_KEY = "feeda_autoLogWhitelist"; // string[] of hostnames, user-managed only
   const AUTO_LOG_BLACKLIST_KEY = "feeda_autoLogBlacklist"; // string[] of hostnames, user additions on top of BUILTIN_BLACKLIST_HOSTS
+  const AUTO_LOG_URL_PATTERNS_KEY = "feeda_autoLogUrlPatterns"; // string[] of wildcard URL patterns, user-managed — see wildcardToRegExp
   const AUTO_LOGGED_URLS_KEY = "feeda_autoLoggedUrls"; // { [url]: loggedAtMs } — dedupe cache, see markAutoLogged
   const AUTO_LOG_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // don't re-log the same URL again within a day
 
@@ -337,29 +338,38 @@
   //      target third-party *resources* a page loads, not the top-level
   //      page itself, and auth hosts like accounts.google.com generally
   //      aren't in them anyway since they're not ad/tracker domains.
-  //   2. AUTO_LOG_WHITELIST_KEY (GM storage, user-added only — no built-ins:
+  //   2. AUTO_LOG_URL_PATTERNS_KEY (GM storage, user-added only) — wildcard
+  //      URL patterns (see wildcardToRegExp) that, when matched, log the
+  //      page directly and skip both #3 and #4 below. This is the escape
+  //      hatch for pages that will never carry OGP/schema.org article
+  //      markup — a broadcaster's program-detail page, a wiki entry, a
+  //      forum thread — where the user knows the URL shape they want
+  //      logged (e.g. registering .../program/detail/*/* after visiting
+  //      .../program/detail/202608/26355_202608162200.html) better than any
+  //      generic heuristic could guess it.
+  //   3. AUTO_LOG_WHITELIST_KEY (GM storage, user-added only — no built-ins:
   //      there's no universal "safe to auto-log" list, it's whatever sites
-  //      you actually read) — the gate for even bothering to check #3.
-  //   3. looksLikeArticle() — the page's own OGP/schema.org markup, checked
-  //      only once a hostname clears 1 and 2. This is what makes a *host*
-  //      whitelist workable even for large multi-author platforms (note.com,
-  //      zenn.dev, qiita.com, ...): individual article pages there declare
-  //      og:type=article / a schema.org Article-family type, but listing,
-  //      profile, and search pages don't, so whitelisting the whole host
-  //      doesn't mean logging everything under it.
+  //      you actually read) — the gate for even bothering to check #4.
+  //   4. looksLikeArticle() — the page's own OGP/schema.org markup, checked
+  //      only once a hostname clears 1 and 3 (and no pattern from #2
+  //      matched). This is what makes a *host* whitelist workable even for
+  //      large multi-author platforms (note.com, zenn.dev, qiita.com, ...):
+  //      individual article pages there declare og:type=article / a
+  //      schema.org Article-family type, but listing, profile, and search
+  //      pages don't, so whitelisting the whole host doesn't mean logging
+  //      everything under it.
   //
-  //   Hostnames in both lists match exact-or-subdomain (see hostMatches):
-  //   whitelisting "example.com" also covers "blog.example.com", which
-  //   handles subdomain-per-author platforms (hatenablog.com etc.) without
-  //   extra syntax, while still allowing a single specific subdomain to be
-  //   whitelisted/blacklisted on its own.
+  //   Hostnames in the block/whitelist match exact-or-subdomain (see
+  //   hostMatches): whitelisting "example.com" also covers
+  //   "blog.example.com", which handles subdomain-per-author platforms
+  //   (hatenablog.com etc.) without extra syntax, while still allowing a
+  //   single specific subdomain to be whitelisted/blacklisted on its own.
   //
   //   No `<article>`-tag fallback when OGP/schema.org markup is absent —
   //   deliberately conservative, since that tag gets misused for layout
-  //   often enough to produce false positives. A page that's missed can
-  //   still be recorded by hand: from within the feeda webapp itself, or via
-  //   the corner widget's "このページを記録" button (see manualLogPage),
-  //   which bypasses both looksLikeArticle() and the whitelist check.
+  //   often enough to produce false positives. A page that's missed and
+  //   doesn't fit a reusable URL pattern can still be added by hand from
+  //   within the feeda webapp itself.
   //
   //   Removing a BUILTIN_BLACKLIST_HOSTS entry isn't supported yet (there's
   //   no "un-blacklist a built-in" override list) — not expected to matter
@@ -400,6 +410,29 @@
 
   function matchesAnyHost(list, hostname) {
     return list.some((entry) => hostMatches(entry, hostname));
+  }
+
+  function escapeRegExpLiteral(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  // "*" matches any run of characters (including none); everything else in
+  // the pattern is matched literally. Anchored on both ends so a pattern
+  // like ".../detail/*/" only matches URLs shaped like the one it was
+  // written from, not "contains this substring anywhere".
+  function wildcardToRegExp(pattern) {
+    const parts = pattern.split("*").map(escapeRegExpLiteral);
+    return new RegExp(`^${parts.join(".*")}$`);
+  }
+
+  function matchesAnyUrlPattern(patterns, url) {
+    return patterns.some((pattern) => {
+      try {
+        return wildcardToRegExp(pattern).test(url);
+      } catch {
+        return false; // malformed pattern shouldn't crash the whole check
+      }
+    });
   }
 
   // Walks parsed JSON-LD looking for @type, including the @graph wrapper
@@ -494,33 +527,34 @@
   }
 
   // Returns whether a log entry was actually pushed — the widget's
-  // "許可リストに追加" button re-runs this right after whitelisting the
-  // current host (see below) so the page being read right now gets logged
-  // immediately instead of only from the next page load onward, and uses
-  // the return value to tell the user whether that happened.
+  // "許可リストに追加" and "URLパターンを登録" buttons re-run this right
+  // after saving their respective entry (see below) so the page being read
+  // right now gets logged immediately instead of only from the next page
+  // load onward, and use the return value to tell the user whether that
+  // happened.
   //
-  // `manual: true` (see manualLogPage below) skips both the whitelist gate
-  // and looksLikeArticle(): those two checks exist only to keep the
-  // automatic, every-page-load path from over-logging, but a user
-  // deliberately clicking "record this page" on the page they're looking
-  // at is already as targeted a signal as the checks are trying to
-  // approximate — including for pages that aren't article-shaped (a
-  // listing page, a tool, a PDF viewer, ...) and so would never pass
-  // looksLikeArticle() no matter how long the host stays whitelisted.
-  async function logPage({ manual = false } = {}) {
+  // A URL-pattern match (see AUTO_LOG_URL_PATTERNS_KEY design note above)
+  // skips both the host whitelist and looksLikeArticle(): the user already
+  // pinned down the exact URL shape they want logged, which is a more
+  // specific signal than either of those two checks is trying to
+  // approximate — including for pages that will never carry OGP/schema.org
+  // article markup at all.
+  async function autoLogPage() {
     const seed = GM_getValue(SEED_KEY, "");
     const apiBase = GM_getValue(API_BASE_KEY, "");
     if (!seed || !apiBase) return false;
 
     const hostname = location.hostname;
+    const url = location.href.split("#")[0];
     const blacklist = BUILTIN_BLACKLIST_HOSTS.concat(GM_getValue(AUTO_LOG_BLACKLIST_KEY, []));
     if (matchesAnyHost(blacklist, hostname)) return false;
-    if (!manual) {
+
+    const patternMatched = matchesAnyUrlPattern(GM_getValue(AUTO_LOG_URL_PATTERNS_KEY, []), url);
+    if (!patternMatched) {
       if (!matchesAnyHost(GM_getValue(AUTO_LOG_WHITELIST_KEY, []), hostname)) return false;
       if (!looksLikeArticle()) return false;
     }
 
-    const url = location.href.split("#")[0];
     if (alreadyAutoLogged(url)) return false;
 
     const [accountId, encKey] = await Promise.all([deriveAccountId(seed), deriveEncKey(seed)]);
@@ -531,14 +565,6 @@
     });
     if (ok) markAutoLogged(url);
     return ok;
-  }
-
-  function autoLogPage() {
-    return logPage();
-  }
-
-  function manualLogPage() {
-    return logPage({ manual: true });
   }
 
   // A page's top frame only — an iframe (ad slot, embedded widget, ...)
@@ -590,12 +616,23 @@
         }
         .panel button.primary { border-color: #16a34a; background: #16a34a; color: #fff; }
         .panel button.danger { border-color: #dc2626; color: #dc2626; background: #fff; }
+        .panel .patterns { margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee; }
+        .panel .patterns-label { margin: 0 0 6px; font-size: 11px; color: #666; font-weight: 600; }
+        .panel .pattern-row {
+          display: flex; align-items: center; gap: 6px; margin-bottom: 4px; padding: 4px 6px;
+          background: #f5f5f5; border-radius: 4px; font-size: 11px;
+        }
+        .panel .pattern-row span { flex: 1; word-break: break-all; font-family: monospace; }
+        .panel .pattern-row button.pattern-del {
+          all: unset; cursor: pointer; color: #dc2626; font-weight: 700; padding: 0 4px;
+        }
       </style>
       <button class="badge" type="button" title="feeda 自動記録"></button>
       <div class="panel">
         <h3></h3>
         <p class="status"></p>
         <div class="actions"></div>
+        <div class="patterns"></div>
       </div>
     `;
 
@@ -604,13 +641,16 @@
     const titleEl = shadow.querySelector(".panel h3");
     const statusEl = shadow.querySelector(".panel .status");
     const actionsEl = shadow.querySelector(".panel .actions");
+    const patternsEl = shadow.querySelector(".panel .patterns");
 
     // onClick may return a string (shown in place of the usual computed
     // status line, e.g. to report what autoLogPage() just did) or nothing
     // (falls back to the computed status). It may also be async — the
-    // 許可リストに追加 handler below awaits autoLogPage() before its
-    // message is shown.
-    function addActionButton(label, cls, onClick) {
+    // 許可リストに追加 and URLパターンを登録 handlers below await
+    // autoLogPage() before their message is shown. `container` defaults to
+    // the whitelist/blacklist actions area; pass a different element (e.g. a
+    // single pattern row) to place the button elsewhere in the panel.
+    function addActionButton(label, cls, onClick, container = actionsEl) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = label;
@@ -620,18 +660,22 @@
         const message = await onClick();
         render(message);
       });
-      actionsEl.appendChild(btn);
+      container.appendChild(btn);
     }
 
     function render(statusOverride) {
       const whitelist = GM_getValue(AUTO_LOG_WHITELIST_KEY, []);
       const blacklist = GM_getValue(AUTO_LOG_BLACKLIST_KEY, []);
+      const patterns = GM_getValue(AUTO_LOG_URL_PATTERNS_KEY, []);
+      const currentUrl = location.href.split("#")[0];
       const isBuiltinBlacklisted = matchesAnyHost(BUILTIN_BLACKLIST_HOSTS, hostname);
       const whitelisted = matchesAnyHost(whitelist, hostname);
       const blacklisted = matchesAnyHost(blacklist, hostname) || isBuiltinBlacklisted;
+      const patternMatched = !blacklisted && matchesAnyUrlPattern(patterns, currentUrl);
 
-      badgeEl.textContent = whitelisted ? "✓" : blacklisted ? "×" : "…";
-      badgeEl.className = "badge" + (whitelisted ? " whitelisted" : "") + (blacklisted ? " blacklisted" : "");
+      badgeEl.textContent = whitelisted || patternMatched ? "✓" : blacklisted ? "×" : "…";
+      badgeEl.className =
+        "badge" + (whitelisted || patternMatched ? " whitelisted" : "") + (blacklisted ? " blacklisted" : "");
 
       titleEl.textContent = hostname;
       statusEl.textContent =
@@ -640,7 +684,9 @@
           ? "許可リストに登録済み。記事ページを自動で記録します。"
           : blacklisted
             ? "除外リストに登録済み。常に対象外です。"
-            : "未登録。自動記録の対象外です。");
+            : patternMatched
+              ? "このURLは登録済みのURLパターンに一致しています。自動で記録します。"
+              : "未登録。自動記録の対象外です。");
 
       actionsEl.innerHTML = "";
       if (whitelisted) {
@@ -661,7 +707,7 @@
           const logged = await autoLogPage();
           if (logged) return "許可リストに追加し、このページも記録しました。";
           if (!looksLikeArticle()) {
-            return "許可リストに追加しました。このページは記事として認識されなかったため自動記録の対象外ですが、下の「このページを記録」ボタンで手動記録できます。";
+            return "許可リストに追加しました。このページは記事として認識されなかったため自動記録の対象外ですが、下の「URLパターンを登録」で個別に対象にできます。";
           }
           return "許可リストに追加しました。（このページは記録済みか、記録に失敗しました）";
         });
@@ -683,18 +729,65 @@
         });
       }
 
-      // Manual log button: works on any non-blacklisted page regardless of
-      // whitelist status or looksLikeArticle(), so pages that don't declare
-      // OGP/schema.org article markup — or hosts you haven't whitelisted at
-      // all — can still be recorded with one click.
-      if (!blacklisted) {
-        addActionButton("このページを記録（記事形式でなくてもOK）", "", async () => {
-          const logged = await manualLogPage();
-          return logged
-            ? "このページを記録しました。"
-            : "記録できませんでした（既に記録済みの可能性があります）。";
-        });
+      renderPatterns(patterns, currentUrl, blacklisted);
+    }
+
+    // URL patterns work independently of the host whitelist: a page can be
+    // logged because its URL matches a registered pattern even on a host
+    // that was never whitelisted, and won't be logged via a pattern on a
+    // blacklisted host regardless (autoLogPage() checks the blacklist
+    // first). See the AUTO_LOG_URL_PATTERNS_KEY design note above.
+    function renderPatterns(patterns, currentUrl, blacklisted) {
+      patternsEl.innerHTML = "";
+      if (blacklisted) return;
+
+      if (patterns.length > 0) {
+        const label = document.createElement("p");
+        label.className = "patterns-label";
+        label.textContent = "登録済みURLパターン:";
+        patternsEl.appendChild(label);
+
+        for (const pattern of patterns) {
+          const row = document.createElement("div");
+          row.className = "pattern-row";
+          const span = document.createElement("span");
+          span.textContent = pattern;
+          span.title = pattern;
+          row.appendChild(span);
+          patternsEl.appendChild(row);
+          addActionButton(
+            "×",
+            "pattern-del",
+            () => {
+              const list = GM_getValue(AUTO_LOG_URL_PATTERNS_KEY, []);
+              GM_setValue(AUTO_LOG_URL_PATTERNS_KEY, list.filter((p) => p !== pattern));
+            },
+            row
+          );
+        }
       }
+
+      addActionButton(
+        "URLパターンを登録...",
+        "",
+        async () => {
+          const input = prompt(
+            "このパターンに一致するURLを、記事形式でなくても自動記録します。\n" +
+              "「*」はワイルドカードです。日付やIDの部分を * に置き換えてください。\n" +
+              "例: https://example.com/articles/2026/08/12345 → https://example.com/articles/*",
+            currentUrl
+          );
+          if (input === null || !input.trim()) return;
+          const pattern = input.trim();
+          const list = GM_getValue(AUTO_LOG_URL_PATTERNS_KEY, []);
+          if (!list.includes(pattern)) GM_setValue(AUTO_LOG_URL_PATTERNS_KEY, [...list, pattern]);
+          const logged = await autoLogPage();
+          return logged
+            ? `パターンを登録し、このページも記録しました。\n${pattern}`
+            : `パターンを登録しました。\n${pattern}`;
+        },
+        patternsEl
+      );
     }
 
     badgeEl.addEventListener("click", (ev) => {
