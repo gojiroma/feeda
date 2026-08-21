@@ -3,6 +3,7 @@ import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./se
 import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { syncLogNow } from "./logSync.js";
+import { syncSearchHistoryNow } from "./searchSync.js";
 import {
   recordOpen,
   addComment,
@@ -847,6 +848,11 @@ async function refreshAll({ force = false } = {}) {
     await syncLogNow();
   } catch (err) {
     console.error("log sync failed", err);
+  }
+  try {
+    await syncSearchHistoryNow();
+  } catch (err) {
+    console.error("search history sync failed", err);
   }
   await loadAppData();
   render();

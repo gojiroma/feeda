@@ -39,10 +39,12 @@ def create_app():
 
     from routes.sync import sync_bp
     from routes.log_sync import log_sync_bp
+    from routes.search_sync import search_sync_bp
     from routes.proxy import proxy_bp
 
     app.register_blueprint(sync_bp)
     app.register_blueprint(log_sync_bp)
+    app.register_blueprint(search_sync_bp)
     app.register_blueprint(proxy_bp)
 
     @app.get("/api/healthz")

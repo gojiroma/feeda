@@ -4,6 +4,7 @@
 const ACCOUNT_ID_INFO = "feeda:account-id";
 const ENC_KEY_INFO = "feeda:enc-key";
 const FEED_ID_INFO = "feeda:feed-id";
+const SEARCH_ID_INFO = "feeda:search-id";
 
 function toBytes(str) {
   return new TextEncoder().encode(str);
@@ -82,6 +83,22 @@ export async function deriveFeedId(seed, feedUrl) {
   combined.set(seedBytes, 0);
   combined.set(infoBytes, seedBytes.length);
   combined.set(urlBytes, seedBytes.length + infoBytes.length);
+  const digest = await crypto.subtle.digest("SHA-256", combined);
+  return bytesToHex(digest);
+}
+
+// query is hashed as-is (trimmed, not lowercased) so it lines up with the
+// searchHistory store's keyPath in db.js — the same query text always
+// derives the same id, so re-searching it on any device updates the one
+// synced row instead of creating a duplicate.
+export async function deriveSearchId(seed, query) {
+  const seedBytes = toBytes(seed.trim());
+  const infoBytes = toBytes(SEARCH_ID_INFO);
+  const queryBytes = toBytes(query.trim());
+  const combined = new Uint8Array(seedBytes.length + infoBytes.length + queryBytes.length);
+  combined.set(seedBytes, 0);
+  combined.set(infoBytes, seedBytes.length);
+  combined.set(queryBytes, seedBytes.length + infoBytes.length);
   const digest = await crypto.subtle.digest("SHA-256", combined);
   return bytesToHex(digest);
 }
