@@ -40,8 +40,11 @@ function renderComment(comment) {
 
 // One picker open at a time, tracked at module scope so opening a second
 // one (or clicking away) always closes whatever's currently showing rather
-// than each row having to know about siblings.
+// than each row having to know about siblings. activePickerLogId lets
+// renderReflectTimeline (below) tell a picker that's still relevant apart
+// from one left dangling by navigating away — see the comment there.
 let activePicker = null;
+let activePickerLogId = null;
 let removeOutsideListeners = null;
 
 function closeColorPicker() {
@@ -49,6 +52,7 @@ function closeColorPicker() {
   removeOutsideListeners = null;
   if (activePicker) activePicker.remove();
   activePicker = null;
+  activePickerLogId = null;
 }
 
 function openColorPicker(logEntry, x, y, onSetColor) {
@@ -85,6 +89,7 @@ function openColorPicker(logEntry, x, y, onSetColor) {
 
   document.body.appendChild(picker);
   activePicker = picker;
+  activePickerLogId = logEntry.id;
 
   // Clamp inside the viewport now that the picker's own size is known —
   // right-clicking/long-pressing near an edge shouldn't push part of it
@@ -210,7 +215,17 @@ function renderLogItem(logEntry, onAddComment, onSetColor) {
 
 export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, emptyHint }) {
   container.innerHTML = "";
-  closeColorPicker();
+  // The picker lives in document.body (see openColorPicker), so rebuilding
+  // this list doesn't touch it — closing it unconditionally on every redraw
+  // used to be the only thing that did. That made it slam shut mid-pick
+  // whenever a background sync (new unread items logged elsewhere, the
+  // REFLECT_LIVE_REFRESH_MS timer, ...) redrew the timeline underneath the
+  // user. Only close it when the entry it's anchored to has actually
+  // dropped out of view (date changed, search cleared it, etc.) — a picker
+  // whose entry is still on screen stays open across an unrelated redraw.
+  if (activePickerLogId !== null && !entries.some((e) => e.id === activePickerLogId)) {
+    closeColorPicker();
+  }
 
   if (entries.length === 0) {
     const hint = document.createElement("p");

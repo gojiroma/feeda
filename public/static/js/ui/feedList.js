@@ -12,7 +12,17 @@ const LONG_PRESS_MS = 550;
 // buckets, so they need the status prefix to stay distinct).
 export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }) {
   container.innerHTML = "";
-  closeFeedContextMenu();
+  // The menu lives in document.body (see openFeedContextMenu), so rebuilding
+  // this list doesn't touch it — closing it unconditionally on every redraw
+  // used to be the only thing that did. That made it slam shut mid-pick
+  // during a feed crawl: refreshAll() calls render() after every feed it
+  // fetches, so an open menu never survived past the next feed finishing.
+  // Only close it when the feed it's anchored to has actually dropped out
+  // of the list (e.g. filtered out by a search) — a menu whose feed is
+  // still present stays open across an unrelated redraw.
+  if (activeMenuFeedId !== null && !groups.some((g) => g.subgroups.some((sg) => sg.feeds.some((f) => f.feedId === activeMenuFeedId)))) {
+    closeFeedContextMenu();
+  }
 
   if (typeof totalFeedCount === "number") {
     const summary = document.createElement("p");
@@ -189,10 +199,12 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
 }
 
 // One menu open at a time, tracked at module scope so opening a second one
-// (or clicking away, or a fresh renderFeedList rebuilding the list) always
-// closes whatever's currently showing — mirrors reflect.js's color-picker
-// singleton for the same reason.
+// (or clicking away) always closes whatever's currently showing — mirrors
+// reflect.js's color-picker singleton for the same reason. activeMenuFeedId
+// lets renderFeedList (above) tell a menu that's still relevant apart from
+// one left dangling by the feed it's anchored to disappearing.
 let activeMenu = null;
+let activeMenuFeedId = null;
 let removeOutsideListeners = null;
 
 function closeFeedContextMenu() {
@@ -200,6 +212,7 @@ function closeFeedContextMenu() {
   removeOutsideListeners = null;
   if (activeMenu) activeMenu.remove();
   activeMenu = null;
+  activeMenuFeedId = null;
 }
 
 // Right-click or long-press a feed for this menu: toggle whether it gets
@@ -258,6 +271,7 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onSetColor }) {
 
   document.body.appendChild(menu);
   activeMenu = menu;
+  activeMenuFeedId = feed.feedId;
 
   // Clamp inside the viewport now that the menu's own size is known —
   // right-clicking/long-pressing near an edge shouldn't push part of it
