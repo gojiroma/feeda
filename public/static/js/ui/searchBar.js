@@ -1,5 +1,6 @@
 import { debounce } from "../search.js";
 import { recordSearchHistory, getSearchHistory } from "../db.js";
+import { syncSearchHistoryNow } from "../searchSync.js";
 
 const MAX_VISIBLE_HISTORY = 8;
 
@@ -49,6 +50,12 @@ export function setupSearchBar(inputEl, onQuery, wait = 150) {
     dropdownEl.classList.remove("hidden");
   }
 
+  function recordAndSync(query) {
+    recordSearchHistory(query)
+      .then(() => syncSearchHistoryNow())
+      .catch((err) => console.error("search history sync failed", err));
+  }
+
   function hideDropdown() {
     if (dropdownEl) dropdownEl.classList.add("hidden");
   }
@@ -56,7 +63,7 @@ export function setupSearchBar(inputEl, onQuery, wait = 150) {
   function selectHistoryItem(query) {
     inputEl.value = query;
     onQuery(query);
-    recordSearchHistory(query).catch((err) => console.error("search history save failed", err));
+    recordAndSync(query);
     hideDropdown();
   }
 
@@ -82,7 +89,7 @@ export function setupSearchBar(inputEl, onQuery, wait = 150) {
   inputEl.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter") {
       const trimmed = inputEl.value.trim();
-      if (trimmed) recordSearchHistory(trimmed).catch((err) => console.error("search history save failed", err));
+      if (trimmed) recordAndSync(trimmed);
       hideDropdown();
     } else if (ev.key === "Escape") {
       hideDropdown();

@@ -1,3 +1,6 @@
+import { deriveSearchId } from "./crypto.js";
+import { getSession } from "./session.js";
+
 const DB_NAME = "feeda";
 const DB_VERSION = 4;
 
@@ -40,9 +43,10 @@ export function openDb() {
       // Main-screen search history (see searchBar.js) — keyed by the
       // search text itself rather than a random id, so recording the same
       // query again is a plain put() that overwrites lastUsedAt in place
-      // instead of piling up duplicate rows. Local-only, not synced: it's
-      // a per-device typing convenience, not reading data worth carrying
-      // across devices.
+      // instead of piling up duplicate rows. Synced across devices (see
+      // searchSync.js) the same way feeds/log entries are, via a
+      // content-derived searchId (deriveSearchId in crypto.js) rather than
+      // the query text itself, since the query is what gets encrypted.
       if (!db.objectStoreNames.contains("searchHistory")) {
         const searchHistory = db.createObjectStore("searchHistory", { keyPath: "query" });
         searchHistory.createIndex("lastUsedAt", "lastUsedAt", { unique: false });
@@ -182,17 +186,40 @@ const SEARCH_HISTORY_LIMIT = 20;
 // put() with the query text itself as the key means searching the same
 // thing again overwrites the existing row's lastUsedAt in place rather than
 // adding a second one — that's the entire "same word ranks higher" rule
-// from getSearchHistory's sort, no separate use-count needed.
+// from getSearchHistory's sort, no separate use-count needed. dirty +
+// clientUpdatedAt mark it for searchSync.js to push, same as feeds/logs.
 export async function recordSearchHistory(query) {
   const trimmed = query.trim();
   if (!trimmed) return;
+  const { seed } = getSession();
+  const searchId = await deriveSearchId(seed, trimmed);
+  await putSearchHistoryEntry({
+    query: trimmed,
+    lastUsedAt: new Date().toISOString(),
+    searchId,
+    clientUpdatedAt: new Date().toISOString(),
+    dirty: true,
+  });
+}
+
+export async function putSearchHistoryEntry(entry) {
   const db = await openDb();
   const t = tx(db, "searchHistory", "readwrite");
-  t.objectStore("searchHistory").put({ query: trimmed, lastUsedAt: new Date().toISOString() });
+  t.objectStore("searchHistory").put(entry);
   return new Promise((resolve, reject) => {
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);
   });
+}
+
+export async function getSearchHistoryEntry(query) {
+  const db = await openDb();
+  return reqToPromise(tx(db, "searchHistory", "readonly").objectStore("searchHistory").get(query));
+}
+
+export async function getAllSearchHistoryEntries() {
+  const db = await openDb();
+  return reqToPromise(tx(db, "searchHistory", "readonly").objectStore("searchHistory").getAll());
 }
 
 // Most-recently-used first — a query moved to "now" by being searched again
@@ -200,8 +227,7 @@ export async function recordSearchHistory(query) {
 // ranking rule (repeat search bumps it up; everything else stays in the
 // order it was last used) without tracking frequency separately.
 export async function getSearchHistory(limit = SEARCH_HISTORY_LIMIT) {
-  const db = await openDb();
-  const all = await reqToPromise(tx(db, "searchHistory", "readonly").objectStore("searchHistory").getAll());
+  const all = await getAllSearchHistoryEntries();
   all.sort((a, b) => (b.lastUsedAt || "").localeCompare(a.lastUsedAt || ""));
   return all.slice(0, limit);
 }
