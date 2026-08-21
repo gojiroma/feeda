@@ -215,6 +215,15 @@ function currentFeedGroups() {
 let collapsedGroups = null;
 
 function collapsedGroupsFor(tree) {
+  // While a color filter is active, `tree` already only contains matching
+  // feeds (see currentFeedGroups) — force every group open so they're all
+  // visible at a glance instead of making the user click into each
+  // frequency group to go check. A fresh Set each call rather than
+  // mutating/returning the persisted one below, so this is purely a
+  // rendering override: manual collapse-state from before the filter was
+  // applied comes back untouched once it's cleared.
+  if (state.feedColorFilter.size > 0) return new Set();
+
   if (collapsedGroups === null) {
     collapsedGroups = new Set();
     for (const { status, subgroups } of tree) {
