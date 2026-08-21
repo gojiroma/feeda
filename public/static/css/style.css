@@ -114,6 +114,32 @@ input[type="text"], input[type="url"], input[type="search"] {
   display: flex;
   flex-direction: column;
 }
+/* Faint fixed clock, sized so "HH:MM" spans roughly half the viewport
+   width — sits above every screen (panes, mobile list, reflect) since it's
+   a direct child of .app, not any one of them, but below the modal/menu
+   layers (z-index 20/30 — the seed modal, feed context menu, color picker)
+   so those still read as on top of it. pointer-events:none and a low
+   opacity keep it out of the way of both clicks and actually reading the
+   content underneath; the tabular-nums variant keeps the digits from
+   jittering sideways against the fixed-width colon as the minute ticks
+   over. Updated from main.js's updateClockWatermark. */
+.clock-watermark {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 15;
+  font-size: 17vw;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text);
+  opacity: 0.06;
+  user-select: none;
+  white-space: nowrap;
+}
 .topbar {
   display: flex;
   align-items: center;
@@ -210,6 +236,55 @@ input[type="text"], input[type="url"], input[type="search"] {
   width: 260px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
+}
+/* Filter row above the feed list (see renderFeedColorFilter in
+   ui/feedList.js) — only holds swatches for colors actually in use on some
+   feed, so it's empty (and hidden via :empty) until at least one feed is
+   color-tagged. Sticky so it stays reachable without scrolling back to the
+   top of a long subscription list. */
+.feed-color-filter {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.feed-color-filter:empty {
+  display: none;
+}
+.feed-color-filter-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: rgb(var(--feed-color));
+  opacity: 0.55;
+  cursor: pointer;
+}
+.feed-color-filter-swatch:hover {
+  opacity: 0.85;
+}
+.feed-color-filter-swatch.selected {
+  opacity: 1;
+  border-color: var(--text);
+}
+.feed-color-filter-clear {
+  all: unset;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.feed-color-filter-clear:hover {
+  color: var(--text);
 }
 .article-pane {
   width: 380px;

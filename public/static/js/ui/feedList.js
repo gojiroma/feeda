@@ -3,6 +3,41 @@ import { COLOR_PALETTE, COLOR_BY_KEY } from "../colorPalette.js";
 
 const LONG_PRESS_MS = 550;
 
+// The filter row above the feed list (see .feed-color-filter in style.css)
+// — one swatch per color that's actually tagged on some feed (no point
+// offering a filter for a color nobody's used), each toggling that color's
+// membership in `activeColors`. A feed shows if it matches any active
+// color (see currentFeedGroups in main.js); an empty activeColors set means
+// no filter, and the whole row disappears (via :empty) once nothing is
+// tagged at all.
+export function renderFeedColorFilter(container, { feeds, activeColors, onToggleColor }) {
+  container.innerHTML = "";
+  const usedColors = new Set(feeds.map((f) => f.color).filter(Boolean));
+  if (usedColors.size === 0) return;
+
+  for (const { key, rgb } of COLOR_PALETTE) {
+    if (!usedColors.has(key)) continue;
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "feed-color-filter-swatch" + (activeColors.has(key) ? " selected" : "");
+    swatch.style.setProperty("--feed-color", rgb);
+    swatch.title = activeColors.has(key) ? "この色のフィルターを解除" : "この色のフィードだけ表示";
+    swatch.setAttribute("aria-pressed", String(activeColors.has(key)));
+    swatch.addEventListener("click", () => onToggleColor(key));
+    container.appendChild(swatch);
+  }
+
+  if (activeColors.size > 0) {
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "feed-color-filter-clear";
+    clearBtn.textContent = "×";
+    clearBtn.title = "色フィルターをすべて解除";
+    clearBtn.addEventListener("click", () => onToggleColor(null));
+    container.appendChild(clearBtn);
+  }
+}
+
 // `groups` is a two-level tree: outer entries are read-status buckets (未読
 // / 既読 / 更新停止, see frequency.js's groupFeedsByFrequency), each holding
 // its own posting-frequency breakdown as `subgroups`. Rendered as nested

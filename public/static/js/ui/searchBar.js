@@ -65,7 +65,15 @@ export function setupSearchBar(inputEl, onQuery, wait = 150) {
     refreshDropdown().catch((err) => console.error("search history load failed", err));
   });
 
+  // Clearing on every focus (rather than leaving the last query sitting
+  // there) means clicking back into the box is always a fresh start —
+  // pick something off the history dropdown (still populated below) rather
+  // than having to manually select-all/delete the old query first.
   inputEl.addEventListener("focus", () => {
+    if (inputEl.value) {
+      inputEl.value = "";
+      onQuery("");
+    }
     refreshDropdown().catch((err) => console.error("search history load failed", err));
   });
 

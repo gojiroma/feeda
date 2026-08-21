@@ -17,7 +17,7 @@ import {
 import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
-import { renderFeedList } from "./ui/feedList.js";
+import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
@@ -30,12 +30,14 @@ import { updateFavicon } from "./favicon.js";
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
 const feedListEl = document.getElementById("feed-list");
+const feedColorFilterEl = document.getElementById("feed-color-filter");
 const articleListEl = document.getElementById("article-list");
 const previewEl = document.getElementById("preview");
 const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
 const mobileListEl = document.getElementById("mobile-article-list");
+const clockWatermarkEl = document.getElementById("clock-watermark");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
@@ -78,6 +80,17 @@ const state = {
   selectedFeedId: null,
   selectedEntry: null,
   searchQuery: "",
+  // The most recent non-empty search query, kept around after searchQuery
+  // itself goes back to "" (search cleared, or the box auto-clearing on
+  // every focus — see searchBar.js). Powers highlightQuery() below so
+  // article titles/body text keep showing what you were just looking for
+  // even once you're back to browsing the full unread list.
+  lastSearchQuery: "",
+  // Color-tag keys (see colorPalette.js) currently toggled on in the feed
+  // list's filter row — see renderFeedColorFilter in ui/feedList.js and
+  // toggleFeedColorFilter below. A feed matches if it has any color in
+  // this set; empty means no filter, show every feed.
+  feedColorFilter: new Set(),
   focusedPane: "article",
   keyboardNavActive: false,
   // "view" is the normal reading UI; "reflect" swaps in the activity-log
@@ -161,6 +174,16 @@ async function refreshFeedInState(feedId) {
   state.unreadTimelineSnapshot = null;
 }
 
+// Article titles and preview/body text highlight this instead of the live
+// searchQuery — falls back to the last non-empty query once the box is
+// cleared, so what you were just searching for stays visually marked while
+// browsing. Feed names deliberately keep using the live searchQuery
+// directly (see renderDesktop/renderTabletTwoPane) instead of this, so
+// they only highlight while a search is actually active.
+function highlightQuery() {
+  return state.searchQuery.trim() || state.lastSearchQuery;
+}
+
 function currentFeedGroups() {
   let feeds = [...state.feedsById.values()];
   const query = state.searchQuery;
@@ -170,6 +193,9 @@ function currentFeedGroups() {
       if (searchEntries(query, entries, state.feedTitleById).length > 0) matchingFeedIds.add(feedId);
     }
     feeds = feeds.filter((f) => matchingFeedIds.has(f.feedId));
+  }
+  if (state.feedColorFilter.size > 0) {
+    feeds = feeds.filter((f) => f.color && state.feedColorFilter.has(f.color));
   }
   const feedsWithEntries = feeds.map((feed) => ({
     feed: { ...feed, hasUnread: hasUnread(feed) },
@@ -408,9 +434,23 @@ function scheduleLogSync() {
   }, 1000);
 }
 
+// Shared by renderDesktop and renderTabletTwoPane — the only two layouts
+// with a feed pane at all (mobile's renderMobile is article-list-only).
+// Uses every registered feed, not currentFeedGroups()'s already-filtered
+// result, so the swatch row itself doesn't shrink away once a filter (or a
+// search query) narrows the list down to feeds of just one color.
+function renderFeedColorFilterBar() {
+  renderFeedColorFilter(feedColorFilterEl, {
+    feeds: [...state.feedsById.values()],
+    activeColors: state.feedColorFilter,
+    onToggleColor: toggleFeedColorFilter,
+  });
+}
+
 function renderDesktop() {
   const query = state.searchQuery;
   const feedGroups = currentFeedGroups();
+  renderFeedColorFilterBar();
 
   renderFeedList(feedListEl, {
     groups: feedGroups,
@@ -430,7 +470,7 @@ function renderDesktop() {
     entries,
     feedTitleById: state.feedTitleById,
     selectedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
-    query,
+    query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onSelect: openEntry,
     onHover: previewEntry,
@@ -438,7 +478,7 @@ function renderDesktop() {
     emptyHint,
   });
 
-  renderPreview(previewEl, state.selectedEntry, query, { onLinkClick: logOpen });
+  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen });
 }
 
 // Narrow-portrait layout (see the isTabletTwoPaneLayout breakpoint): same
@@ -449,6 +489,7 @@ function renderDesktop() {
 function renderTabletTwoPane() {
   const query = state.searchQuery;
   const feedGroups = currentFeedGroups();
+  renderFeedColorFilterBar();
 
   renderFeedList(feedListEl, {
     groups: feedGroups,
@@ -467,7 +508,7 @@ function renderTabletTwoPane() {
   renderMobileList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
-    query,
+    query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onOpen: openEntry,
     showFeedName,
@@ -511,6 +552,22 @@ async function setFeedColor(feedId, colorKey) {
   state.feedsById.set(feedId, updated);
   render();
   syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// The feed-list color swatch row (see renderFeedColorFilter in
+// ui/feedList.js) — colorKey null means "clear filter" (its own button,
+// distinct from any color swatch), otherwise toggles that one color's
+// membership in the filter set. Multiple colors can be active at once: a
+// feed shows if it matches any of them (see currentFeedGroups).
+function toggleFeedColorFilter(colorKey) {
+  if (colorKey === null) {
+    state.feedColorFilter.clear();
+  } else if (state.feedColorFilter.has(colorKey)) {
+    state.feedColorFilter.delete(colorKey);
+  } else {
+    state.feedColorFilter.add(colorKey);
+  }
+  render();
 }
 
 // Duplicate-feed cleanup — DISABLED FOR NOW, not called from refreshAll
@@ -642,7 +699,7 @@ function renderMobile() {
   renderMobileList(mobileListEl, {
     entries,
     feedTitleById: state.feedTitleById,
-    query,
+    query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onOpen: openEntry,
     onRowMounted: (li, entry) => {
@@ -850,6 +907,29 @@ function hideStatus() {
   statusBarFillEl.style.width = "0%";
 }
 
+// --- clock watermark -------------------------------------------------------
+// Faint fixed HH:MM overlay (see .clock-watermark in style.css) shown
+// across every screen — started once at boot in startApp and left running
+// for the life of the tab, unlike the next-fetch indicator below (which is
+// only ever shown for its first 30s) this is meant to be a permanent
+// fixture.
+function updateClockWatermark() {
+  clockWatermarkEl.textContent = new Date().toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function startClockWatermark() {
+  updateClockWatermark();
+  // Only the minute digits are shown, so a 1s tick is more often than the
+  // display can even change — one cheap textContent write a second isn't
+  // worth trading for the complexity of scheduling around the exact next
+  // minute boundary instead.
+  setInterval(updateClockWatermark, 1000);
+}
+
 // --- next-fetch indicator ------------------------------------------------
 // Shown for the first 30s after load only (see wireApp), on both mobile and
 // desktop — a quick orientation of "when will feeda next check anything",
@@ -997,6 +1077,10 @@ function toggleFullscreen() {
 function wireApp() {
   setupSearchBar(document.getElementById("search-input"), (query) => {
     state.searchQuery = query;
+    // Sticky across the box clearing (see lastSearchQuery's own comment and
+    // highlightQuery above) — only overwritten by an actual new non-empty
+    // query, never cleared out just because this one is empty.
+    if (query.trim()) state.lastSearchQuery = query.trim();
     // render() is a no-op in reflect mode (see its own comment) — reflect
     // draws itself directly so a search keystroke actually reaches it.
     if (state.mode === "reflect") {
@@ -1036,6 +1120,7 @@ function wireApp() {
 async function startApp() {
   appRoot.classList.remove("hidden");
   wireApp();
+  startClockWatermark();
   setFocusedPane("article");
   await loadAppData();
   render();
