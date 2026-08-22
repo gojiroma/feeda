@@ -11,6 +11,7 @@ import {
   getEntriesForDay,
   getDailyCounts,
   getFeedAddedCounts,
+  getLatestLogEntriesByEntryId,
   searchLogEntries,
   dateStrOf,
   shiftDateStr,
@@ -19,10 +20,11 @@ import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
-import { renderArticleList } from "./ui/articleList.js";
+import { renderArticleList, renderAnnotatePopup } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
 import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
+import { openFloatingPopup } from "./ui/colorPicker.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
@@ -80,6 +82,11 @@ const state = {
   feedsById: new Map(),
   feedTitleById: new Map(),
   entriesByFeed: new Map(),
+  // entry.id -> its latest log entry (see getLatestLogEntriesByEntryId in
+  // logbook.js) — lets the article list show a color tag/comment recorded
+  // from reflect (or straight from the list — see openAnnotateForEntry)
+  // without a per-row IndexedDB lookup for every visible article.
+  logByEntryId: new Map(),
   selectedFeedId: null,
   selectedEntry: null,
   searchQuery: "",
@@ -157,6 +164,7 @@ async function loadAppData() {
   for (const feed of activeFeeds) {
     state.entriesByFeed.set(feed.feedId, await getEntriesByFeed(feed.feedId));
   }
+  state.logByEntryId = await getLatestLogEntriesByEntryId();
   if (state.selectedFeedId && !state.feedsById.has(state.selectedFeedId)) {
     state.selectedFeedId = null;
   }
@@ -557,6 +565,8 @@ function renderDesktop() {
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onSelect: openEntry,
     onHover: previewEntry,
+    onAnnotate: openAnnotateForEntry,
+    logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
   });
@@ -906,6 +916,82 @@ async function openEntry(entry) {
   previewEntry(entry);
   logOpen(entry);
   await advanceProgress(entry);
+}
+
+// Right-click/long-press on an article-list row (see articleList.js's
+// onAnnotate) opens a floating color+comment popup for that entry. Tagging
+// or commenting something is itself an act of having read it, so this marks
+// the entry read the same way actually opening it would — reusing its
+// existing log entry if reflect (or an earlier annotation) already created
+// one, rather than logging a second "open" just for this.
+async function openAnnotateForEntry(entry, x, y) {
+  let logEntry = state.logByEntryId.get(entry.id) || null;
+  if (!logEntry) {
+    logEntry = await recordOpen(entry, state.feedsById.get(entry.feedId));
+    if (logEntry) state.logByEntryId.set(entry.id, logEntry);
+  }
+  await advanceProgress(entry);
+  if (!logEntry) return;
+  scheduleLogSync();
+  showAnnotatePopup(entry, logEntry, x, y);
+}
+
+async function setEntryLogColor(entry, logId, color) {
+  const updated = await setLogEntryColor(logId, color);
+  if (updated) {
+    state.logByEntryId.set(entry.id, updated);
+    render();
+    scheduleLogSync();
+  }
+  return updated;
+}
+
+async function addEntryLogComment(entry, logId, text) {
+  const updated = await addComment(logId, text);
+  if (updated) {
+    state.logByEntryId.set(entry.id, updated);
+    render();
+    scheduleLogSync();
+  }
+  return updated;
+}
+
+function showAnnotatePopup(entry, initialLogEntry, x, y) {
+  let logEntry = initialLogEntry;
+  openFloatingPopup({
+    id: entry.id,
+    x,
+    y,
+    className: "article-annotate-popup",
+    build: (popup) => {
+      const draw = () => {
+        renderAnnotatePopup(popup, {
+          logEntry,
+          onSetColor: (color) => {
+            setEntryLogColor(entry, logEntry.id, color)
+              .then((updated) => {
+                if (updated) {
+                  logEntry = updated;
+                  draw();
+                }
+              })
+              .catch((err) => console.error("set color failed", err));
+          },
+          onAddComment: (text) => {
+            addEntryLogComment(entry, logEntry.id, text)
+              .then((updated) => {
+                if (updated) {
+                  logEntry = updated;
+                  draw();
+                }
+              })
+              .catch((err) => console.error("add comment failed", err));
+          },
+        });
+      };
+      draw();
+    },
+  });
 }
 
 // force:true bypasses the due-schedule filter (used by tapping the

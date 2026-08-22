@@ -503,6 +503,59 @@ input[type="text"], input[type="url"], input[type="search"] {
 .article-item.unread { color: var(--unread); }
 .article-title { font-size: 0.9rem; margin-bottom: 3px; }
 .article-meta { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
+/* Colored and/or commented from reflect (or the article list's own
+   right-click/long-press popup — see articleList.js) stand out from a plain
+   row: a left border plus a low-alpha background tint, same muted treatment
+   as .reflect-log-item--colored. left padding shrinks by exactly the
+   border's width so content doesn't shift — deliberately not a font-weight
+   change (see .article-item's own comment above): only properties that
+   can't change this row's *height* are safe here, since a height change
+   would reflow the rows below it under a still-stationary cursor. */
+.article-item--annotated {
+  border-left: 3px solid var(--border);
+  padding-left: 5px;
+}
+.article-item--colored {
+  border-left-color: rgb(var(--reflect-color));
+  background: rgba(var(--reflect-color), 0.12);
+}
+.article-comment-preview {
+  margin-top: 3px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Popup opened by right-click/long-press on an article row (see
+   articleList.js's renderAnnotatePopup) — same floating-popup mechanics as
+   .reflect-color-picker/.feed-context-menu (fixed position, clamped to the
+   viewport, closed on outside click/Escape), with a comment thread and
+   add-form stacked below the swatch row. */
+.article-annotate-popup {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  width: 260px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+.article-annotate-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.article-annotate-form {
+  display: flex;
+  gap: 6px;
+}
 
 /* Preview */
 .preview-title { margin-top: 4px; }

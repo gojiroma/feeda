@@ -182,6 +182,24 @@ export async function getFeedAddedCounts(days) {
   return [...counts.entries()].map(([date, count]) => ({ date, count }));
 }
 
+// One log entry per entryId — the most recently opened one — for every
+// article ever logged. Used by the article list (see main.js) to show a
+// read entry's color tag/comments and to check whether one already exists
+// before annotating it, without a per-row IndexedDB lookup for each of
+// potentially hundreds of visible articles.
+export async function getLatestLogEntriesByEntryId() {
+  const all = await getAllLogEntries();
+  const map = new Map();
+  for (const row of all) {
+    if (!row.entryId) continue;
+    const existing = map.get(row.entryId);
+    if (!existing || (row.openedAt || "") > (existing.openedAt || "")) {
+      map.set(row.entryId, row);
+    }
+  }
+  return map;
+}
+
 const SEARCH_RESULT_LIMIT = 200;
 
 function normalizeQuery(query) {

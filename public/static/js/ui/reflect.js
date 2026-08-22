@@ -4,12 +4,18 @@
 // entries get here.
 
 import { COLOR_PALETTE, COLOR_BY_KEY } from "../colorPalette.js";
+import {
+  openFloatingPopup,
+  closeFloatingPopup,
+  closeFloatingPopupIfMissing,
+  renderColorSwatches,
+  attachContextTrigger,
+} from "./colorPicker.js";
 
 // Right-click (desktop) or long-press (touch) an entry to tag it with one
 // of COLOR_PALETTE's colors, shown as a left border + low-alpha background
 // tint via --reflect-color (see .reflect-log-item--colored /
 // .reflect-color-swatch in style.css).
-const LONG_PRESS_MS = 550;
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -38,85 +44,22 @@ function renderComment(comment) {
   return li;
 }
 
-// One picker open at a time, tracked at module scope so opening a second
-// one (or clicking away) always closes whatever's currently showing rather
-// than each row having to know about siblings. activePickerLogId lets
-// renderReflectTimeline (below) tell a picker that's still relevant apart
-// from one left dangling by navigating away — see the comment there.
-let activePicker = null;
-let activePickerLogId = null;
-let removeOutsideListeners = null;
-
-function closeColorPicker() {
-  if (removeOutsideListeners) removeOutsideListeners();
-  removeOutsideListeners = null;
-  if (activePicker) activePicker.remove();
-  activePicker = null;
-  activePickerLogId = null;
-}
-
 function openColorPicker(logEntry, x, y, onSetColor) {
-  closeColorPicker();
-
-  const picker = document.createElement("div");
-  picker.className = "reflect-color-picker";
-  picker.style.left = `${x}px`;
-  picker.style.top = `${y}px`;
-
-  for (const { key, rgb } of COLOR_PALETTE) {
-    const swatch = document.createElement("button");
-    swatch.type = "button";
-    swatch.className = "reflect-color-swatch" + (logEntry.color === key ? " selected" : "");
-    swatch.style.setProperty("--reflect-color", rgb);
-    swatch.title = `色${key}`;
-    swatch.addEventListener("click", () => {
-      onSetColor(logEntry.id, key);
-      closeColorPicker();
-    });
-    picker.appendChild(swatch);
-  }
-
-  const clearBtn = document.createElement("button");
-  clearBtn.type = "button";
-  clearBtn.className = "reflect-color-swatch reflect-color-swatch--clear" + (!logEntry.color ? " selected" : "");
-  clearBtn.title = "色をクリア";
-  clearBtn.textContent = "×";
-  clearBtn.addEventListener("click", () => {
-    onSetColor(logEntry.id, null);
-    closeColorPicker();
+  openFloatingPopup({
+    id: logEntry.id,
+    x,
+    y,
+    className: "reflect-color-picker",
+    build: (picker) => {
+      renderColorSwatches(picker, {
+        currentColor: logEntry.color,
+        onSetColor: (color) => {
+          onSetColor(logEntry.id, color);
+          closeFloatingPopup();
+        },
+      });
+    },
   });
-  picker.appendChild(clearBtn);
-
-  document.body.appendChild(picker);
-  activePicker = picker;
-  activePickerLogId = logEntry.id;
-
-  // Clamp inside the viewport now that the picker's own size is known —
-  // right-clicking/long-pressing near an edge shouldn't push part of it
-  // off-screen.
-  const rect = picker.getBoundingClientRect();
-  const maxLeft = window.innerWidth - rect.width - 8;
-  const maxTop = window.innerHeight - rect.height - 8;
-  picker.style.left = `${Math.max(8, Math.min(x, maxLeft))}px`;
-  picker.style.top = `${Math.max(8, Math.min(y, maxTop))}px`;
-
-  // Deferred a tick so the very pointerdown/contextmenu that opened this
-  // picker doesn't immediately bubble into the outside-click listener and
-  // close it again before the user sees it.
-  setTimeout(() => {
-    const onPointerDown = (ev) => {
-      if (!picker.contains(ev.target)) closeColorPicker();
-    };
-    const onKeydown = (ev) => {
-      if (ev.key === "Escape") closeColorPicker();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeydown, true);
-    removeOutsideListeners = () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeydown, true);
-    };
-  }, 0);
 }
 
 // Mirrors feedList.js's own long-press-as-touch-equivalent-of-right-click
@@ -125,24 +68,10 @@ function openColorPicker(logEntry, x, y, onSetColor) {
 // hijacked into opening the color picker instead.
 function attachColorPicker(li, logEntry, onSetColor) {
   if (!onSetColor) return;
-  const isInCommentForm = (ev) => Boolean(ev.target.closest(".reflect-comment-form"));
-  let longPressTimer = null;
-  const cancelLongPress = () => clearTimeout(longPressTimer);
-
-  li.addEventListener("contextmenu", (ev) => {
-    if (isInCommentForm(ev)) return;
-    ev.preventDefault();
-    openColorPicker(logEntry, ev.clientX, ev.clientY, onSetColor);
+  attachContextTrigger(li, {
+    onOpenRequest: (x, y) => openColorPicker(logEntry, x, y, onSetColor),
+    isExcluded: (ev) => Boolean(ev.target.closest(".reflect-comment-form")),
   });
-
-  li.addEventListener("pointerdown", (ev) => {
-    if (ev.pointerType !== "touch" || isInCommentForm(ev)) return;
-    const { clientX, clientY } = ev;
-    longPressTimer = setTimeout(() => openColorPicker(logEntry, clientX, clientY, onSetColor), LONG_PRESS_MS);
-  });
-  li.addEventListener("pointerup", cancelLongPress);
-  li.addEventListener("pointercancel", cancelLongPress);
-  li.addEventListener("pointermove", cancelLongPress);
 }
 
 function renderLogItem(logEntry, onAddComment, onSetColor) {
@@ -259,9 +188,7 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
   // user. Only close it when the entry it's anchored to has actually
   // dropped out of view (date changed, search cleared it, etc.) — a picker
   // whose entry is still on screen stays open across an unrelated redraw.
-  if (activePickerLogId !== null && !entries.some((e) => e.id === activePickerLogId)) {
-    closeColorPicker();
-  }
+  closeFloatingPopupIfMissing(new Set(entries.map((e) => e.id)));
 
   if (entries.length === 0) {
     const hint = document.createElement("p");
