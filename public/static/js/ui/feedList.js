@@ -39,7 +39,7 @@ export function renderFeedColorFilter(container, { feeds, activeColors, onToggle
 }
 
 // `groups` is a two-level tree: outer entries are read-status buckets (未読
-// / 既読 / 更新停止, see frequency.js's groupFeedsByFrequency), each holding
+// / 既読 / 更新なし / 更新停止, see frequency.js's groupFeedsByFrequency), each holding
 // its own posting-frequency breakdown as `subgroups`. Rendered as nested
 // <details> so either level can be collapsed independently; collapsedGroups
 // keys the status level by its own key and the frequency level by

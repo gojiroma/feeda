@@ -28,8 +28,17 @@ const SAMPLE_SIZE = 20;
 const STATUS_GROUPS = [
   { key: "unread", label: "未読" },
   { key: "read", label: "既読" },
+  { key: "stale", label: "更新なし" },
   { key: "paused", label: "更新停止" },
 ];
+
+// A feed whose newest known content is older than this sits in "更新なし"
+// regardless of read state — distinct from "更新停止" (paused), which is a
+// deliberate user choice that also stops the feed from being fetched at all.
+// A stale feed keeps being fetched on its normal schedule (see refreshAll in
+// main.js), it just stops cluttering 未読/既読 while it has nothing new to
+// say.
+const STALE_THRESHOLD_MS = 365 * 24 * 60 * 60 * 1000;
 
 // Most-frequent-first, so an initial scan (or one on a fresh device that
 // has no local fetch history yet but did pull synced frequencyGroup values
@@ -99,35 +108,55 @@ export function computeFrequencyGroup(entries) {
   return GROUPS.find((g) => avgDays <= g.maxAvgDays) || GROUPS[GROUPS.length - 1];
 }
 
+function datedTimestamps(entries) {
+  return entries
+    .map((e) => e.pubDate)
+    .filter(Boolean)
+    .map((d) => new Date(d).getTime())
+    .filter((t) => !Number.isNaN(t));
+}
+
 // Feeds with dated entries sort by their newest entry's date, newest first.
 // Date-less feeds have no publish date to go by, so they sort by when they
 // were last fetched instead — a freshly-fetched date-less feed (which just
 // had its content-hash checked and possibly changed) rises to the top.
 function feedSortTimestamp(feed, entries) {
-  const dated = entries
-    .map((e) => e.pubDate)
-    .filter(Boolean)
-    .map((d) => new Date(d).getTime())
-    .filter((t) => !Number.isNaN(t));
+  const dated = datedTimestamps(entries);
   if (dated.length > 0) return Math.max(...dated);
   return feed.lastFetchedAt ? new Date(feed.lastFetchedAt).getTime() : 0;
 }
 
-function feedStatusGroup(feed) {
-  if (feed.paused) return STATUS_GROUPS[2]; // "更新停止"
-  return feed.hasUnread ? STATUS_GROUPS[0] /* "未読" */ : STATUS_GROUPS[1] /* "既読" */;
+// Null when there's no signal at all yet — a just-registered feed that
+// hasn't been fetched once has neither dated entries nor a lastFetchedAt.
+// That must read as "unknown", not "stale": falling back to 0 like
+// feedSortTimestamp does would make every brand-new feed look like it's
+// been silent for decades and dump it straight into 更新なし.
+function lastUpdateTimestamp(feed, entries) {
+  const dated = datedTimestamps(entries);
+  if (dated.length > 0) return Math.max(...dated);
+  return feed.lastFetchedAt ? new Date(feed.lastFetchedAt).getTime() : null;
+}
+
+function feedStatusGroup(feed, entries) {
+  if (feed.paused) return STATUS_GROUPS.find((g) => g.key === "paused");
+  const lastUpdate = lastUpdateTimestamp(feed, entries);
+  if (lastUpdate !== null && Date.now() - lastUpdate > STALE_THRESHOLD_MS) {
+    return STATUS_GROUPS.find((g) => g.key === "stale");
+  }
+  return feed.hasUnread ? STATUS_GROUPS.find((g) => g.key === "unread") : STATUS_GROUPS.find((g) => g.key === "read");
 }
 
 // Builds the sidebar's two-level tree: outer groups by read status (未読 /
-// 既読 / 更新停止), each holding its own posting-frequency breakdown — so
-// e.g. a paused feed that used to post daily still shows up under "1日1回"
-// within "更新停止", instead of losing that information the moment it's
-// paused.
+// 既読 / 更新なし / 更新停止), each holding its own posting-frequency
+// breakdown — so e.g. a paused feed that used to post daily still shows up
+// under "1日1回" within "更新停止", instead of losing that information the
+// moment it's paused. Same for a feed that's simply gone quiet for over a
+// year: it moves to "更新なし" but keeps its frequency history.
 export function groupFeedsByFrequency(feedsWithEntries) {
   const statusBuckets = new Map(); // statusKey -> Map(freqKey -> {group, feeds})
 
   for (const { feed, entries } of feedsWithEntries) {
-    const status = feedStatusGroup(feed);
+    const status = feedStatusGroup(feed, entries);
     const freqGroup = computeFrequencyGroup(entries);
     if (!statusBuckets.has(status.key)) statusBuckets.set(status.key, new Map());
     const freqMap = statusBuckets.get(status.key);
