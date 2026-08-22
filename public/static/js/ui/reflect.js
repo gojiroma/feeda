@@ -248,7 +248,11 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
 // one. Bars double as date navigation: clicking one jumps straight there,
 // same as picking a day off a calendar, which is the "一体化" (merged into
 // the date display rather than a separate section) the chart was asked for.
-export function renderDayChart(container, { counts, selectedDate, onSelectDate }) {
+// Hovering one (onHoverDate) does the same jump instantly, mirroring
+// feedList's preview-on-hover/commit-on-click split — see previewReflectDate
+// in main.js for why that path stays cheap instead of just calling
+// onSelectDate.
+export function renderDayChart(container, { counts, selectedDate, onSelectDate, onHoverDate }) {
   container.innerHTML = "";
   const max = Math.max(1, ...counts.map((c) => c.count));
 
@@ -259,10 +263,14 @@ export function renderDayChart(container, { counts, selectedDate, onSelectDate }
       "reflect-day-chart-bar" +
       (date === selectedDate ? " selected" : "") +
       (count === 0 ? " reflect-day-chart-bar--empty" : "");
+    bar.dataset.date = date;
     bar.style.setProperty("--bar-fill", `${Math.round((count / max) * 100)}%`);
     bar.title = `${date}: ${count}件`;
     bar.setAttribute("aria-label", `${date}: ${count}件`);
     bar.addEventListener("click", () => onSelectDate(date));
+    // Touch has no hover — those devices still get the jump via the click
+    // listener above, this is purely an added shortcut for a mouse/trackpad.
+    if (onHoverDate) bar.addEventListener("mouseenter", () => onHoverDate(date));
     container.appendChild(bar);
   }
 }

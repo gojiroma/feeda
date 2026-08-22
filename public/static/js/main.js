@@ -393,11 +393,13 @@ async function renderReflect() {
     counts: dailyCounts,
     selectedDate: state.reflectDate,
     onSelectDate: jumpReflectToDate,
+    onHoverDate: previewReflectDate,
   });
   renderDayChart(reflectFeedChartEl, {
     counts: feedCounts,
     selectedDate: state.reflectDate,
     onSelectDate: jumpReflectToDate,
+    onHoverDate: previewReflectDate,
   });
   renderReflectTimeline(reflectTimelineEl, {
     entries,
@@ -435,6 +437,28 @@ function jumpReflectToToday() {
 function jumpReflectToDate(dateStr) {
   state.reflectDate = dateStr;
   renderReflect().catch((err) => console.error("reflect render failed", err));
+}
+
+// Hover equivalent of jumpReflectToDate (see renderDayChart's onHoverDate) —
+// deliberately lighter than a full renderReflect: skips syncLogNow's network
+// round-trip and leaves both chart strips' bars alone (just re-toggling
+// which one carries .selected), touching only the date label and the day's
+// own timeline. Sweeping the cursor across 21 bars firing a full sync +
+// rebuild on every single one would make "instant" the opposite of what
+// this is for; the periodic/visibilitychange refreshes elsewhere in
+// renderReflect's orbit keep the data itself fresh regardless.
+function previewReflectDate(dateStr) {
+  if (dateStr === state.reflectDate) return;
+  state.reflectDate = dateStr;
+  reflectDateLabelEl.textContent = formatReflectDateLabel(dateStr);
+  for (const bar of document.querySelectorAll(".reflect-day-chart-bar")) {
+    bar.classList.toggle("selected", bar.dataset.date === dateStr);
+  }
+  getEntriesForDay(dateStr)
+    .then((entries) => {
+      renderReflectTimeline(reflectTimelineEl, { entries, onAddComment: handleAddComment, onSetColor: handleSetLogColor });
+    })
+    .catch((err) => console.error("reflect preview failed", err));
 }
 
 let logSyncDebounceTimer = null;
