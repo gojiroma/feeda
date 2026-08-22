@@ -4,12 +4,18 @@ import { syncSearchHistoryNow } from "../searchSync.js";
 
 const MAX_VISIBLE_HISTORY = 8;
 
+const FEED_URL_RE = /^https?:\/\//i;
+
 // Wires the topbar search input to both live search (debounced, as before)
 // and a history dropdown backed by IndexedDB (see recordSearchHistory /
 // getSearchHistory in db.js) — same query searched again just bumps its
 // existing row's timestamp, so it naturally sorts above the rest without a
 // separate use-count.
-export function setupSearchBar(inputEl, onQuery, wait = 150) {
+//
+// Pressing Enter on a string starting with http(s):// is treated as
+// subscribing to that URL as an RSS feed (via onSubscribe) rather than as a
+// search — it's never recorded to search history either, since it isn't one.
+export function setupSearchBar(inputEl, onQuery, { onSubscribe, wait = 150 } = {}) {
   const debounced = debounce(onQuery, wait);
   const dropdownEl = document.getElementById("search-history");
 
@@ -89,6 +95,13 @@ export function setupSearchBar(inputEl, onQuery, wait = 150) {
   inputEl.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter") {
       const trimmed = inputEl.value.trim();
+      if (trimmed && FEED_URL_RE.test(trimmed) && onSubscribe) {
+        hideDropdown();
+        inputEl.value = "";
+        onQuery("");
+        onSubscribe(trimmed);
+        return;
+      }
       if (trimmed) recordAndSync(trimmed);
       hideDropdown();
     } else if (ev.key === "Escape") {

@@ -1,4 +1,4 @@
-import { generateSeed, isValidSeed } from "./crypto.js";
+import { generateSeed, isValidSeed, deriveFeedId } from "./crypto.js";
 import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
 import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
@@ -993,6 +993,65 @@ async function restorePreviouslyAutoPausedFeeds() {
   }
 }
 
+// Enter on an http(s):// URL in the search box (see searchBar.js's
+// onSubscribe) registers it as a new feed subscription instead of searching.
+// feedId is derived the same way the userscript derives it when it discovers
+// a feed link on a page, so a feed added either way converges on the same
+// row once synced.
+async function subscribeFeedFromUrl(rawUrl) {
+  const url = rawUrl.trim();
+  const { seed } = getSession();
+  const feedId = await deriveFeedId(seed, url);
+
+  const existing = state.feedsById.get(feedId);
+  if (existing) {
+    await selectFeed(feedId);
+    showStatus(`既に購読しています: ${existing.title || url}`, 1);
+    setTimeout(hideStatus, 2000);
+    return;
+  }
+
+  showStatus(`フィードを購読中… ${url}`, 0);
+  const now = new Date().toISOString();
+  const newFeed = {
+    feedId,
+    url,
+    title: url,
+    addedAt: now,
+    readUntil: null,
+    contentHash: null,
+    frequencyGroup: null,
+    paused: false,
+    userManagedPause: false,
+    color: null,
+    deletedAt: null,
+    lastFetchedAt: null,
+    etag: null,
+    lastModified: null,
+    latestContentHash: null,
+    nextCheckAt: null,
+    dirty: true,
+    clientUpdatedAt: now,
+  };
+
+  try {
+    await fetchFeed(newFeed);
+  } catch (err) {
+    console.error(`subscribe failed for ${url}`, err);
+    showStatus(`購読に失敗しました: ${url}`, 1);
+    setTimeout(hideStatus, 3000);
+    return;
+  }
+
+  await loadAppData();
+  render();
+  await selectFeed(feedId);
+  syncNow().catch((err) => console.error("sync failed", err));
+
+  showStatus(`購読しました: ${state.feedsById.get(feedId)?.title || url}`, 1);
+  setTimeout(hideStatus, 2000);
+}
+
 function showStatus(text, fraction) {
   statusBarTextEl.textContent = text;
   statusBarFillEl.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
@@ -1172,20 +1231,28 @@ function toggleFullscreen() {
 }
 
 function wireApp() {
-  setupSearchBar(document.getElementById("search-input"), (query) => {
-    state.searchQuery = query;
-    // Sticky across the box clearing (see lastSearchQuery's own comment and
-    // highlightQuery above) — only overwritten by an actual new non-empty
-    // query, never cleared out just because this one is empty.
-    if (query.trim()) state.lastSearchQuery = query.trim();
-    // render() is a no-op in reflect mode (see its own comment) — reflect
-    // draws itself directly so a search keystroke actually reaches it.
-    if (state.mode === "reflect") {
-      renderReflect().catch((err) => console.error("reflect render failed", err));
-    } else {
-      render();
+  setupSearchBar(
+    document.getElementById("search-input"),
+    (query) => {
+      state.searchQuery = query;
+      // Sticky across the box clearing (see lastSearchQuery's own comment and
+      // highlightQuery above) — only overwritten by an actual new non-empty
+      // query, never cleared out just because this one is empty.
+      if (query.trim()) state.lastSearchQuery = query.trim();
+      // render() is a no-op in reflect mode (see its own comment) — reflect
+      // draws itself directly so a search keystroke actually reaches it.
+      if (state.mode === "reflect") {
+        renderReflect().catch((err) => console.error("reflect render failed", err));
+      } else {
+        render();
+      }
+    },
+    {
+      onSubscribe: (url) => {
+        subscribeFeedFromUrl(url).catch((err) => console.error("subscribe failed", err));
+      },
     }
-  });
+  );
   setupPaneResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
