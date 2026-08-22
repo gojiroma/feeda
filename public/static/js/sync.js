@@ -78,7 +78,16 @@ export async function pullUpdates() {
     const existing = await getExistingFeed(row.feedId);
 
     if (existing && existing.dirty && existing.clientUpdatedAt > row.clientUpdatedAt) {
-      continue; // unpushed local change is newer; keep it, it'll be pushed later
+      // unpushed local change (e.g. a color/pause edit) is newer than this
+      // row overall, so the rest of it is skipped and will win on the next
+      // push — but readUntil is monotonic (see laterIso in db.js), so still
+      // pull it forward if the remote side has read further than we have.
+      // Otherwise this device's own next push would carry its stale
+      // readUntil back over another device's more-advanced one.
+      if (payload.readUntil && payload.readUntil !== existing.readUntil) {
+        await putFeed({ ...existing, readUntil: payload.readUntil });
+      }
+      continue;
     }
 
     await putFeed({
@@ -111,9 +120,14 @@ async function getExistingFeed(feedId) {
   return feeds.find((f) => f.feedId === feedId) || null;
 }
 
+// Pull before push (unlike log/search sync, which push first) — this way a
+// feed touched locally for an unrelated reason (color/pause) picks up any
+// more-advanced readUntil another device already pushed *before* this
+// device's own dirty row goes out, instead of overwriting it. See
+// pullUpdates' readUntil merge above for the other half of this.
 export async function syncNow() {
-  await pushDirtyFeeds();
   await pullUpdates();
+  await pushDirtyFeeds();
 }
 
 export async function markFeedDirty(feed) {
