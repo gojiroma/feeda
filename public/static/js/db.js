@@ -69,10 +69,29 @@ function reqToPromise(req) {
   });
 }
 
+// readUntil is a monotonic "read up to here" watermark, so it should never
+// move backward no matter which caller is writing — the chronologically
+// later of the two always wins. Exported for sync.js, which wants the same
+// merge before deciding whether a pulled row can be skipped outright.
+export function laterIso(a, b) {
+  if (!a) return b || null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+// Every write funnels readUntil through laterIso against whatever's already
+// stored, rather than trusting the caller's value outright. Without this, a
+// cross-device sync pull applying another device's older snapshot (e.g. a
+// row whose only real edit was to an unrelated field like color, carrying a
+// stale readUntil along for the ride — see pullUpdates in sync.js) would
+// silently un-read articles that were already caught up on this device.
 export async function putFeed(feed) {
   const db = await openDb();
   const t = tx(db, "feeds", "readwrite");
-  t.objectStore("feeds").put(feed);
+  const store = t.objectStore("feeds");
+  const existing = await reqToPromise(store.get(feed.feedId));
+  const readUntil = laterIso(existing?.readUntil, feed.readUntil);
+  store.put(readUntil === feed.readUntil ? feed : { ...feed, readUntil });
   return new Promise((resolve, reject) => {
     t.oncomplete = () => resolve();
     t.onerror = () => reject(t.error);

@@ -860,15 +860,24 @@ async function refreshAll({ force = false } = {}) {
   // Only fetch feeds that are actually due, per their own posting-frequency
   // schedule (see computeSchedule in feedFetch.js) — with a large
   // subscription list, re-fetching everything on every visit doesn't scale.
-  // Due feeds are fetched most-frequent-first (using frequencyGroup, which
-  // is synced — see sync.js — so even a fresh device with no local fetch
-  // history yet can prioritize by it) so daily feeds' fresh content shows
-  // up before time is spent on rarely-updated ones.
+  // That schedule is the "don't bother patrolling this" half of the
+  // decision; this sort is the "what to patrol first" half, run *after*
+  // syncNow/syncLogNow above so it already reflects any reading done on
+  // other devices. Feeds with something left unread (which, now that
+  // readUntil is synced, includes ones only read-up-to-here elsewhere) go
+  // first — already-caught-up feeds are the least urgent thing to spend
+  // fetch time on, so they sink to the back of this round instead of
+  // competing evenly with ones actually worth checking. frequencyGroup
+  // (synced — see sync.js — so even a fresh device with no local fetch
+  // history yet can use it) breaks ties within each of those two groups,
+  // most-frequent-first, same as before this split existed.
   const now = Date.now();
   const dueFeeds = [...state.feedsById.values()]
     .filter((feed) => !feed.paused)
     .filter((feed) => force || !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
     .sort((a, b) => {
+      const unreadDiff = Number(hasUnread(b)) - Number(hasUnread(a));
+      if (unreadDiff !== 0) return unreadDiff;
       const ai = FREQUENCY_ORDER.indexOf(a.frequencyGroup || "unknown");
       const bi = FREQUENCY_ORDER.indexOf(b.frequencyGroup || "unknown");
       return ai - bi;
