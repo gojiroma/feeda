@@ -213,6 +213,42 @@ function renderLogItem(logEntry, onAddComment, onSetColor) {
   return li;
 }
 
+// Filter row above the timeline (see .reflect-color-filter in style.css) —
+// mirrors renderFeedColorFilter in ui/feedList.js: one swatch per color
+// actually tagged on some entry *currently loaded* (the day's entries, or
+// the current search results — see main.js's renderReflect), each toggling
+// that color's membership in `activeColors`. An entry shows if it matches
+// any active color (see filterLogEntriesByColor in main.js); an empty
+// activeColors set means no filter, and the whole row disappears (via
+// :empty) once nothing in view is tagged at all.
+export function renderLogColorFilter(container, { entries, activeColors, onToggleColor }) {
+  container.innerHTML = "";
+  const usedColors = new Set(entries.map((e) => e.color).filter(Boolean));
+  if (usedColors.size === 0) return;
+
+  for (const { key, rgb } of COLOR_PALETTE) {
+    if (!usedColors.has(key)) continue;
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "reflect-color-filter-swatch" + (activeColors.has(key) ? " selected" : "");
+    swatch.style.setProperty("--reflect-color", rgb);
+    swatch.title = activeColors.has(key) ? "この色のフィルターを解除" : "この色の記録だけ表示";
+    swatch.setAttribute("aria-pressed", String(activeColors.has(key)));
+    swatch.addEventListener("click", () => onToggleColor(key));
+    container.appendChild(swatch);
+  }
+
+  if (activeColors.size > 0) {
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "reflect-color-filter-clear";
+    clearBtn.textContent = "×";
+    clearBtn.title = "色フィルターをすべて解除";
+    clearBtn.addEventListener("click", () => onToggleColor(null));
+    container.appendChild(clearBtn);
+  }
+}
+
 export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, emptyHint }) {
   container.innerHTML = "";
   // The picker lives in document.body (see openColorPicker), so rebuilding

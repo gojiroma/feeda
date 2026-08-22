@@ -736,6 +736,49 @@ input[type="text"], input[type="url"], input[type="search"] {
   box-shadow: 0 0 0 1px #16a34a;
 }
 
+/* Filter row above the reflect timeline (see renderLogColorFilter in
+   ui/reflect.js) — same shape as .feed-color-filter, just scoped to the
+   reflect screen's own colors. Empty (and hidden via :empty) until at least
+   one entry currently in view is color-tagged. */
+.reflect-color-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 8px;
+}
+.reflect-color-filter:empty {
+  display: none;
+}
+.reflect-color-filter-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: rgb(var(--reflect-color));
+  opacity: 0.55;
+  cursor: pointer;
+}
+.reflect-color-filter-swatch:hover {
+  opacity: 0.85;
+}
+.reflect-color-filter-swatch.selected {
+  opacity: 1;
+  border-color: var(--text);
+}
+.reflect-color-filter-clear {
+  all: unset;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.reflect-color-filter-clear:hover {
+  color: var(--text);
+}
+
 .reflect-timeline {
   flex: 1;
   overflow-y: auto;

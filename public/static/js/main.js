@@ -22,7 +22,7 @@ import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
 import { renderArticleList } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
-import { renderReflectTimeline, renderDayChart } from "./ui/reflect.js";
+import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
@@ -45,6 +45,7 @@ const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
 const reflectFeedChartEl = document.getElementById("reflect-feed-chart");
+const reflectColorFilterEl = document.getElementById("reflect-color-filter");
 
 // Width of the trend strip in the day-nav header — see renderDayChart.
 const REFLECT_DAY_CHART_DAYS = 21;
@@ -93,6 +94,10 @@ const state = {
   // toggleFeedColorFilter below. A feed matches if it has any color in
   // this set; empty means no filter, show every feed.
   feedColorFilter: new Set(),
+  // Same idea as feedColorFilter, for the reflect screen's own color tags
+  // (see renderLogColorFilter in ui/reflect.js and toggleLogColorFilter
+  // below) — a log entry matches if it has any color in this set.
+  logColorFilter: new Set(),
   focusedPane: "article",
   keyboardNavActive: false,
   // "view" is the normal reading UI; "reflect" swaps in the activity-log
@@ -374,9 +379,14 @@ async function renderReflect() {
     reflectDateLabelEl.textContent = `「${query}」の検索結果`;
     reflectDayChartEl.innerHTML = ""; // no single day selected during search — nothing sensible to highlight
     reflectFeedChartEl.innerHTML = "";
-    const entries = await searchLogEntries(query);
+    const rawEntries = await searchLogEntries(query);
+    renderLogColorFilter(reflectColorFilterEl, {
+      entries: rawEntries,
+      activeColors: state.logColorFilter,
+      onToggleColor: toggleLogColorFilter,
+    });
     renderReflectTimeline(reflectTimelineEl, {
-      entries,
+      entries: filterLogEntriesByColor(rawEntries),
       onAddComment: handleAddComment,
       onSetColor: handleSetLogColor,
       emptyHint: "検索結果がありません。",
@@ -384,7 +394,7 @@ async function renderReflect() {
     return;
   }
   reflectDateLabelEl.textContent = formatReflectDateLabel(state.reflectDate);
-  const [entries, dailyCounts, feedCounts] = await Promise.all([
+  const [rawEntries, dailyCounts, feedCounts] = await Promise.all([
     getEntriesForDay(state.reflectDate),
     getDailyCounts(REFLECT_DAY_CHART_DAYS),
     getFeedAddedCounts(REFLECT_DAY_CHART_DAYS),
@@ -401,11 +411,24 @@ async function renderReflect() {
     onSelectDate: jumpReflectToDate,
     onHoverDate: previewReflectDate,
   });
+  renderLogColorFilter(reflectColorFilterEl, {
+    entries: rawEntries,
+    activeColors: state.logColorFilter,
+    onToggleColor: toggleLogColorFilter,
+  });
   renderReflectTimeline(reflectTimelineEl, {
-    entries,
+    entries: filterLogEntriesByColor(rawEntries),
     onAddComment: handleAddComment,
     onSetColor: handleSetLogColor,
   });
+}
+
+// A log entry matches if it has any color in state.logColorFilter — same
+// "any" semantics as the feed list's own color filter (see currentFeedGroups
+// above). Empty filter means no filtering at all.
+function filterLogEntriesByColor(entries) {
+  if (state.logColorFilter.size === 0) return entries;
+  return entries.filter((e) => e.color && state.logColorFilter.has(e.color));
 }
 
 async function handleAddComment(logId, text) {
@@ -455,10 +478,35 @@ function previewReflectDate(dateStr) {
     bar.classList.toggle("selected", bar.dataset.date === dateStr);
   }
   getEntriesForDay(dateStr)
-    .then((entries) => {
-      renderReflectTimeline(reflectTimelineEl, { entries, onAddComment: handleAddComment, onSetColor: handleSetLogColor });
+    .then((rawEntries) => {
+      renderLogColorFilter(reflectColorFilterEl, {
+        entries: rawEntries,
+        activeColors: state.logColorFilter,
+        onToggleColor: toggleLogColorFilter,
+      });
+      renderReflectTimeline(reflectTimelineEl, {
+        entries: filterLogEntriesByColor(rawEntries),
+        onAddComment: handleAddComment,
+        onSetColor: handleSetLogColor,
+      });
     })
     .catch((err) => console.error("reflect preview failed", err));
+}
+
+// The reflect screen's color-filter row (see renderLogColorFilter in
+// ui/reflect.js) — same toggle-membership shape as toggleFeedColorFilter,
+// scoped to logColorFilter instead. A full renderReflect (not the cheap
+// previewReflectDate path) is warranted here since this changes what's
+// filtered, not just which day is in view.
+function toggleLogColorFilter(colorKey) {
+  if (colorKey === null) {
+    state.logColorFilter.clear();
+  } else if (state.logColorFilter.has(colorKey)) {
+    state.logColorFilter.delete(colorKey);
+  } else {
+    state.logColorFilter.add(colorKey);
+  }
+  renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
 let logSyncDebounceTimer = null;
