@@ -26,6 +26,7 @@ import { renderReflectTimeline, renderDayChart } from "./ui/reflect.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
+import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
 import { updateFavicon } from "./favicon.js";
 
 const setupScreen = document.getElementById("setup-screen");
@@ -1120,6 +1121,10 @@ function wireApp() {
     getSeed: () => getSession().seed,
     getApiBase: () => getSession().apiBase,
   });
+  setupPairingShareUI({
+    getSeed: () => getSession().seed,
+    getApiBase: () => getSession().apiBase,
+  });
   modeToggleBtn.addEventListener("click", toggleMode);
   document.getElementById("reflect-prev-day").addEventListener("click", () => changeReflectDate(-1));
   document.getElementById("reflect-next-day").addEventListener("click", () => changeReflectDate(1));
@@ -1156,11 +1161,22 @@ function wireSetupScreen() {
   document.getElementById("generate-seed-btn").addEventListener("click", () => {
     document.getElementById("seed-input").value = generateSeed();
   });
+  setupPairingReceiveUI({
+    getApiBase: () => document.getElementById("api-base-input").value.trim().replace(/\/+$/, ""),
+    onReceived: (seed, apiBase) => {
+      document.getElementById("seed-input").value = seed;
+      document.getElementById("api-base-input").value = apiBase;
+      document.getElementById("setup-error").textContent = "";
+      document.getElementById("setup-info").textContent =
+        "シードを受け取りました。内容を確認して「開始」を押してください。";
+    },
+  });
   document.getElementById("start-btn").addEventListener("click", async () => {
     const seedInput = document.getElementById("seed-input");
     const apiBaseInput = document.getElementById("api-base-input");
     const errorEl = document.getElementById("setup-error");
     errorEl.textContent = "";
+    document.getElementById("setup-info").textContent = "";
 
     const seed = seedInput.value.trim();
     const apiBase = apiBaseInput.value.trim().replace(/\/+$/, "");

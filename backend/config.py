@@ -27,6 +27,17 @@ class Config:
     PROXY_MAX_BYTES = int(os.environ.get("PROXY_MAX_BYTES", str(5 * 1024 * 1024)))
     RATE_LIMIT_SYNC = os.environ.get("RATE_LIMIT_SYNC", "60 per minute")
     RATE_LIMIT_PROXY = os.environ.get("RATE_LIMIT_PROXY", "120 per minute")
+    # Seed hand-off (QR code / 6-digit code) — see routes/pair.py. The read
+    # limit is intentionally the tightest of the three: it's the one an
+    # attacker would hammer to brute-force a 6-digit code (1,000,000
+    # possibilities) within PAIR_TTL_SECONDS. This doesn't make brute-forcing
+    # impossible on its own — a short TTL and single-use consumption are
+    # doing most of the real work — but it keeps a single client from just
+    # trying every code in a tight loop.
+    RATE_LIMIT_PAIR_WRITE = os.environ.get("RATE_LIMIT_PAIR_WRITE", "20 per minute")
+    RATE_LIMIT_PAIR_READ = os.environ.get("RATE_LIMIT_PAIR_READ", "10 per minute")
+    RATE_LIMIT_PAIR_STATUS = os.environ.get("RATE_LIMIT_PAIR_STATUS", "60 per minute")
+    PAIR_TTL_SECONDS = int(os.environ.get("PAIR_TTL_SECONDS", "180"))
 
     @classmethod
     def require_database_url(cls):

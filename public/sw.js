@@ -2,7 +2,7 @@
 // app shell is otherwise always fetched fresh from the network, so unlike
 // a cache-first design this name doesn't need to be bumped by hand on every
 // deploy just to make new code reach already-installed users.
-const CACHE_NAME = "feeda-shell-v2";
+const CACHE_NAME = "feeda-shell-v3";
 
 const APP_SHELL = [
   "./",
@@ -22,6 +22,8 @@ const APP_SHELL = [
   "./static/js/logSync.js",
   "./static/js/logbook.js",
   "./static/js/session.js",
+  "./static/js/pairing.js",
+  "./static/js/qr.js",
   "./static/js/ui/articleList.js",
   "./static/js/ui/mobile.js",
   "./static/js/ui/reflect.js",
@@ -30,6 +32,9 @@ const APP_SHELL = [
   "./static/js/ui/preview.js",
   "./static/js/ui/searchBar.js",
   "./static/js/ui/seedModal.js",
+  "./static/js/ui/pairingModal.js",
+  "./static/js/vendor/qrcode-generator.js",
+  "./static/js/vendor/jsQR.js",
   "./static/icons/icon-192.png",
   "./static/icons/icon-512.png",
   "./static/icons/apple-touch-icon.png",

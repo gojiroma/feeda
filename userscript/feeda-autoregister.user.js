@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.4.0
+// @version      1.5.0
 // @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages (or pages matching a user-registered URL pattern) to your feeda reading log. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
@@ -21,6 +21,12 @@
   const KNOWN_FEED_IDS_TS_KEY = "feeda_knownFeedIds_ts";
   const KNOWN_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // refresh the "already known" cache at most every 6h
 
+  // The maintainer's own production deployment — offered as the default
+  // suggestion wherever this script needs an API base URL and doesn't
+  // already have a better guess (see setup() and receiveSeedByCode()
+  // below). A self-hosted deployment just needs to type over it once.
+  const PRODUCTION_API_BASE = "https://feeda-two.vercel.app";
+
   // Auto-log (reading-activity log, not the feed subscription list) config
   // — see the "--- auto-log ---" section below for the matching/detection
   // design this backs.
@@ -31,6 +37,7 @@
   const AUTO_LOG_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // don't re-log the same URL again within a day
 
   GM_registerMenuCommand("feeda: シードとAPIを設定", setup);
+  GM_registerMenuCommand("feeda: 6桁コードでシードを取得", receiveSeedByCode);
   GM_registerMenuCommand("feeda: OPMLをインポート", showOpmlImportPrompt);
   GM_registerMenuCommand("feeda: このサイトの自動記録設定", manageCurrentSiteAutoLog);
 
@@ -88,7 +95,10 @@
     const seed = prompt("feedaのシードを貼り付けてください（Webアプリのセットアップ画面で確認できます）", currentSeed);
     if (seed === null) return;
     const currentApiBase = GM_getValue(API_BASE_KEY, "");
-    const apiBase = prompt("feeda APIのベースURLを入力してください（例: https://your-app.vercel.app）", currentApiBase);
+    const apiBase = prompt(
+      "feeda APIのベースURLを入力してください（例: https://your-app.vercel.app）",
+      currentApiBase || PRODUCTION_API_BASE
+    );
     if (apiBase === null) return;
 
     GM_setValue(SEED_KEY, seed.trim());
@@ -96,6 +106,44 @@
     GM_setValue(KNOWN_FEED_IDS_KEY, []);
     GM_setValue(KNOWN_FEED_IDS_TS_KEY, 0);
     alert("feeda: 設定を保存しました。");
+  }
+
+  function looksLikeValidSeed(s) {
+    return typeof s === "string" && /^[A-Za-z0-9_-]{20,}$/.test(s.trim());
+  }
+
+  // If this browser hasn't been set up yet (no GM-stored seed) but the page
+  // currently loaded happens to be feeda's own webapp — which keeps its
+  // seed in this origin's localStorage under "feeda:seed" (see webapp/
+  // static/js/session.js) — pick it up automatically instead of making the
+  // user copy/paste it through a second setup() prompt. This only ever
+  // fires on the webapp's own pages (any other site's localStorage simply
+  // won't have that key), and only ever reads; it never overwrites a GM
+  // value that's already configured.
+  function tryImportSeedFromPage() {
+    if (GM_getValue(SEED_KEY, "")) return;
+
+    let pageSeed, pageApiBase;
+    try {
+      pageSeed = localStorage.getItem("feeda:seed");
+      pageApiBase = localStorage.getItem("feeda:apiBase");
+    } catch {
+      return; // storage access can throw in some sandboxed/third-party-blocked contexts
+    }
+    if (!looksLikeValidSeed(pageSeed)) return;
+
+    // The webapp itself stores "" for a same-origin API base (see
+    // session.js's DEFAULT_API_BASE) since it just fetches relative to
+    // whatever origin it's loaded from — but this script talks to that API
+    // from arbitrary other pages, so it needs an absolute URL. The origin
+    // this seed was found on is exactly that URL.
+    const apiBase = (pageApiBase && pageApiBase.trim()) || location.origin;
+
+    GM_setValue(SEED_KEY, pageSeed.trim());
+    GM_setValue(API_BASE_KEY, apiBase.replace(/\/+$/, ""));
+    GM_setValue(KNOWN_FEED_IDS_KEY, []);
+    GM_setValue(KNOWN_FEED_IDS_TS_KEY, 0);
+    console.info("[feeda] seed imported automatically from this browser's feeda webapp session.");
   }
 
   // --- crypto (mirrors webapp/static/js/crypto.js; kept inline because a
@@ -116,6 +164,13 @@
     const arr = new Uint8Array(bytes);
     for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
     return btoa(binary);
+  }
+
+  function base64ToBytes(b64) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
   }
 
   function concatBytes(...parts) {
@@ -159,6 +214,35 @@
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, encKey, toBytes(JSON.stringify(obj)));
     return bytesToBase64(concatBytes(iv, new Uint8Array(ciphertext)));
+  }
+
+  async function decryptJson(encKey, blob) {
+    const combined = base64ToBytes(blob);
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, encKey, ciphertext);
+    return JSON.parse(new TextDecoder().decode(plaintext));
+  }
+
+  // Seed hand-off by 6-digit code (mirrors webapp/static/js/pairing.js —
+  // the salt and iteration count must stay identical between the two, or
+  // neither side can decrypt what the other encrypted). See that file's
+  // own comment for why PBKDF2 is used here instead of the HKDF the rest of
+  // this script uses: a 6-digit code has far less entropy than a seed, so
+  // this is only ever meant to slow down guessing, not make it impossible —
+  // the server's short expiry, single-use consumption, and rate limit (see
+  // backend/routes/pair.py) carry the rest of that weight.
+  const PAIR_KEY_SALT = "feeda:pair-code-key";
+  const PAIR_KEY_ITERATIONS = 200000;
+
+  async function derivePairingKeyFromCode(code) {
+    const baseKey = await crypto.subtle.importKey("raw", toBytes(code), "PBKDF2", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", hash: "SHA-256", salt: toBytes(PAIR_KEY_SALT), iterations: PAIR_KEY_ITERATIONS },
+      baseKey,
+      256
+    );
+    return crypto.subtle.importKey("raw", new Uint8Array(bits), { name: "AES-GCM" }, false, ["decrypt"]);
   }
 
   // --- network ----------------------------------------------------------
@@ -319,6 +403,56 @@
       `feeda: OPMLインポート完了\n${feeds.length}件中 ${appliedCount}件を新規登録しました` +
         (skipped > 0 ? `（${skipped}件は登録済みのためスキップ）` : "")
     );
+  }
+
+  // --- seed hand-off (6-digit code) ----------------------------------------
+  //
+  // Companion to the webapp's QR-code and 6-digit-code hand-off UI (see
+  // ui/pairingModal.js there). A userscript's menu prompt() can't reasonably
+  // show a camera view, so only the 6-digit code side is offered here — show
+  // the code on the webapp (シード → 6桁コードで共有) and type it in here
+  // instead of copy-pasting the full seed string into a prompt().
+
+  async function receiveSeedByCode() {
+    const code = prompt("feedaで表示されている6桁コードを入力してください（有効期限内に）");
+    if (code === null) return;
+    const trimmedCode = code.trim();
+    if (!/^[0-9]{6}$/.test(trimmedCode)) {
+      alert("feeda: コードは6桁の数字で入力してください。");
+      return;
+    }
+
+    let apiBase = GM_getValue(API_BASE_KEY, "");
+    if (!apiBase) {
+      const input = prompt("feeda APIのベースURLを入力してください", PRODUCTION_API_BASE);
+      if (input === null) return;
+      apiBase = input.trim().replace(/\/+$/, "");
+    }
+
+    try {
+      const key = await derivePairingKeyFromCode(trimmedCode);
+      const res = await gmRequest({ method: "GET", url: `${apiBase}/api/pair/${trimmedCode}` });
+      if (res.status === 404) throw new Error("コードが無効か、期限切れです。");
+      if (res.status === 410) throw new Error("このコードは既に使用済みです。");
+      if (res.status < 200 || res.status >= 300) throw new Error(`サーバーエラー (HTTP ${res.status})`);
+
+      const body = JSON.parse(res.responseText);
+      let data;
+      try {
+        data = await decryptJson(key, body.ciphertext);
+      } catch {
+        throw new Error("コードが正しくないか、データの復号に失敗しました。");
+      }
+      if (!data || typeof data.seed !== "string") throw new Error("データの形式が不正です。");
+
+      GM_setValue(SEED_KEY, data.seed.trim());
+      GM_setValue(API_BASE_KEY, (data.apiBase || apiBase).replace(/\/+$/, ""));
+      GM_setValue(KNOWN_FEED_IDS_KEY, []);
+      GM_setValue(KNOWN_FEED_IDS_TS_KEY, 0);
+      alert("feeda: シードを受け取り、設定を保存しました。");
+    } catch (err) {
+      alert(`feeda: シードの受け取りに失敗しました: ${err.message}`);
+    }
   }
 
   // --- auto-log (reading-activity log) -------------------------------------
@@ -898,6 +1032,8 @@
       }
     }
   }
+
+  tryImportSeedFromPage();
 
   main().catch((err) => console.error("[feeda]", err));
   if (isTopFrame) {

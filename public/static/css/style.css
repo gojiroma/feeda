@@ -85,6 +85,50 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .setup-label input { display: block; width: 100%; margin-top: 4px; }
 .setup-error { color: var(--danger); font-size: 0.85rem; min-height: 1.2em; margin-bottom: 8px; }
+.setup-info { color: var(--accent); font-size: 0.85rem; min-height: 1.2em; margin-bottom: 8px; }
+.setup-divider {
+  margin: 16px 0 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.setup-row--pairing { display: flex; gap: 8px; }
+.setup-row--pairing button { flex: 1; }
+
+/* Seed hand-off (QR code / 6-digit code) modals */
+.qr-code-box {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+}
+.qr-code-box svg { width: 100%; max-width: 280px; height: auto; display: block; }
+.pairing-code-display {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.pairing-status { color: var(--text-muted); font-size: 0.85rem; min-height: 1.2em; }
+.qr-scan-video {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #000;
+  display: block;
+  margin: 0 auto;
+}
 
 /* Seed modal (view-only, opened from the topbar once already set up) */
 .modal {

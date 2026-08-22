@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS search_history_rows (
 );
 CREATE INDEX IF NOT EXISTS idx_search_history_rows_account_updated
   ON search_history_rows (account_id, updated_at);
+
+-- Short-lived relay for the seed hand-off feature (QR code / 6-digit code —
+-- see routes/pair.py). Rows are keyed by the code itself, not an account_id:
+-- this table exists precisely to hand a seed to a device that doesn't have
+-- an account yet, so there's nothing to scope it to. consumed_at marks a
+-- code as already used (fetched once); expires_at bounds how long an unused
+-- code stays valid. Both a consumed and an expired row are inert but kept
+-- around briefly rather than deleted immediately, mainly so the sharing
+-- side's status poll can still tell "used" apart from "never existed".
+CREATE TABLE IF NOT EXISTS pairing_rows (
+  code        TEXT PRIMARY KEY,
+  ciphertext  TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_pairing_rows_expires ON pairing_rows (expires_at);
 """
 
 

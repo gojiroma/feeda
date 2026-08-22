@@ -34,7 +34,13 @@
         <input id="api-base-input" type="text" placeholder="別ドメインの場合のみ入力: https://your-app.vercel.app" autocomplete="off">
       </label>
       <div id="setup-error" class="setup-error"></div>
+      <div id="setup-info" class="setup-info"></div>
       <button id="start-btn" type="button" class="primary">開始</button>
+      <div class="setup-divider">別端末のシードを引き継ぐ</div>
+      <div class="setup-row setup-row--pairing">
+        <button id="setup-qr-scan-btn" type="button">QRコードを読み取る</button>
+        <button id="setup-code-receive-btn" type="button">6桁コードで受け取る</button>
+      </div>
     </div>
   </div>
 
@@ -114,6 +120,68 @@
       <div class="setup-row">
         <button id="seed-copy-btn" type="button">コピー</button>
         <button id="seed-modal-close-btn" type="button" class="primary">閉じる</button>
+      </div>
+      <div class="setup-divider">別端末に引き継ぐ</div>
+      <div class="setup-row setup-row--pairing">
+        <button id="seed-qr-share-btn" type="button">QRコードで共有</button>
+        <button id="seed-code-share-btn" type="button">6桁コードで共有</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="qr-share-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>QRコードで共有</h1>
+      <p>
+        別の端末の「QRコードを読み取る」でこのQRコードを読み取ると、同じシードとAPIベースURLが設定されます。
+        画面を他人に見せないでください。
+      </p>
+      <div id="qr-share-box" class="qr-code-box"></div>
+      <div class="setup-row">
+        <button id="qr-share-close-btn" type="button" class="primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="code-share-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>6桁コードで共有</h1>
+      <p>
+        別の端末の「6桁コードで受け取る」からこのコードを入力してください。
+        コードは数分で失効し、一度使うと無効になります。画面を他人に見せないでください。
+      </p>
+      <div class="pairing-code-display" id="code-share-value">------</div>
+      <p class="pairing-status" id="code-share-status"></p>
+      <div class="setup-row">
+        <button id="code-share-close-btn" type="button" class="primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="qr-scan-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>QRコードを読み取る</h1>
+      <p>もう一方の端末の「QRコードで共有」で表示したQRコードにカメラを向けてください。</p>
+      <video id="qr-scan-video" class="qr-scan-video" playsinline muted></video>
+      <p class="pairing-status" id="qr-scan-status"></p>
+      <div class="setup-row">
+        <button id="qr-scan-cancel-btn" type="button">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="code-receive-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>6桁コードで受け取る</h1>
+      <p>もう一方の端末の「6桁コードで共有」で表示されたコードを入力してください。</p>
+      <label class="setup-label">
+        6桁コード
+        <input id="code-receive-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off">
+      </label>
+      <p class="pairing-status" id="code-receive-status"></p>
+      <div class="setup-row">
+        <button id="code-receive-submit-btn" type="button" class="primary">受け取る</button>
+        <button id="code-receive-cancel-btn" type="button">キャンセル</button>
       </div>
     </div>
   </div>
