@@ -52,6 +52,7 @@
         <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
         <ul id="search-history" class="search-history hidden"></ul>
       </div>
+      <button type="button" id="ng-word-btn" title="NGワードを管理">NGワード</button>
       <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
       <button type="button" id="wide-grid-toggle-btn" class="mode-toggle-btn">マルチカラム</button>
       <button type="button" id="mode-toggle-btn" class="mode-toggle-btn">振り返る</button>
@@ -109,6 +110,21 @@
     <div id="status-bar" class="status-bar hidden">
       <div id="status-bar-fill" class="status-bar-fill"></div>
       <span id="status-bar-text" class="status-bar-text"></span>
+    </div>
+  </div>
+
+  <div id="ng-word-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>NGワード</h1>
+      <p>登録した単語をタイトルに含む記事は一覧から除外されます。</p>
+      <form id="ng-word-form" class="setup-row">
+        <input id="ng-word-input" type="text" placeholder="NGワードを入力" autocomplete="off">
+        <button type="submit" class="primary">追加</button>
+      </form>
+      <ul id="ng-word-list" class="ng-word-list"></ul>
+      <div class="setup-row">
+        <button id="ng-word-modal-close-btn" type="button" class="primary">閉じる</button>
+      </div>
     </div>
   </div>
 

@@ -15,7 +15,7 @@ const FEED_URL_RE = /^https?:\/\//i;
 // Pressing Enter on a string starting with http(s):// is treated as
 // subscribing to that URL as an RSS feed (via onSubscribe) rather than as a
 // search — it's never recorded to search history either, since it isn't one.
-export function setupSearchBar(inputEl, onQuery, { onSubscribe, wait = 150 } = {}) {
+export function setupSearchBar(inputEl, onQuery, { onSubscribe, onHistoryChange, wait = 150 } = {}) {
   const debounced = debounce(onQuery, wait);
   const dropdownEl = document.getElementById("search-history");
 
@@ -58,7 +58,14 @@ export function setupSearchBar(inputEl, onQuery, { onSubscribe, wait = 150 } = {
 
   function recordAndSync(query) {
     recordSearchHistory(query)
-      .then(() => syncSearchHistoryNow())
+      .then(() => {
+        // Fires before the network sync (which can take a moment) rather
+        // than after, so the "always highlight every saved search term"
+        // feature (see main.js's highlightQuery) picks this query up right
+        // away instead of waiting on a round-trip that isn't relevant to it.
+        onHistoryChange?.();
+        return syncSearchHistoryNow();
+      })
       .catch((err) => console.error("search history sync failed", err));
   }
 

@@ -1,9 +1,11 @@
 import { generateSeed, isValidSeed, deriveFeedId } from "./crypto.js";
 import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
-import { getAllFeeds, getFeed, getEntriesByFeed } from "./db.js";
+import { getAllFeeds, getFeed, getEntriesByFeed, getAllSearchHistoryEntries } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { syncLogNow } from "./logSync.js";
 import { syncSearchHistoryNow } from "./searchSync.js";
+import { syncNgWordsNow } from "./ngWordSync.js";
+import { getActiveNgWords, matchesAnyNgWord } from "./ngWords.js";
 import {
   recordOpen,
   addComment,
@@ -30,6 +32,7 @@ import { openFloatingPopup } from "./ui/colorPicker.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
+import { setupNgWordModal } from "./ui/ngWordModal.js";
 import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
 import { updateFavicon } from "./favicon.js";
 
@@ -134,6 +137,17 @@ const state = {
   // below it too so crossing back over the breakpoint resumes it. Purely a
   // local view preference, not synced.
   wideGridMode: false,
+  // Lowercased NG words (see ngWords.js/setupNgWordModal) — an entry whose
+  // title contains one is filtered out of the article list (see
+  // filterByNgWords). Lowercased once here rather than per-entry at filter
+  // time, since matching itself is case-insensitive.
+  ngWords: [],
+  // Every saved search-history query (see db.js's searchHistory store),
+  // kept around so highlightQuery can mark them all as "things I've looked
+  // for before" all the time, not just the one currently/last searched.
+  // Refreshed by loadAppData and (for the query just typed, without waiting
+  // on the next periodic refresh) searchBar.js's onHistoryChange.
+  searchHistoryWords: [],
   // Same idea as feedColorFilter, for the reflect screen's own color tags
   // (see renderLogColorFilter in ui/reflect.js and toggleLogColorFilter
   // below) — a log entry matches if it has any color in this set.
@@ -204,6 +218,8 @@ async function loadAppData() {
   }
   state.logByEntryId = await getLatestLogEntriesByEntryId();
   state.feedScoreById = await getFeedEngagementScores();
+  state.ngWords = (await getActiveNgWords()).map((w) => w.word.toLowerCase());
+  state.searchHistoryWords = (await getAllSearchHistoryEntries()).map((e) => e.query);
   if (state.selectedFeedId && !state.feedsById.has(state.selectedFeedId)) {
     state.selectedFeedId = null;
   }
@@ -229,13 +245,27 @@ async function refreshFeedInState(feedId) {
 }
 
 // Article titles and preview/body text highlight this instead of the live
-// searchQuery — falls back to the last non-empty query once the box is
-// cleared, so what you were just searching for stays visually marked while
-// browsing. Feed names deliberately keep using the live searchQuery
-// directly (see renderDesktop/renderTabletTwoPane) instead of this, so
-// they only highlight while a search is actually active.
+// searchQuery. Two layers, both always-on regardless of whether a search is
+// actually active right now: the live-or-last query (see lastSearchQuery's
+// own comment) in the normal yellow .search-highlight, listed first so it
+// wins wherever it overlaps a history term; and every *other* saved search-
+// history keyword (state.searchHistoryWords, kept fresh by loadAppData and
+// searchBar.js's onHistoryChange) in a visually distinct fluorescent green
+// (.search-highlight-history) — a standing "things I've looked for before"
+// marker that doesn't depend on the search box having anything in it. Feed
+// names deliberately keep using the live searchQuery directly (see
+// renderDesktop/renderTabletTwoPane) instead of this, so they only
+// highlight while a search is actually active.
 function highlightQuery() {
-  return state.searchQuery.trim() || state.lastSearchQuery;
+  const current = (state.searchQuery.trim() || state.lastSearchQuery).trim();
+  const terms = [];
+  if (current) terms.push({ text: current, className: "search-highlight" });
+  for (const word of state.searchHistoryWords) {
+    if (word && word.toLowerCase() !== current.toLowerCase()) {
+      terms.push({ text: word, className: "search-highlight-history" });
+    }
+  }
+  return terms;
 }
 
 function currentFeedGroups() {
@@ -318,16 +348,29 @@ function sortMobileUnreadByFrequency(entries) {
   });
 }
 
+// An entry whose title contains a registered NG word (see ngWords.js/the
+// "NGワード" topbar button) never shows up in the article list — applied
+// once here, the one place currentArticles() actually returns entries,
+// rather than in each of its three branches separately.
+function filterByNgWords(entries) {
+  if (state.ngWords.length === 0) return entries;
+  return entries.filter((e) => !matchesAnyNgWord(e.title, state.ngWords));
+}
+
 function currentArticles() {
   const query = state.searchQuery;
   if (query) {
     const allEntries = [...state.entriesByFeed.values()].flat();
     const matched = searchEntries(query, allEntries, state.feedTitleById);
     matched.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    return { entries: matched.slice(0, 200), showFeedName: true, emptyHint: "検索結果がありません。" };
+    return { entries: filterByNgWords(matched.slice(0, 200)), showFeedName: true, emptyHint: "検索結果がありません。" };
   }
   if (state.selectedFeedId) {
-    return { entries: sortedEntriesForFeed(state.selectedFeedId), showFeedName: false, emptyHint: "記事がありません。" };
+    return {
+      entries: filterByNgWords(sortedEntriesForFeed(state.selectedFeedId)),
+      showFeedName: false,
+      emptyHint: "記事がありません。",
+    };
   }
   // Nothing selected: show unread entries across all feeds, newest first
   // (date-less unread entries have no position to sort by, so they sink to
@@ -352,7 +395,7 @@ function currentArticles() {
     state.unreadTimelineSnapshot = timeline;
   }
   return {
-    entries: state.unreadTimelineSnapshot,
+    entries: filterByNgWords(state.unreadTimelineSnapshot),
     showFeedName: true,
     emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
   };
@@ -741,14 +784,14 @@ function renderTabletTwoPane() {
 }
 
 // Opt-in ultra-wide layout (see the "マルチカラム" button/isWideGridLayout,
-// only offered at wideGridQuery's width) — same feed pane as desktop, but
-// the article pane drops the preview column in favor of a multi-column card
-// grid (see .app.wide-grid-mode in style.css), same real-link-per-row
-// component as the tablet/phone layouts (renderMobileList) rather than
-// desktop's select-and-preview one, since there's no preview pane here to
-// select into. Trades per-article detail for surveying far more of the
-// unread queue at a glance, which is the whole point of having the extra
-// width in the first place.
+// only offered at wideGridQuery's width) — same feed pane, article list, and
+// preview pane components as desktop (so annotate, keyboard nav, and the
+// .selected/.unread styling all keep working unchanged), just laid out
+// differently: the article list becomes a multi-column card grid (CSS
+// `columns`, see .app.wide-grid-mode in style.css) with the preview pane
+// moved below it instead of beside it, so more of the unread queue is
+// visible at a glance. The one real behavioral difference is onHover —
+// see previewEntryAndMarkRead.
 function renderWideGrid() {
   const query = state.searchQuery;
   const feedGroups = currentFeedGroups();
@@ -771,15 +814,21 @@ function renderWideGrid() {
   showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
 
   const { entries, showFeedName, emptyHint } = currentArticles();
-  renderMobileList(articleListEl, {
+  renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
+    selectedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
     query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
-    onOpen: openEntry,
+    onSelect: openEntry,
+    onHover: previewEntryAndMarkRead,
+    onAnnotate: openAnnotateForEntry,
+    logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
   });
+
+  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen });
 }
 
 // render() no-ops entirely in reflect mode (see its own comment) — but the
@@ -1094,6 +1143,22 @@ function previewEntry(entry) {
   render();
 }
 
+// Wide-grid mode's own onHover (see renderWideGrid) — previews *and* marks
+// read on hover, unlike previewEntry above. Deliberately scoped to that one
+// layout: in a dense single-column list, sweeping the cursor down catching
+// everything it crosses was the "だるま落とし" bug (see previewFeed's
+// comment) — the reason hover never marks read anywhere else in this app.
+// A multi-column card grid doesn't have that failure mode the same way (far
+// fewer, much larger targets under the cursor at once), and the request
+// this exists for was specifically about that grid.
+async function previewEntryAndMarkRead(entry) {
+  state.selectedEntry = entry;
+  setFocusedPane("article");
+  const updated = await advanceReadState(entry);
+  render();
+  if (updated) syncNow().catch((err) => console.error("sync failed", err));
+}
+
 // Deliberate action (click, keyboard nav) — previews AND advances read
 // state right away.
 async function selectFeed(feedId) {
@@ -1218,6 +1283,11 @@ async function refreshAll({ force = false } = {}) {
     await syncSearchHistoryNow();
   } catch (err) {
     console.error("search history sync failed", err);
+  }
+  try {
+    await syncNgWordsNow();
+  } catch (err) {
+    console.error("ng word sync failed", err);
   }
   await loadAppData();
   render();
@@ -1543,6 +1613,15 @@ function wireApp() {
       onSubscribe: (url) => {
         subscribeFeedFromUrl(url).catch((err) => console.error("subscribe failed", err));
       },
+      onHistoryChange: () => {
+        getAllSearchHistoryEntries()
+          .then((entries) => {
+            state.searchHistoryWords = entries.map((e) => e.query);
+            if (state.mode === "reflect") return;
+            render();
+          })
+          .catch((err) => console.error("search history reload failed", err));
+      },
     }
   );
   showReadToggleInputEl.addEventListener("change", () => {
@@ -1559,6 +1638,19 @@ function wireApp() {
   setupSeedModal(document.getElementById("seed-btn"), document.getElementById("seed-modal"), {
     getSeed: () => getSession().seed,
     getApiBase: () => getSession().apiBase,
+  });
+  setupNgWordModal(document.getElementById("ng-word-btn"), document.getElementById("ng-word-modal"), {
+    onChange: () => {
+      syncNgWordsNow().catch((err) => console.error("ng word sync failed", err));
+      getActiveNgWords()
+        .then((words) => {
+          state.ngWords = words.map((w) => w.word.toLowerCase());
+          state.unreadTimelineSnapshot = null; // re-derive the home timeline under the new filter
+          if (state.mode === "reflect") return;
+          render();
+        })
+        .catch((err) => console.error("ng word reload failed", err));
+    },
   });
   setupPairingShareUI({
     getSeed: () => getSession().seed,

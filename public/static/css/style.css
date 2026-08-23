@@ -152,6 +152,34 @@ input[type="text"], input[type="url"], input[type="search"] {
 .modal-card h1 { margin-top: 0; font-size: 1.3rem; }
 .modal-card p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
 
+#ng-word-form { display: flex; gap: 8px; }
+#ng-word-form input { flex: 1; }
+.ng-word-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.ng-word-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.ng-word-item button {
+  color: var(--danger);
+  border: none;
+  background: none;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
 /* App shell */
 .app {
   height: 100%;
@@ -501,7 +529,16 @@ input[type="text"], input[type="url"], input[type="search"] {
   color: var(--text-muted);
 }
 .article-item:hover { background: var(--bg-alt); }
-.article-item.selected { background: var(--bg-alt); }
+/* Selected used to be background: var(--bg-alt) — identical to plain
+   :hover — which made keyboard nav (arrow keys move .selected between
+   rows) genuinely hard to track: the highlighted row looked the same
+   whether it was "selected" or just "the mouse happens to be here". An
+   inset box-shadow reads as clearly distinct from hover, in any theme, and
+   — like the color-tag border below — never changes this row's height. */
+.article-item.selected {
+  background: var(--bg-alt);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 /* No font-weight change here: bolding/unbolding the title can change its
    line-wrap count, which changes this row's height. With hover marking
    entries read (see articleList.js), that reflow shifts the *next* row up
@@ -595,6 +632,17 @@ input[type="text"], input[type="url"], input[type="search"] {
 
 .search-highlight {
   background: #fde047;
+  color: #111;
+  font-weight: 700;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* Always-on "things I've searched for before" marker (see highlightQuery in
+   main.js) — every saved search-history term, not just the current/last
+   one, deliberately in a different (fluorescent green) color so it never
+   gets mistaken for the live search's own yellow highlight. */
+.search-highlight-history {
+  background: #39ff14;
   color: #111;
   font-weight: 700;
   border-radius: 2px;
@@ -728,31 +776,43 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 
 /* Wide-grid mode itself (see isWideGridLayout/renderWideGrid in main.js) —
-   same feed pane as desktop, but the preview pane is dropped and the
-   article pane grows to fill the space it leaves behind, laying its
-   articles out as a multi-column card grid (renderMobileList's markup,
-   same as the tablet/phone layouts, columns) instead of a single list next
-   to a preview. resizer 1 (article↔preview) is meaningless with no preview
-   pane to drag against; resizer 0 (feed↔article) is left alone since the
-   feed pane is still real here. */
-.app.wide-grid-mode .preview-pane {
-  display: none !important;
+   same three panes as desktop (feed/article/preview — same components too,
+   so annotate/keyboard-nav/.selected all keep working unchanged), just
+   reflowed: feed pane still on the left, but article and preview stack on
+   top of each other in the remaining space instead of sitting side by
+   side, and the article list itself lays its rows out as a multi-column
+   card grid (CSS `columns`) instead of one column. Grid areas let this
+   ignore the panes' actual DOM order (feed, resizer, article, resizer,
+   preview) rather than needing it restructured for two different layouts.
+   Both resizers are drag-against-nothing here (grid areas, not flex
+   siblings) so they're hidden rather than left non-functional. */
+.app.wide-grid-mode .panes {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  grid-template-areas: "feed article" "feed preview";
 }
-.app.wide-grid-mode .pane-resizer[data-resizer="1"] {
-  display: none !important;
+.app.wide-grid-mode .feed-pane {
+  grid-area: feed;
 }
 .app.wide-grid-mode .article-pane {
-  flex: 1;
+  grid-area: article;
   width: auto !important;
   border-right: none;
+  border-bottom: 1px solid var(--border);
 }
-.app.wide-grid-mode .mobile-article-list-inner {
+.app.wide-grid-mode .preview-pane {
+  grid-area: preview;
+}
+.app.wide-grid-mode .pane-resizer {
+  display: none !important;
+}
+.app.wide-grid-mode .article-list {
   columns: 360px;
   column-gap: 0;
 }
-.app.wide-grid-mode .mobile-article-item {
+.app.wide-grid-mode .article-item {
   break-inside: avoid;
-  border-bottom: 1px solid var(--border);
   border-right: 1px solid var(--border);
 }
 

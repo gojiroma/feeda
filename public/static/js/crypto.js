@@ -5,6 +5,7 @@ const ACCOUNT_ID_INFO = "feeda:account-id";
 const ENC_KEY_INFO = "feeda:enc-key";
 const FEED_ID_INFO = "feeda:feed-id";
 const SEARCH_ID_INFO = "feeda:search-id";
+const NG_WORD_ID_INFO = "feeda:ng-word-id";
 
 function toBytes(str) {
   return new TextEncoder().encode(str);
@@ -99,6 +100,21 @@ export async function deriveSearchId(seed, query) {
   combined.set(seedBytes, 0);
   combined.set(infoBytes, seedBytes.length);
   combined.set(queryBytes, seedBytes.length + infoBytes.length);
+  const digest = await crypto.subtle.digest("SHA-256", combined);
+  return bytesToHex(digest);
+}
+
+// word is hashed lowercased+trimmed (unlike deriveSearchId's query, which is
+// only trimmed) since NG-word matching itself is case-insensitive — the id
+// shouldn't fork over a difference the feature treats as the same word.
+export async function deriveNgWordId(seed, word) {
+  const seedBytes = toBytes(seed.trim());
+  const infoBytes = toBytes(NG_WORD_ID_INFO);
+  const wordBytes = toBytes(word.trim().toLowerCase());
+  const combined = new Uint8Array(seedBytes.length + infoBytes.length + wordBytes.length);
+  combined.set(seedBytes, 0);
+  combined.set(infoBytes, seedBytes.length);
+  combined.set(wordBytes, seedBytes.length + infoBytes.length);
   const digest = await crypto.subtle.digest("SHA-256", combined);
   return bytesToHex(digest);
 }

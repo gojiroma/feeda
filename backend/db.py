@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS search_history_rows (
 CREATE INDEX IF NOT EXISTS idx_search_history_rows_account_updated
   ON search_history_rows (account_id, updated_at);
 
+CREATE TABLE IF NOT EXISTS ng_word_rows (
+  account_id        TEXT NOT NULL,
+  ng_word_id        TEXT NOT NULL,
+  ciphertext        TEXT NOT NULL,
+  client_updated_at TIMESTAMPTZ NOT NULL,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, ng_word_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ng_word_rows_account_updated
+  ON ng_word_rows (account_id, updated_at);
+
 -- Short-lived relay for the seed hand-off feature (QR code / 6-digit code —
 -- see routes/pair.py). Rows are keyed by the code itself, not an account_id:
 -- this table exists precisely to hand a seed to a device that doesn't have

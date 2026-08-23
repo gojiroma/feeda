@@ -2,7 +2,7 @@ import { deriveSearchId } from "./crypto.js";
 import { getSession } from "./session.js";
 
 const DB_NAME = "feeda";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let dbPromise = null;
 
@@ -50,6 +50,15 @@ export function openDb() {
       if (!db.objectStoreNames.contains("searchHistory")) {
         const searchHistory = db.createObjectStore("searchHistory", { keyPath: "query" });
         searchHistory.createIndex("lastUsedAt", "lastUsedAt", { unique: false });
+      }
+      // Blocklist keywords (see ngWords.js) — an article whose title contains
+      // one hides from the article list. Keyed by the word text itself, same
+      // as searchHistory, and synced the same way (ngWordSync.js) via a
+      // content-derived ngWordId (deriveNgWordId in crypto.js) rather than
+      // the word itself. deletedAt is a soft-delete tombstone (like feeds'
+      // own — see sync.js) since the sync protocol only ever upserts.
+      if (!db.objectStoreNames.contains("ngWords")) {
+        db.createObjectStore("ngWords", { keyPath: "word" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -249,4 +258,24 @@ export async function getSearchHistory(limit = SEARCH_HISTORY_LIMIT) {
   const all = await getAllSearchHistoryEntries();
   all.sort((a, b) => (b.lastUsedAt || "").localeCompare(a.lastUsedAt || ""));
   return all.slice(0, limit);
+}
+
+export async function putNgWord(entry) {
+  const db = await openDb();
+  const t = tx(db, "ngWords", "readwrite");
+  t.objectStore("ngWords").put(entry);
+  return new Promise((resolve, reject) => {
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+}
+
+export async function getNgWord(word) {
+  const db = await openDb();
+  return reqToPromise(tx(db, "ngWords", "readonly").objectStore("ngWords").get(word));
+}
+
+export async function getAllNgWords() {
+  const db = await openDb();
+  return reqToPromise(tx(db, "ngWords", "readonly").objectStore("ngWords").getAll());
 }
