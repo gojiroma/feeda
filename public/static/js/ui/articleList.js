@@ -1,6 +1,7 @@
 import { highlightText } from "../highlight.js";
 import { COLOR_BY_KEY } from "../colorPalette.js";
 import { attachContextTrigger, renderColorSwatches, closeFloatingPopupIfMissing } from "./colorPicker.js";
+import { extractArticlePreview } from "../sanitize.js";
 
 const COMMENT_PREVIEW_MAX_LENGTH = 60;
 
@@ -121,10 +122,24 @@ export function renderArticleList(
       onHover(entry);
     });
 
+    const { imageSrc, snippet } = extractArticlePreview(entry.content || entry.summary || "");
+
+    if (imageSrc) {
+      const thumb = document.createElement("img");
+      thumb.className = "article-thumb";
+      thumb.src = imageSrc;
+      thumb.alt = "";
+      thumb.loading = "lazy";
+      li.appendChild(thumb);
+    }
+
+    const main = document.createElement("div");
+    main.className = "article-main";
+
     const title = document.createElement("div");
     title.className = "article-title";
     title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
-    li.appendChild(title);
+    main.appendChild(title);
 
     const meta = document.createElement("div");
     meta.className = "article-meta";
@@ -132,14 +147,23 @@ export function renderArticleList(
     if (showFeedName) parts.push(feedTitleById.get(entry.feedId) || "");
     if (entry.pubDate) parts.push(new Date(entry.pubDate).toLocaleString("ja-JP"));
     meta.textContent = parts.join(" ・ ");
-    li.appendChild(meta);
+    main.appendChild(meta);
+
+    if (snippet) {
+      const snippetEl = document.createElement("div");
+      snippetEl.className = "article-snippet";
+      snippetEl.appendChild(highlightText(snippet, query));
+      main.appendChild(snippetEl);
+    }
 
     if (comments.length > 0) {
       const preview = document.createElement("div");
       preview.className = "article-comment-preview";
       preview.textContent = `💬 ${truncate(comments[comments.length - 1].text, COMMENT_PREVIEW_MAX_LENGTH)}`;
-      li.appendChild(preview);
+      main.appendChild(preview);
     }
+
+    li.appendChild(main);
 
     // Right-click (desktop) or long-press (touch) opens a combined
     // color-tag + comment popup — same interaction reflect's own timeline

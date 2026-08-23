@@ -40,6 +40,7 @@ const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
 const feedListEl = document.getElementById("feed-list");
 const feedColorFilterEl = document.getElementById("feed-color-filter");
+const searchInputEl = document.getElementById("search-input");
 const articleListEl = document.getElementById("article-list");
 const showReadToggleWrapEl = document.getElementById("show-read-toggle-wrap");
 const showReadToggleInputEl = document.getElementById("show-read-toggle");
@@ -722,6 +723,7 @@ function renderDesktop() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    onShowAllUnread: showAllUnread,
   });
 
   // Only meaningful on the cross-feed home timeline (see currentArticles) —
@@ -769,6 +771,7 @@ function renderTabletTwoPane() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    onShowAllUnread: showAllUnread,
   });
 
   const { entries, showFeedName, emptyHint } = currentArticles();
@@ -1165,6 +1168,19 @@ async function selectFeed(feedId) {
   previewFeed(feedId);
   const topEntry = state.selectedEntry;
   if (topEntry) await advanceProgress(topEntry);
+}
+
+// "すべての未読" link above the feed list's 未読 group (see
+// renderFeedList in ui/feedList.js) — the only way back to the cross-feed
+// unread timeline (see currentArticles) once a feed or search has taken
+// over the article pane. Without this, getting back meant reloading the
+// page, since neither selecting a feed nor searching ever clears back to
+// nothing selected on their own.
+function showAllUnread() {
+  state.selectedFeedId = null;
+  state.searchQuery = "";
+  searchInputEl.value = "";
+  render();
 }
 
 // Shared by openEntry (selecting an article) and the preview pane's outbound
@@ -1594,7 +1610,7 @@ function toggleFullscreen() {
 
 function wireApp() {
   setupSearchBar(
-    document.getElementById("search-input"),
+    searchInputEl,
     (query) => {
       state.searchQuery = query;
       // Sticky across the box clearing (see lastSearchQuery's own comment and
