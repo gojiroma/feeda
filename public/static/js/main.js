@@ -13,6 +13,7 @@ import {
   getFeedAddedCounts,
   getLatestLogEntriesByEntryId,
   getFeedEngagementScores,
+  getFeedLogCounts,
   searchLogEntries,
   dateStrOf,
   shiftDateStr,
@@ -46,11 +47,13 @@ const statusBarTextEl = document.getElementById("status-bar-text");
 const mobileListEl = document.getElementById("mobile-article-list");
 const clockWatermarkEl = document.getElementById("clock-watermark");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
+const wideGridToggleBtn = document.getElementById("wide-grid-toggle-btn");
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
 const reflectFeedChartEl = document.getElementById("reflect-feed-chart");
 const reflectColorFilterEl = document.getElementById("reflect-color-filter");
+const reflectFeedListEl = document.getElementById("reflect-feed-list");
 
 // Width of the trend strip in the day-nav header — see renderDayChart.
 const REFLECT_DAY_CHART_DAYS = 21;
@@ -69,6 +72,17 @@ function isMobileLayout() {
 const tabletQuery = window.matchMedia("(orientation: portrait) and (min-width: 601px)");
 function isTabletTwoPaneLayout() {
   return tabletQuery.matches;
+}
+
+// Opt-in via the "マルチカラム" button (see toggleWideGridMode), only ever
+// offered once there's enough width to make it worthwhile — kept in sync
+// with the min-width:1920px breakpoint in style.css that shows that button
+// and lays this mode out. Below that width the toggle button itself is
+// hidden, but state.wideGridMode is left alone rather than reset, so
+// resizing back up resumes it without the user having to turn it on again.
+const wideGridQuery = window.matchMedia("(min-width: 1920px)");
+function isWideGridLayout() {
+  return state.wideGridMode && wideGridQuery.matches;
 }
 
 const PANE_ORDER = ["feed", "article", "preview"];
@@ -115,6 +129,11 @@ const state = {
   // hiding them, so there's somewhere to color-tag/comment an entry after
   // it's been read. Purely a local view preference, not synced.
   showReadInTimeline: false,
+  // "マルチカラム" button (see toggleWideGridMode/isWideGridLayout) — only
+  // takes effect at wideGridQuery's width, but the flag itself persists
+  // below it too so crossing back over the breakpoint resumes it. Purely a
+  // local view preference, not synced.
+  wideGridMode: false,
   // Same idea as feedColorFilter, for the reflect screen's own color tags
   // (see renderLogColorFilter in ui/reflect.js and toggleLogColorFilter
   // below) — a log entry matches if it has any color in this set.
@@ -127,6 +146,11 @@ const state = {
   // own top-level screen rather than sharing render().
   mode: "view",
   reflectDate: dateStrOf(),
+  // feedId selected in reflect's own feed tree (see renderReflectFeedList),
+  // or null for no filter. Unlike the main view's selectedFeedId this never
+  // changes what's fetched or previewed — it only narrows which of the
+  // day's (or search's) log entries renderReflect shows.
+  reflectFeedFilter: null,
   // Snapshot of the cross-feed "unread timeline" shown when no feed is
   // selected. Frozen at capture time so opening an entry (which marks it,
   // and possibly its whole feed, as read) doesn't yank it out of the list
@@ -244,6 +268,13 @@ function currentFeedGroups() {
 // opened back shut, so this is never recomputed after its first use.
 let collapsedGroups = null;
 
+// Reflect's own feed tree (see renderReflectFeedList) is always a single
+// flat group, so there's nothing meaningful to start collapsed the way
+// collapsedGroupsFor's unread-based heuristic does for the main tree — a
+// plain persistent Set is enough to remember the one status-level toggle
+// across redraws.
+const reflectCollapsedGroups = new Set();
+
 function collapsedGroupsFor(tree) {
   // While a color filter is active, `tree` already only contains matching
   // feeds (see currentFeedGroups) — force every group open so they're all
@@ -336,10 +367,13 @@ function render() {
   // from its own actions (toggleMode, changeReflectDate, jumpReflectToToday,
   // handleAddComment) — see renderReflect callers below.
   if (state.mode === "reflect") return;
+  appRoot.classList.toggle("wide-grid-mode", isWideGridLayout());
   if (isMobileLayout()) {
     renderMobile();
   } else if (isTabletTwoPaneLayout()) {
     renderTabletTwoPane();
+  } else if (isWideGridLayout()) {
+    renderWideGrid();
   } else {
     renderDesktop();
   }
@@ -395,6 +429,18 @@ function toggleMode() {
   }
 }
 
+// "マルチカラム" button — only ever visible/relevant at wideGridQuery's
+// width (see style.css), but the toggle click still just flips the flag and
+// re-renders regardless of current width: nothing stops it being clicked
+// right as the window crosses the breakpoint, and render() re-checks
+// isWideGridLayout() itself on every call anyway.
+function toggleWideGridMode() {
+  state.wideGridMode = !state.wideGridMode;
+  wideGridToggleBtn.textContent = state.wideGridMode ? "3ペインに戻る" : "マルチカラム";
+  wideGridToggleBtn.classList.toggle("active", state.wideGridMode);
+  render();
+}
+
 function formatReflectDateLabel(dateStr) {
   const d = new Date(`${dateStr}T00:00:00`);
   return d.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
@@ -406,6 +452,7 @@ function formatReflectDateLabel(dateStr) {
 // falls back to whatever's already local rather than blocking the render.
 async function renderReflect() {
   await syncLogNow().catch((err) => console.error("log sync failed", err));
+  await renderReflectFeedList();
   const query = state.searchQuery.trim();
   if (query) {
     reflectDateLabelEl.textContent = `「${query}」の検索結果`;
@@ -418,7 +465,7 @@ async function renderReflect() {
       onToggleColor: toggleLogColorFilter,
     });
     renderReflectTimeline(reflectTimelineEl, {
-      entries: filterLogEntriesByColor(rawEntries),
+      entries: filterLogEntriesByColor(filterLogEntriesByFeed(rawEntries)),
       onAddComment: handleAddComment,
       onSetColor: handleSetLogColor,
       emptyHint: "検索結果がありません。",
@@ -449,7 +496,7 @@ async function renderReflect() {
     onToggleColor: toggleLogColorFilter,
   });
   renderReflectTimeline(reflectTimelineEl, {
-    entries: filterLogEntriesByColor(rawEntries),
+    entries: filterLogEntriesByColor(filterLogEntriesByFeed(rawEntries)),
     onAddComment: handleAddComment,
     onSetColor: handleSetLogColor,
   });
@@ -461,6 +508,59 @@ async function renderReflect() {
 function filterLogEntriesByColor(entries) {
   if (state.logColorFilter.size === 0) return entries;
   return entries.filter((e) => e.color && state.logColorFilter.has(e.color));
+}
+
+// Companion to filterLogEntriesByColor for reflect's own feed tree (see
+// renderReflectFeedList/toggleReflectFeedFilter) — narrows to one feed
+// instead of a set of colors, and composes with the color filter rather
+// than replacing it: both can be active on the same view.
+function filterLogEntriesByFeed(entries) {
+  if (!state.reflectFeedFilter) return entries;
+  return entries.filter((e) => e.feedId === state.reflectFeedFilter);
+}
+
+// Reflect's own feed tree — same renderFeedList component as the main
+// sidebar (feed-item styling, color tags, the pause/pin/color context menu),
+// but a single flat group (see the isFlatStatus check in ui/feedList.js)
+// ranked by getFeedLogCounts instead of the status/frequency breakdown: a
+// day's-worth-of-reading timeline isn't "catch up on what's unread", it's
+// "which of my feeds turn up here most". Selecting a feed filters the
+// timeline to it via reflectFeedFilter/filterLogEntriesByFeed rather than
+// navigating anywhere — reflect has no per-feed screen of its own.
+async function renderReflectFeedList() {
+  const counts = await getFeedLogCounts();
+  const feeds = [...state.feedsById.values()]
+    .map((feed) => ({ feed, count: counts.get(feed.feedId) || 0 }))
+    .sort((a, b) => b.count - a.count || (a.feed.title || a.feed.url).localeCompare(b.feed.title || b.feed.url))
+    .map(({ feed }) => feed);
+
+  renderFeedList(reflectFeedListEl, {
+    groups: [
+      {
+        status: { key: "reflect-feeds", label: "フィード" },
+        subgroups: [{ group: { key: "reflect-feeds", label: "フィード" }, feeds }],
+      },
+    ],
+    totalFeedCount: state.feedsById.size,
+    selectedFeedId: state.reflectFeedFilter,
+    query: "",
+    collapsedGroups: reflectCollapsedGroups,
+    onSelect: toggleReflectFeedFilter,
+    onHover: () => {},
+    onTogglePause: togglePauseFeed,
+    onTogglePin: togglePinFeed,
+    onSetColor: setFeedColor,
+    onCopyUrl: copyFeedUrl,
+  });
+}
+
+// Clicking a feed already selected in reflect's tree clears the filter
+// (toggle, same as clicking an active color swatch elsewhere) rather than
+// being a no-op — otherwise there'd be no way back to "every feed" short of
+// reloading.
+function toggleReflectFeedFilter(feedId) {
+  state.reflectFeedFilter = state.reflectFeedFilter === feedId ? null : feedId;
+  renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
 async function handleAddComment(logId, text) {
@@ -517,7 +617,7 @@ function previewReflectDate(dateStr) {
         onToggleColor: toggleLogColorFilter,
       });
       renderReflectTimeline(reflectTimelineEl, {
-        entries: filterLogEntriesByColor(rawEntries),
+        entries: filterLogEntriesByColor(filterLogEntriesByFeed(rawEntries)),
         onAddComment: handleAddComment,
         onSetColor: handleSetLogColor,
       });
@@ -640,6 +740,62 @@ function renderTabletTwoPane() {
   });
 }
 
+// Opt-in ultra-wide layout (see the "マルチカラム" button/isWideGridLayout,
+// only offered at wideGridQuery's width) — same feed pane as desktop, but
+// the article pane drops the preview column in favor of a multi-column card
+// grid (see .app.wide-grid-mode in style.css), same real-link-per-row
+// component as the tablet/phone layouts (renderMobileList) rather than
+// desktop's select-and-preview one, since there's no preview pane here to
+// select into. Trades per-article detail for surveying far more of the
+// unread queue at a glance, which is the whole point of having the extra
+// width in the first place.
+function renderWideGrid() {
+  const query = state.searchQuery;
+  const feedGroups = currentFeedGroups();
+  renderFeedColorFilterBar();
+
+  renderFeedList(feedListEl, {
+    groups: feedGroups,
+    totalFeedCount: state.feedsById.size,
+    selectedFeedId: state.selectedFeedId,
+    query,
+    collapsedGroups: collapsedGroupsFor(feedGroups),
+    onSelect: selectFeed,
+    onHover: previewFeed,
+    onTogglePause: togglePauseFeed,
+    onTogglePin: togglePinFeed,
+    onSetColor: setFeedColor,
+    onCopyUrl: copyFeedUrl,
+  });
+
+  showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
+
+  const { entries, showFeedName, emptyHint } = currentArticles();
+  renderMobileList(articleListEl, {
+    entries,
+    feedTitleById: state.feedTitleById,
+    query: highlightQuery(),
+    isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
+    onOpen: openEntry,
+    showFeedName,
+    emptyHint,
+  });
+}
+
+// render() no-ops entirely in reflect mode (see its own comment) — but the
+// feed context menu (pause/pin/color) is now reachable from reflect's own
+// feed tree too (see renderReflectFeedList), so a change made there still
+// needs *something* redrawn. Only the tree itself can have changed — the
+// timeline doesn't depend on a feed's pause/pin/color — so that's all this
+// redraws in reflect mode, instead of the fuller renderReflect().
+function refreshAfterFeedChange() {
+  if (state.mode === "reflect") {
+    renderReflectFeedList();
+  } else {
+    render();
+  }
+}
+
 // "更新を停止/再開" in the feed context menu (see ui/feedList.js) — toggles
 // whether the feed gets fetched at all. Paused feeds sort into their own
 // "更新停止" group (see frequency.js) and are skipped entirely by
@@ -660,7 +816,7 @@ async function togglePauseFeed(feedId) {
   }
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
-  render();
+  refreshAfterFeedChange();
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
@@ -674,7 +830,7 @@ async function togglePinFeed(feedId) {
   const updated = { ...feed, pinned: !feed.pinned };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
-  render();
+  refreshAfterFeedChange();
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
@@ -688,7 +844,7 @@ async function setFeedColor(feedId, colorKey) {
   const updated = { ...feed, color: colorKey || null };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
-  render();
+  refreshAfterFeedChange();
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
@@ -1409,14 +1565,16 @@ function wireApp() {
     getApiBase: () => getSession().apiBase,
   });
   modeToggleBtn.addEventListener("click", toggleMode);
+  wideGridToggleBtn.addEventListener("click", toggleWideGridMode);
   document.getElementById("reflect-prev-day").addEventListener("click", () => changeReflectDate(-1));
   document.getElementById("reflect-next-day").addEventListener("click", () => changeReflectDate(1));
   document.getElementById("reflect-today-btn").addEventListener("click", jumpReflectToToday);
-  // Re-render across the mobile/tablet/desktop breakpoints (window resize,
-  // or a foldable/rotation crossing one) so the right layout's markup is
-  // kept up to date even if it wasn't the active one a moment ago.
+  // Re-render across the mobile/tablet/desktop/wide-grid breakpoints (window
+  // resize, or a foldable/rotation crossing one) so the right layout's
+  // markup is kept up to date even if it wasn't the active one a moment ago.
   mobileQuery.addEventListener("change", () => render());
   tabletQuery.addEventListener("change", () => render());
+  wideGridQuery.addEventListener("change", () => render());
 
   nextFetchBarEl.addEventListener("click", () => {
     refreshAll({ force: true }).catch((err) => console.error("forced refresh failed", err));

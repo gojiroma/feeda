@@ -53,6 +53,7 @@
         <ul id="search-history" class="search-history hidden"></ul>
       </div>
       <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
+      <button type="button" id="wide-grid-toggle-btn" class="mode-toggle-btn">マルチカラム</button>
       <button type="button" id="mode-toggle-btn" class="mode-toggle-btn">振り返る</button>
     </header>
     <button type="button" id="next-fetch-bar" class="next-fetch-bar hidden">
@@ -79,26 +80,31 @@
       <div id="mobile-article-list" class="mobile-article-list"></div>
     </div>
     <div class="reflect-view" id="reflect-view">
-      <div class="reflect-day-nav">
-        <div class="reflect-day-nav-row">
-          <button type="button" id="reflect-prev-day" aria-label="前の日">←</button>
-          <span id="reflect-date-label" class="reflect-date-label"></span>
-          <button type="button" id="reflect-next-day" aria-label="次の日">→</button>
-          <button type="button" id="reflect-today-btn">今日</button>
-        </div>
-        <div class="reflect-trend-charts">
-          <div class="reflect-trend-chart-row">
-            <span class="reflect-trend-chart-label">記録</span>
-            <div id="reflect-day-chart" class="reflect-day-chart"></div>
+      <aside class="pane feed-pane" id="reflect-feed-pane">
+        <div id="reflect-feed-list"></div>
+      </aside>
+      <div class="reflect-main">
+        <div class="reflect-day-nav">
+          <div class="reflect-day-nav-row">
+            <button type="button" id="reflect-prev-day" aria-label="前の日">←</button>
+            <span id="reflect-date-label" class="reflect-date-label"></span>
+            <button type="button" id="reflect-next-day" aria-label="次の日">→</button>
+            <button type="button" id="reflect-today-btn">今日</button>
           </div>
-          <div class="reflect-trend-chart-row">
-            <span class="reflect-trend-chart-label">購読+</span>
-            <div id="reflect-feed-chart" class="reflect-day-chart reflect-day-chart--feed"></div>
+          <div class="reflect-trend-charts">
+            <div class="reflect-trend-chart-row">
+              <span class="reflect-trend-chart-label">記録</span>
+              <div id="reflect-day-chart" class="reflect-day-chart"></div>
+            </div>
+            <div class="reflect-trend-chart-row">
+              <span class="reflect-trend-chart-label">購読+</span>
+              <div id="reflect-feed-chart" class="reflect-day-chart reflect-day-chart--feed"></div>
+            </div>
           </div>
         </div>
+        <div id="reflect-color-filter" class="reflect-color-filter"></div>
+        <div id="reflect-timeline" class="reflect-timeline"></div>
       </div>
-      <div id="reflect-color-filter" class="reflect-color-filter"></div>
-      <div id="reflect-timeline" class="reflect-timeline"></div>
     </div>
     <div id="status-bar" class="status-bar hidden">
       <div id="status-bar-fill" class="status-bar-fill"></div>

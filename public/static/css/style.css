@@ -708,6 +708,54 @@ input[type="text"], input[type="url"], input[type="search"] {
   flex-shrink: 0;
 }
 
+/* "マルチカラム" button (see toggleWideGridMode in main.js) — only worth
+   offering once there's enough width for a multi-column article grid to be
+   more useful than the normal 3-pane layout; hidden outside that range
+   entirely rather than just disabled, since it'd otherwise do nothing at a
+   narrower width the moment it's clicked. */
+#wide-grid-toggle-btn {
+  display: none;
+}
+@media (min-width: 1920px) {
+  #wide-grid-toggle-btn {
+    display: inline-block;
+  }
+}
+#wide-grid-toggle-btn.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+/* Wide-grid mode itself (see isWideGridLayout/renderWideGrid in main.js) —
+   same feed pane as desktop, but the preview pane is dropped and the
+   article pane grows to fill the space it leaves behind, laying its
+   articles out as a multi-column card grid (renderMobileList's markup,
+   same as the tablet/phone layouts, columns) instead of a single list next
+   to a preview. resizer 1 (article↔preview) is meaningless with no preview
+   pane to drag against; resizer 0 (feed↔article) is left alone since the
+   feed pane is still real here. */
+.app.wide-grid-mode .preview-pane {
+  display: none !important;
+}
+.app.wide-grid-mode .pane-resizer[data-resizer="1"] {
+  display: none !important;
+}
+.app.wide-grid-mode .article-pane {
+  flex: 1;
+  width: auto !important;
+  border-right: none;
+}
+.app.wide-grid-mode .mobile-article-list-inner {
+  columns: 360px;
+  column-gap: 0;
+}
+.app.wide-grid-mode .mobile-article-item {
+  break-inside: avoid;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
 .reflect-view {
   display: none;
 }
@@ -721,8 +769,25 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .app.reflect-mode .reflect-view {
   display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+}
+/* Feed tree alongside the timeline — same .feed-pane/.pane look as the
+   normal screen's sidebar (width, own scrollbar, right border), just fed a
+   different tree (see renderReflectFeedList in main.js): a single flat
+   group sorted by how many log entries each feed has, not the status/
+   frequency breakdown, since "browse everything, catch up on what's
+   unread" doesn't apply to a day's-worth-of-reading timeline the way it
+   does to live subscriptions. Selecting a feed here filters the timeline
+   to it (see reflectFeedFilter) instead of navigating anywhere.
+   Reusing .feed-pane already gives it a fixed width, its own scrollbar, and
+   a right border — no extra rule needed for it or #reflect-feed-list. */
+.reflect-main {
+  display: flex;
   flex-direction: column;
   flex: 1;
+  min-width: 0;
   min-height: 0;
 }
 
