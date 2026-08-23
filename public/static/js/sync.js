@@ -29,6 +29,9 @@ function feedToPayload(feed) {
     userManagedPause: feed.userManagedPause || false,
     // Context-menu color tag (see colorPalette.js) — a palette key or null.
     color: feed.color || null,
+    // Pinned to its own top-of-sidebar group (see frequency.js's
+    // PINNED_STATUS) regardless of read state, staleness, or pause.
+    pinned: feed.pinned || false,
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -101,6 +104,7 @@ export async function pullUpdates() {
       paused: payload.paused || false,
       userManagedPause: payload.userManagedPause || false,
       color: payload.color || null,
+      pinned: payload.pinned || false,
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,

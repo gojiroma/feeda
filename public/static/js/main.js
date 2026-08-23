@@ -12,6 +12,7 @@ import {
   getDailyCounts,
   getFeedAddedCounts,
   getLatestLogEntriesByEntryId,
+  getFeedEngagementScores,
   searchLogEntries,
   dateStrOf,
   shiftDateStr,
@@ -36,6 +37,8 @@ const appRoot = document.getElementById("app");
 const feedListEl = document.getElementById("feed-list");
 const feedColorFilterEl = document.getElementById("feed-color-filter");
 const articleListEl = document.getElementById("article-list");
+const showReadToggleWrapEl = document.getElementById("show-read-toggle-wrap");
+const showReadToggleInputEl = document.getElementById("show-read-toggle");
 const previewEl = document.getElementById("preview");
 const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
@@ -87,6 +90,12 @@ const state = {
   // from reflect (or straight from the list — see openAnnotateForEntry)
   // without a per-row IndexedDB lookup for every visible article.
   logByEntryId: new Map(),
+  // feedId -> cumulative engagement score (see getFeedEngagementScores in
+  // logbook.js) — clicking into, commenting on, or color-tagging a feed's
+  // articles raises its score, sorting it higher within its sidebar group
+  // (see currentFeedGroups/groupFeedsByFrequency) than one that's merely
+  // posted recently but gone unengaged.
+  feedScoreById: new Map(),
   selectedFeedId: null,
   selectedEntry: null,
   searchQuery: "",
@@ -101,6 +110,11 @@ const state = {
   // toggleFeedColorFilter below. A feed matches if it has any color in
   // this set; empty means no filter, show every feed.
   feedColorFilter: new Set(),
+  // "既読も表示" toggle above the article list (see wireApp) — folds
+  // already-read entries into the no-feed-selected home timeline instead of
+  // hiding them, so there's somewhere to color-tag/comment an entry after
+  // it's been read. Purely a local view preference, not synced.
+  showReadInTimeline: false,
   // Same idea as feedColorFilter, for the reflect screen's own color tags
   // (see renderLogColorFilter in ui/reflect.js and toggleLogColorFilter
   // below) — a log entry matches if it has any color in this set.
@@ -165,6 +179,7 @@ async function loadAppData() {
     state.entriesByFeed.set(feed.feedId, await getEntriesByFeed(feed.feedId));
   }
   state.logByEntryId = await getLatestLogEntriesByEntryId();
+  state.feedScoreById = await getFeedEngagementScores();
   if (state.selectedFeedId && !state.feedsById.has(state.selectedFeedId)) {
     state.selectedFeedId = null;
   }
@@ -213,7 +228,7 @@ function currentFeedGroups() {
     feeds = feeds.filter((f) => f.color && state.feedColorFilter.has(f.color));
   }
   const feedsWithEntries = feeds.map((feed) => ({
-    feed: { ...feed, hasUnread: hasUnread(feed) },
+    feed: { ...feed, hasUnread: hasUnread(feed), engagementScore: state.feedScoreById.get(feed.feedId) || 0 },
     entries: state.entriesByFeed.get(feed.feedId) || [],
   }));
   return groupFeedsByFrequency(feedsWithEntries);
@@ -291,16 +306,25 @@ function currentArticles() {
   // its whole feed) as read, and isUnread is re-evaluated live for styling,
   // but the entry stays in place instead of vanishing out of the list.
   if (!state.unreadTimelineSnapshot) {
-    const unread = [];
+    // showReadInTimeline (see the "既読も表示" toggle in wireApp) folds
+    // already-read entries into this same timeline instead of hiding them —
+    // otherwise a read entry with nothing further to say about it has no
+    // page it shows up on at all (short of opening its specific feed), so
+    // there'd be nowhere left to color-tag/comment it after the fact.
+    const timeline = [];
     for (const feed of state.feedsById.values()) {
       for (const entry of state.entriesByFeed.get(feed.feedId) || []) {
-        if (isUnread(entry, feed)) unread.push(entry);
+        if (state.showReadInTimeline || isUnread(entry, feed)) timeline.push(entry);
       }
     }
-    unread.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    state.unreadTimelineSnapshot = unread;
+    timeline.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
+    state.unreadTimelineSnapshot = timeline;
   }
-  return { entries: state.unreadTimelineSnapshot, showFeedName: true, emptyHint: "未読の記事はありません。" };
+  return {
+    entries: state.unreadTimelineSnapshot,
+    showFeedName: true,
+    emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
+  };
 }
 
 function render() {
@@ -552,9 +576,15 @@ function renderDesktop() {
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
+    onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
   });
+
+  // Only meaningful on the cross-feed home timeline (see currentArticles) —
+  // a specific feed's own list, and search results, already include read
+  // entries regardless, so the toggle would be a no-op there.
+  showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
 
   const { entries, showFeedName, emptyHint } = currentArticles();
   renderArticleList(articleListEl, {
@@ -593,6 +623,7 @@ function renderTabletTwoPane() {
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
+    onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
   });
@@ -627,6 +658,20 @@ async function togglePauseFeed(feedId) {
     updated = { ...updated, readUntil: new Date().toISOString() };
     if (updated.latestContentHash) updated = { ...updated, contentHash: updated.latestContentHash };
   }
+  await markFeedDirty(updated);
+  state.feedsById.set(feedId, updated);
+  render();
+  syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// "上部にピン留め/ピン留めを解除" in the feed context menu (see ui/feedList.js)
+// — pulls the feed out of the normal status/frequency tree into its own
+// "📌 ピン留め" group at the very top of the sidebar (see frequency.js's
+// groupFeedsByFrequency), independent of pause/color/read state.
+async function togglePinFeed(feedId) {
+  const feed = state.feedsById.get(feedId);
+  if (!feed) return;
+  const updated = { ...feed, pinned: !feed.pinned };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
   render();
@@ -928,7 +973,10 @@ async function openAnnotateForEntry(entry, x, y) {
   let logEntry = state.logByEntryId.get(entry.id) || null;
   if (!logEntry) {
     logEntry = await recordOpen(entry, state.feedsById.get(entry.feedId));
-    if (logEntry) state.logByEntryId.set(entry.id, logEntry);
+    if (logEntry) {
+      state.logByEntryId.set(entry.id, logEntry);
+      state.feedScoreById = await getFeedEngagementScores();
+    }
   }
   await advanceProgress(entry);
   if (!logEntry) return;
@@ -940,6 +988,7 @@ async function setEntryLogColor(entry, logId, color) {
   const updated = await setLogEntryColor(logId, color);
   if (updated) {
     state.logByEntryId.set(entry.id, updated);
+    state.feedScoreById = await getFeedEngagementScores();
     render();
     scheduleLogSync();
   }
@@ -950,6 +999,7 @@ async function addEntryLogComment(entry, logId, text) {
   const updated = await addComment(logId, text);
   if (updated) {
     state.logByEntryId.set(entry.id, updated);
+    state.feedScoreById = await getFeedEngagementScores();
     render();
     scheduleLogSync();
   }
@@ -1339,6 +1389,14 @@ function wireApp() {
       },
     }
   );
+  showReadToggleInputEl.addEventListener("change", () => {
+    state.showReadInTimeline = showReadToggleInputEl.checked;
+    // Forces currentArticles() to rebuild the cached home timeline (see its
+    // own comment) under the new filter instead of reusing whichever set of
+    // entries it happened to freeze before the toggle changed.
+    state.unreadTimelineSnapshot = null;
+    render();
+  });
   setupPaneResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);

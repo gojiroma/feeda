@@ -200,6 +200,31 @@ export async function getLatestLogEntriesByEntryId() {
   return map;
 }
 
+// Weights for a feed's engagement score (see getFeedEngagementScores) —
+// deliberately increasing with how deliberate the interaction was: just
+// having opened an article is the weakest signal, leaving a comment is a
+// clear "this mattered enough to say something," and color-tagging (a
+// dedicated right-click/long-press, see reflect.js/articleList.js) is the
+// most deliberate curation action there is.
+const ENGAGEMENT_WEIGHT = { open: 1, comment: 4, color: 6 };
+
+// Cumulative engagement score per feedId, from every log entry ever
+// recorded for it — used by frequency.js's groupFeedsByFrequency to sort a
+// feed you've actually read into, commented on, or color-tagged ahead of
+// one that's merely posted recently (see main.js's currentFeedGroups).
+export async function getFeedEngagementScores() {
+  const all = await getAllLogEntries();
+  const scores = new Map();
+  for (const row of all) {
+    if (!row.feedId) continue;
+    let score = ENGAGEMENT_WEIGHT.open;
+    score += (row.comments || []).length * ENGAGEMENT_WEIGHT.comment;
+    if (row.color) score += ENGAGEMENT_WEIGHT.color;
+    scores.set(row.feedId, (scores.get(row.feedId) || 0) + score);
+  }
+  return scores;
+}
+
 const SEARCH_RESULT_LIMIT = 200;
 
 function normalizeQuery(query) {

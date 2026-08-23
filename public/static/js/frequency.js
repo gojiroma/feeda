@@ -146,31 +146,64 @@ function feedStatusGroup(feed, entries) {
   return feed.hasUnread ? STATUS_GROUPS.find((g) => g.key === "unread") : STATUS_GROUPS.find((g) => g.key === "read");
 }
 
+// A pinned feed (see main.js's togglePinFeed) gets pulled out of the normal
+// status/frequency tree entirely and shown as its own flat group at the very
+// top of the sidebar, regardless of read state, staleness, or pause — "pin
+// this to the top" would be a weak promise if a pinned-but-paused feed still
+// only showed up buried under 更新停止. group.key deliberately matches
+// status.key: it signals to feedList.js that this status has exactly one,
+// synthetic subgroup and doesn't need the usual nested frequency <details>.
+const PINNED_STATUS = { key: "pinned", label: "📌 ピン留め" };
+const PINNED_GROUP = { key: "pinned", label: "ピン留め" };
+
+// Primary sort within every group (and the pinned list): engagement score
+// first — a feed you've actually clicked into, commented on, or
+// color-tagged outranks one that's merely posted recently but gone
+// unengaged (see feed.engagementScore, attached in main.js's
+// currentFeedGroups from logbook.js's getFeedEngagementScores) — falling
+// back to newest-content recency only to break ties between equally
+// (un)engaged feeds.
+function compareFeeds(a, b) {
+  return b.score - a.score || b.sortTimestamp - a.sortTimestamp;
+}
+
+function feedEntry(feed, entries) {
+  return { feed, sortTimestamp: feedSortTimestamp(feed, entries), score: feed.engagementScore || 0 };
+}
+
 // Builds the sidebar's two-level tree: outer groups by read status (未読 /
 // 既読 / 更新なし / 更新停止), each holding its own posting-frequency
 // breakdown — so e.g. a paused feed that used to post daily still shows up
 // under "1日1回" within "更新停止", instead of losing that information the
 // moment it's paused. Same for a feed that's simply gone quiet for over a
-// year: it moves to "更新なし" but keeps its frequency history.
+// year: it moves to "更新なし" but keeps its frequency history. Pinned feeds
+// (see PINNED_STATUS above) skip this whole tree and come back as their own
+// group, prepended ahead of everything else.
 export function groupFeedsByFrequency(feedsWithEntries) {
+  const pinned = [];
   const statusBuckets = new Map(); // statusKey -> Map(freqKey -> {group, feeds})
 
   for (const { feed, entries } of feedsWithEntries) {
+    if (feed.pinned) {
+      pinned.push(feedEntry(feed, entries));
+      continue;
+    }
     const status = feedStatusGroup(feed, entries);
     const freqGroup = computeFrequencyGroup(entries);
     if (!statusBuckets.has(status.key)) statusBuckets.set(status.key, new Map());
     const freqMap = statusBuckets.get(status.key);
     if (!freqMap.has(freqGroup.key)) freqMap.set(freqGroup.key, { group: freqGroup, feeds: [] });
-    freqMap.get(freqGroup.key).feeds.push({ feed, sortTimestamp: feedSortTimestamp(feed, entries) });
+    freqMap.get(freqGroup.key).feeds.push(feedEntry(feed, entries));
   }
 
   for (const freqMap of statusBuckets.values()) {
     for (const { feeds } of freqMap.values()) {
-      feeds.sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+      feeds.sort(compareFeeds);
     }
   }
+  pinned.sort(compareFeeds);
 
-  return STATUS_GROUPS.filter((s) => statusBuckets.has(s.key)).map((status) => {
+  const groups = STATUS_GROUPS.filter((s) => statusBuckets.has(s.key)).map((status) => {
     const freqMap = statusBuckets.get(status.key);
     const subgroups = FREQUENCY_SUBGROUP_ORDER.filter((key) => freqMap.has(key)).map((key) => {
       const { group, feeds } = freqMap.get(key);
@@ -178,4 +211,7 @@ export function groupFeedsByFrequency(feedsWithEntries) {
     });
     return { status, subgroups };
   });
+
+  if (pinned.length === 0) return groups;
+  return [{ status: PINNED_STATUS, subgroups: [{ group: PINNED_GROUP, feeds: pinned.map((f) => f.feed) }] }, ...groups];
 }

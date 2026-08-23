@@ -45,7 +45,10 @@ export function renderFeedColorFilter(container, { feeds, activeColors, onToggle
 // keys the status level by its own key and the frequency level by
 // `${status.key}:${freqGroup.key}` (frequency keys repeat across status
 // buckets, so they need the status prefix to stay distinct).
-export function renderFeedList(container, { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }) {
+export function renderFeedList(
+  container,
+  { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl }
+) {
   container.innerHTML = "";
   // The menu lives in document.body (see openFeedContextMenu), so rebuilding
   // this list doesn't touch it — closing it unconditionally on every redraw
@@ -95,60 +98,78 @@ export function renderFeedList(container, { groups, totalFeedCount, selectedFeed
     statusSummary.textContent = `${status.label} (${feedCount})`;
     statusDetails.appendChild(statusSummary);
 
-    for (const { group, feeds } of subgroups) {
-      const groupKey = `${status.key}:${group.key}`;
-      const details = document.createElement("details");
-      details.open = !collapsedGroups.has(groupKey);
-      details.className = "feed-group";
-      details.addEventListener("toggle", () => {
-        if (details.open) collapsedGroups.delete(groupKey);
-        else collapsedGroups.add(groupKey);
-      });
+    const interactions = { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl };
 
-      const summary = document.createElement("summary");
-      summary.textContent = `${group.label} (${feeds.length})`;
-      details.appendChild(summary);
+    // A status with exactly one subgroup keyed the same as the status itself
+    // is a flat, single-purpose bucket (currently just 📌 ピン留め — see
+    // PINNED_STATUS/PINNED_GROUP in frequency.js) rather than a real
+    // frequency breakdown: its feeds go straight under the status <details>,
+    // skipping the nested frequency <details> so it doesn't show its own
+    // group label repeating the status label right above it.
+    const isFlatStatus = subgroups.length === 1 && subgroups[0].group.key === status.key;
 
-      const ul = document.createElement("ul");
-      ul.className = "feed-list-group";
+    if (isFlatStatus) {
+      statusDetails.appendChild(renderFeedItemsList(subgroups[0].feeds, { selectedFeedId, query, interactions }));
+    } else {
+      for (const { group, feeds } of subgroups) {
+        const groupKey = `${status.key}:${group.key}`;
+        const details = document.createElement("details");
+        details.open = !collapsedGroups.has(groupKey);
+        details.className = "feed-group";
+        details.addEventListener("toggle", () => {
+          if (details.open) collapsedGroups.delete(groupKey);
+          else collapsedGroups.add(groupKey);
+        });
 
-      for (const feed of feeds) {
-        const li = document.createElement("li");
-        li.className =
-          "feed-item" + (feed.feedId === selectedFeedId ? " selected" : "") + (feed.paused ? " paused" : "");
-        li.title = "右クリック／長押し: メニュー（更新の一時停止・色分け）　中クリック: URLをコピー";
+        const summary = document.createElement("summary");
+        summary.textContent = `${group.label} (${feeds.length})`;
+        details.appendChild(summary);
 
-        const colorRgb = feed.color && COLOR_BY_KEY.get(feed.color);
-        if (colorRgb) {
-          li.classList.add("feed-item--colored");
-          li.style.setProperty("--feed-color", colorRgb);
-        }
-
-        const nameSpan = document.createElement("span");
-        nameSpan.className = "feed-name";
-        nameSpan.appendChild(highlightText(feed.title || feed.url, query));
-        li.appendChild(nameSpan);
-
-        if (feed.hasUnread) {
-          const dot = document.createElement("span");
-          dot.className = "unread-dot";
-          dot.title = "未読あり";
-          li.appendChild(dot);
-        }
-
-        attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }, selectedFeedId);
-        ul.appendChild(li);
+        details.appendChild(renderFeedItemsList(feeds, { selectedFeedId, query, interactions }));
+        statusDetails.appendChild(details);
       }
-
-      details.appendChild(ul);
-      statusDetails.appendChild(details);
     }
 
     container.appendChild(statusDetails);
   }
 }
 
-function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onSetColor, onCopyUrl }, selectedFeedId) {
+function renderFeedItemsList(feeds, { selectedFeedId, query, interactions }) {
+  const ul = document.createElement("ul");
+  ul.className = "feed-list-group";
+
+  for (const feed of feeds) {
+    const li = document.createElement("li");
+    li.className =
+      "feed-item" + (feed.feedId === selectedFeedId ? " selected" : "") + (feed.paused ? " paused" : "");
+    li.title = "右クリック／長押し: メニュー（ピン留め・更新の一時停止・色分け）　中クリック: URLをコピー";
+
+    const colorRgb = feed.color && COLOR_BY_KEY.get(feed.color);
+    if (colorRgb) {
+      li.classList.add("feed-item--colored");
+      li.style.setProperty("--feed-color", colorRgb);
+    }
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "feed-name";
+    nameSpan.appendChild(highlightText((feed.pinned ? "📌 " : "") + (feed.title || feed.url), query));
+    li.appendChild(nameSpan);
+
+    if (feed.hasUnread) {
+      const dot = document.createElement("span");
+      dot.className = "unread-dot";
+      dot.title = "未読あり";
+      li.appendChild(dot);
+    }
+
+    attachFeedInteractions(li, feed, interactions, selectedFeedId);
+    ul.appendChild(li);
+  }
+
+  return ul;
+}
+
+function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl }, selectedFeedId) {
   let longPressTriggered = false;
 
   li.addEventListener("click", () => {
@@ -172,7 +193,7 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
 
   li.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
-    openFeedContextMenu(feed, ev.clientX, ev.clientY, { onTogglePause, onSetColor });
+    openFeedContextMenu(feed, ev.clientX, ev.clientY, { onTogglePause, onTogglePin, onSetColor });
   });
 
   li.addEventListener("auxclick", (ev) => {
@@ -228,7 +249,7 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
     longPressTimer = setTimeout(() => {
       longPressTriggered = true;
       finish();
-      openFeedContextMenu(feed, clientX, clientY, { onTogglePause, onSetColor });
+      openFeedContextMenu(feed, clientX, clientY, { onTogglePause, onTogglePin, onSetColor });
     }, LONG_PRESS_MS);
   });
 }
@@ -250,18 +271,31 @@ function closeFeedContextMenu() {
   activeMenuFeedId = null;
 }
 
-// Right-click or long-press a feed for this menu: toggle whether it gets
-// fetched at all (paused feeds sort into their own "更新停止" group — see
-// frequency.js — and are skipped entirely by refreshAll), plus a row of
+// Right-click or long-press a feed for this menu: pin/unpin it to its own
+// group at the top of the sidebar (see PINNED_STATUS in frequency.js),
+// toggle whether it gets fetched at all (paused feeds sort into their own
+// "更新停止" group and are skipped entirely by refreshAll), plus a row of
 // color swatches to tag the feed for at-a-glance grouping in the sidebar
 // (see .feed-item--colored in style.css).
-function openFeedContextMenu(feed, x, y, { onTogglePause, onSetColor }) {
+function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColor }) {
   closeFeedContextMenu();
 
   const menu = document.createElement("div");
   menu.className = "feed-context-menu";
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
+
+  if (onTogglePin) {
+    const pinItem = document.createElement("button");
+    pinItem.type = "button";
+    pinItem.className = "feed-context-menu-item";
+    pinItem.textContent = feed.pinned ? "ピン留めを解除" : "上部にピン留め";
+    pinItem.addEventListener("click", () => {
+      onTogglePin(feed.feedId);
+      closeFeedContextMenu();
+    });
+    menu.appendChild(pinItem);
+  }
 
   const pauseItem = document.createElement("button");
   pauseItem.type = "button";
