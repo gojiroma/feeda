@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         feeda RSS Auto-Register
 // @namespace    https://github.com/feeda
-// @version      1.5.0
-// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages (or pages matching a user-registered URL pattern) to your feeda reading log. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
+// @version      1.6.0
+// @description  Detects RSS/Atom feed links on pages you visit and registers new ones to your feeda subscription list. Also auto-logs whitelisted sites' article pages (or pages matching a user-registered URL pattern) to your feeda reading log, and lets you add a comment to the current page's log entry. Does nothing for feeds/pages already registered/logged. Also supports bulk-importing an OPML subscription list.
 // @match        *://*/*
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -40,6 +40,9 @@
   GM_registerMenuCommand("feeda: 6桁コードでシードを取得", receiveSeedByCode);
   GM_registerMenuCommand("feeda: OPMLをインポート", showOpmlImportPrompt);
   GM_registerMenuCommand("feeda: このサイトの自動記録設定", manageCurrentSiteAutoLog);
+  GM_registerMenuCommand("feeda: このページにコメントを追加", () => {
+    commentOnCurrentPage().catch((err) => console.error("[feeda]", err));
+  });
 
   // A click coming from GM_registerMenuCommand originates in the browser's
   // extension UI, not the page, so it doesn't count as user activation
@@ -660,6 +663,108 @@
     return res.status >= 200 && res.status < 300;
   }
 
+  // --- commenting on the current page ---------------------------------
+  //
+  // Unlike auto-log's pushLogEntry (a fresh row every time, deduped only
+  // client-side by markAutoLogged), a comment has to land on the *same* log
+  // row the page's read was — or will be — recorded under, so it shows up
+  // next to that read in the webapp's reflect screen instead of as an
+  // orphaned second entry for the same URL. This script never keeps its own
+  // logId around locally (pushLogEntry doesn't persist the one it
+  // generates), so the only way to find "the log row for this URL, if any"
+  // is to ask the server and decrypt every row back — see
+  // findLogEntryForUrl. That's fine here: commenting is a deliberate,
+  // occasional action a person triggers by hand, not something run on every
+  // page load the way autoLogPage is.
+
+  async function pushLogRow(accountId, encKey, apiBase, logId, payload) {
+    const row = {
+      logId,
+      ciphertext: await encryptJson(encKey, payload),
+      clientUpdatedAt: new Date().toISOString(),
+    };
+    const res = await gmRequest({
+      method: "PUT",
+      url: `${apiBase}/api/log-sync`,
+      headers: { Authorization: `Bearer ${accountId}`, "Content-Type": "application/json" },
+      data: JSON.stringify([row]),
+    });
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`サーバーエラー (HTTP ${res.status}): ${res.responseText.slice(0, 300)}`);
+    }
+  }
+
+  async function findLogEntryForUrl(accountId, encKey, apiBase, url) {
+    const res = await gmRequest({
+      method: "GET",
+      url: `${apiBase}/api/log-sync`,
+      headers: { Authorization: `Bearer ${accountId}` },
+    });
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`サーバーエラー (HTTP ${res.status}): ${res.responseText.slice(0, 300)}`);
+    }
+    const body = JSON.parse(res.responseText);
+    for (const row of body.rows) {
+      let payload;
+      try {
+        payload = await decryptJson(encKey, row.ciphertext);
+      } catch {
+        continue; // a row this seed can't decrypt shouldn't abort the whole scan
+      }
+      if (payload.url === url) return { logId: row.logId, payload };
+    }
+    return null;
+  }
+
+  // Appends a comment to the current page's log entry, creating one first
+  // (same shape as pushLogEntry's, comment included from the start) if this
+  // page hasn't been logged yet — e.g. it's not on the auto-log whitelist,
+  // or hasn't finished being read. markAutoLogged marks the freshly-created
+  // row's URL so autoLogPage doesn't also push a separate, comment-less
+  // duplicate for it later on this same page load.
+  async function addCommentToCurrentPage(accountId, encKey, apiBase, text) {
+    const url = location.href.split("#")[0];
+    const comment = { id: crypto.randomUUID(), text, createdAt: new Date().toISOString() };
+    const existing = await findLogEntryForUrl(accountId, encKey, apiBase, url);
+
+    if (existing) {
+      const payload = { ...existing.payload, comments: [...(existing.payload.comments || []), comment] };
+      await pushLogRow(accountId, encKey, apiBase, existing.logId, payload);
+      return;
+    }
+
+    const payload = {
+      feedId: null,
+      feedTitle: location.hostname,
+      entryId: null,
+      title: guessArticleTitle(),
+      url,
+      openedAt: new Date().toISOString(),
+      comments: [comment],
+    };
+    await pushLogRow(accountId, encKey, apiBase, crypto.randomUUID(), payload);
+    markAutoLogged(url);
+  }
+
+  async function commentOnCurrentPage() {
+    const seed = GM_getValue(SEED_KEY, "");
+    const apiBase = GM_getValue(API_BASE_KEY, "");
+    if (!seed || !apiBase) {
+      alert("feeda: 先に「feeda: シードとAPIを設定」からセットアップしてください。");
+      return;
+    }
+    const text = prompt("このページへのコメントを入力してください（未記録の場合、記録も同時に行います）");
+    if (text === null || !text.trim()) return;
+
+    try {
+      const [accountId, encKey] = await Promise.all([deriveAccountId(seed), deriveEncKey(seed)]);
+      await addCommentToCurrentPage(accountId, encKey, apiBase, text.trim());
+      alert("feeda: コメントを追加しました。");
+    } catch (err) {
+      alert(`feeda: コメントの追加に失敗しました: ${err.message}`);
+    }
+  }
+
   // Returns whether a log entry was actually pushed — the widget's
   // "許可リストに追加" and "URLパターンを登録" buttons re-run this right
   // after saving their respective entry (see below) so the page being read
@@ -860,6 +965,26 @@
         addActionButton("除外リストに追加", "danger", () => {
           const list = GM_getValue(AUTO_LOG_BLACKLIST_KEY, []);
           if (!list.includes(hostname)) GM_setValue(AUTO_LOG_BLACKLIST_KEY, [...list, hostname]);
+        });
+      }
+
+      // Commenting is a deliberate one-off action independent of the
+      // whitelist/blacklist auto-detection above — offered for any
+      // non-blacklisted page (blacklisted ones are SSO/checkout redirects
+      // etc., not something anyone means to comment on).
+      if (!blacklisted) {
+        addActionButton("このページにコメントを追加...", "", async () => {
+          const text = prompt("このページへのコメントを入力してください（未記録の場合、記録も同時に行います）");
+          if (text === null || !text.trim()) return "";
+          try {
+            const seed = GM_getValue(SEED_KEY, "");
+            const currentApiBase = GM_getValue(API_BASE_KEY, "");
+            const [accountId, encKey] = await Promise.all([deriveAccountId(seed), deriveEncKey(seed)]);
+            await addCommentToCurrentPage(accountId, encKey, currentApiBase, text.trim());
+            return "コメントを追加しました。";
+          } catch (err) {
+            return `コメントの追加に失敗しました: ${err.message}`;
+          }
         });
       }
 
