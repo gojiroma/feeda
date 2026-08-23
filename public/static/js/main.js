@@ -24,13 +24,14 @@ import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
+import { colorForWord } from "./colorPalette.js";
 import { renderArticleList, renderAnnotatePopup } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
 import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
 import { openFloatingPopup } from "./ui/colorPicker.js";
 import { setupSearchBar } from "./ui/searchBar.js";
-import { setupPaneResizing } from "./ui/resizer.js";
+import { setupPaneResizing, setupWideGridRowResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
 import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
@@ -237,12 +238,30 @@ async function refreshFeedInState(feedId) {
   state.feedsById.set(feedId, freshFeed);
   state.feedTitleById.set(feedId, freshFeed.title || freshFeed.url);
   state.entriesByFeed.set(feedId, entries);
-  // Newly-fetched unread entries need to be able to show up in the no-feed-
-  // selected cross-feed timeline right away too, so its frozen snapshot
-  // (see currentArticles) has to be invalidated here — safe to do mid-fetch
-  // since that freeze only ever exists to stop an entry the user is reading
-  // *now* from vanishing mid-read, not to hide brand-new arrivals.
-  state.unreadTimelineSnapshot = null;
+  mergeIntoUnreadTimeline(freshFeed, entries);
+}
+
+// Used to fold one just-fetched feed's entries into the frozen cross-feed
+// timeline (see currentArticles) instead of invalidating the whole snapshot
+// outright — invalidating used to mean the next render re-filtered *every*
+// feed by its current read state, which drops any entry the user has read
+// since the snapshot froze (including moments ago, e.g. by hovering it in
+// wide-grid mode or right-clicking it open to annotate) the same way it
+// drops genuinely stale ones. That was the bug behind an annotate popup
+// closing itself right after opening: a background refetch landing mid-
+// popup would rebuild the timeline, the just-annotated entry (now read)
+// would no longer qualify, and renderArticleList's closeFloatingPopupIfMissing
+// would treat it as gone and close the popup out from under the user. Only
+// ever adds entries that aren't in the snapshot yet, so anything already
+// surfaced — read or not — stays exactly where it was.
+function mergeIntoUnreadTimeline(feed, entries) {
+  if (!state.unreadTimelineSnapshot) return;
+  const existingIds = new Set(state.unreadTimelineSnapshot.map((e) => e.id));
+  const fresh = entries.filter((e) => !existingIds.has(e.id) && (state.showReadInTimeline || isUnread(e, feed)));
+  if (fresh.length === 0) return;
+  state.unreadTimelineSnapshot = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) =>
+    (b.pubDate || "").localeCompare(a.pubDate || "")
+  );
 }
 
 // Article titles and preview/body text highlight this instead of the live
@@ -251,19 +270,20 @@ async function refreshFeedInState(feedId) {
 // own comment) in the normal yellow .search-highlight, listed first so it
 // wins wherever it overlaps a history term; and every *other* saved search-
 // history keyword (state.searchHistoryWords, kept fresh by loadAppData and
-// searchBar.js's onHistoryChange) in a visually distinct fluorescent green
-// (.search-highlight-history) — a standing "things I've looked for before"
-// marker that doesn't depend on the search box having anything in it. Feed
-// names deliberately keep using the live searchQuery directly (see
-// renderDesktop/renderTabletTwoPane) instead of this, so they only
-// highlight while a search is actually active.
+// searchBar.js's onHistoryChange) in .search-highlight-history, each word
+// its own stable color (see colorPalette.js's colorForWord) so it also
+// matches that word's chip in the search-history bar — a standing "things
+// I've looked for before" marker that doesn't depend on the search box
+// having anything in it. Feed names deliberately keep using the live
+// searchQuery directly (see renderDesktop/renderTabletTwoPane) instead of
+// this, so they only highlight while a search is actually active.
 function highlightQuery() {
   const current = (state.searchQuery.trim() || state.lastSearchQuery).trim();
   const terms = [];
   if (current) terms.push({ text: current, className: "search-highlight" });
   for (const word of state.searchHistoryWords) {
     if (word && word.toLowerCase() !== current.toLowerCase()) {
-      terms.push({ text: word, className: "search-highlight-history" });
+      terms.push({ text: word, className: "search-highlight-history", color: colorForWord(word) });
     }
   }
   return terms;
@@ -307,14 +327,14 @@ let collapsedGroups = null;
 const reflectCollapsedGroups = new Set();
 
 function collapsedGroupsFor(tree) {
-  // While a color filter is active, `tree` already only contains matching
-  // feeds (see currentFeedGroups) — force every group open so they're all
-  // visible at a glance instead of making the user click into each
-  // frequency group to go check. A fresh Set each call rather than
+  // While a color filter or search query is active, `tree` already only
+  // contains matching feeds (see currentFeedGroups) — force every group open
+  // so they're all visible at a glance instead of making the user click into
+  // each frequency group to go check. A fresh Set each call rather than
   // mutating/returning the persisted one below, so this is purely a
   // rendering override: manual collapse-state from before the filter was
   // applied comes back untouched once it's cleared.
-  if (state.feedColorFilter.size > 0) return new Set();
+  if (state.feedColorFilter.size > 0 || state.searchQuery.trim()) return new Set();
 
   if (collapsedGroups === null) {
     collapsedGroups = new Set();
@@ -732,6 +752,13 @@ function renderDesktop() {
   showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
 
   const { entries, showFeedName, emptyHint } = currentArticles();
+  // The cross-feed unread timeline (nothing selected, no search) is the one
+  // place in the 3-pane layout that also marks read on hover, same as
+  // wide-grid mode always does (see previewEntryAndMarkRead) — a specific
+  // feed's own list keeps plain hover-to-preview, since that's still a
+  // dense single-column list where a passing cursor sweep would read
+  // articles it never meant to (the "だるま落とし" bug).
+  const isAllUnreadView = !state.selectedFeedId && !query.trim();
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
@@ -739,7 +766,7 @@ function renderDesktop() {
     query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onSelect: openEntry,
-    onHover: previewEntry,
+    onHover: isAllUnreadView ? previewEntryAndMarkRead : previewEntry,
     onAnnotate: openAnnotateForEntry,
     logByEntryId: state.logByEntryId,
     showFeedName,
@@ -812,6 +839,7 @@ function renderWideGrid() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    onShowAllUnread: showAllUnread,
   });
 
   showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
@@ -1146,14 +1174,13 @@ function previewEntry(entry) {
   render();
 }
 
-// Wide-grid mode's own onHover (see renderWideGrid) — previews *and* marks
-// read on hover, unlike previewEntry above. Deliberately scoped to that one
-// layout: in a dense single-column list, sweeping the cursor down catching
-// everything it crosses was the "だるま落とし" bug (see previewFeed's
-// comment) — the reason hover never marks read anywhere else in this app.
-// A multi-column card grid doesn't have that failure mode the same way (far
-// fewer, much larger targets under the cursor at once), and the request
-// this exists for was specifically about that grid.
+// Previews *and* marks read on hover, unlike previewEntry above. Used by
+// wide-grid mode's article grid (see renderWideGrid) and by the 3-pane
+// layout's cross-feed unread timeline (see renderDesktop's isAllUnreadView)
+// — deliberately not used for a specific feed's own article list, which
+// stays a dense single-column list where a passing cursor sweep would read
+// everything it crosses (the "だるま落とし" bug, see previewFeed's
+// comment).
 async function previewEntryAndMarkRead(entry) {
   state.selectedEntry = entry;
   setFocusedPane("article");
@@ -1649,6 +1676,7 @@ function wireApp() {
     render();
   });
   setupPaneResizing();
+  setupWideGridRowResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
   setupSeedModal(document.getElementById("seed-btn"), document.getElementById("seed-modal"), {

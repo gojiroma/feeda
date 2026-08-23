@@ -232,38 +232,37 @@ input[type="text"], input[type="url"], input[type="search"] {
 .brand:hover { opacity: 0.75; }
 .search-wrap { position: relative; flex: 1; min-width: 0; }
 .search-input { width: 100%; }
-.search-history {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  list-style: none;
-  margin: 0;
-  padding: 4px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+/* Persistent one-row strip below the topbar (see setupSearchBar in
+   ui/searchBar.js) — every saved search-history query, always visible
+   rather than only on focus, each its own chip in the same per-word color
+   as its .search-highlight-history mark elsewhere (see colorPalette.js's
+   colorForWord) so the two stay visually tied together. :empty collapses it
+   to nothing before any search has ever been recorded. */
+.search-history-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
 }
-.search-history.hidden { display: none; }
-.search-history-item {
-  display: block;
-  width: 100%;
-  text-align: left;
+.search-history-bar:empty {
+  display: none;
+}
+.search-history-chip {
   font: inherit;
-  font-size: 0.88rem;
-  padding: 7px 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  padding: 3px 10px;
   border: none;
-  border-radius: 6px;
-  background: none;
-  color: inherit;
+  border-radius: 999px;
+  background: rgba(var(--search-highlight-color), 0.35);
+  color: var(--text);
   cursor: pointer;
 }
-.search-history-item:hover,
-.search-history-item.active { background: var(--bg-alt); }
+.search-history-chip:hover {
+  background: rgba(var(--search-highlight-color), 0.55);
+}
 /* Narrow phones fit brand + search + two buttons only if the buttons
    refuse to shrink into vertically-wrapped CJK text — search-input (the
    only flexible child) absorbs the squeeze instead. */
@@ -675,10 +674,13 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 /* Always-on "things I've searched for before" marker (see highlightQuery in
    main.js) — every saved search-history term, not just the current/last
-   one, deliberately in a different (fluorescent green) color so it never
-   gets mistaken for the live search's own yellow highlight. */
+   one. Each word gets its own color (--search-highlight-color, set inline
+   per <mark> — see colorForWord in colorPalette.js and highlight.js) rather
+   than one shared color, both so distinct terms are easier to tell apart at
+   a glance and so a term's highlight color matches its chip in the
+   search-history bar. */
 .search-highlight-history {
-  background: #39ff14;
+  background: rgba(var(--search-highlight-color), 0.55);
   color: #111;
   font-weight: 700;
   border-radius: 2px;
@@ -830,8 +832,8 @@ input[type="text"], input[type="url"], input[type="search"] {
 .app.wide-grid-mode .panes {
   display: grid;
   grid-template-columns: auto 1fr;
-  grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
-  grid-template-areas: "feed article" "feed preview";
+  grid-template-rows: minmax(0, var(--wg-article-height, 3fr)) 6px minmax(0, 2fr);
+  grid-template-areas: "feed article" "feed row-resizer" "feed preview";
 }
 .app.wide-grid-mode .feed-pane {
   grid-area: feed;
@@ -847,6 +849,33 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .app.wide-grid-mode .pane-resizer {
   display: none !important;
+}
+/* Drag handle between the article grid and the preview pane below it (see
+   setupWideGridRowResizing in ui/resizer.js) — only meaningful in wide-grid
+   mode's stacked layout, so it's collapsed to nothing otherwise rather than
+   left as a dead sliver in the normal side-by-side panes. */
+.wide-grid-row-resizer {
+  display: none;
+}
+.app.wide-grid-mode .wide-grid-row-resizer {
+  grid-area: row-resizer;
+  display: block;
+  position: relative;
+  cursor: row-resize;
+  background: transparent;
+  touch-action: none; /* let JS drive the drag instead of the browser scrolling */
+}
+.app.wide-grid-mode .wide-grid-row-resizer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -8px;
+  bottom: -8px;
+}
+.app.wide-grid-mode .wide-grid-row-resizer:hover,
+.app.wide-grid-mode .wide-grid-row-resizer.dragging {
+  background: var(--accent);
 }
 .app.wide-grid-mode .article-list {
   columns: 360px;
