@@ -665,6 +665,24 @@ input[type="text"], input[type="url"], input[type="search"] {
 .preview-body { line-height: 1.7; font-size: 0.95rem; }
 .preview-body img { max-width: 100%; height: auto; }
 
+/* Always-visible copy of the article list's right-click annotate popup
+   (see renderAnnotatePopup), stacked under the preview body instead of
+   floating — .article-annotate-swatches/.article-annotate-form are the
+   same layout rules the popup uses, just no longer inside a fixed-position
+   .article-annotate-popup wrapper. */
+.preview-annotate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.preview-annotate .article-annotate-swatches {
+  grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+  max-width: 320px;
+}
+
 .search-highlight {
   background: #fde047;
   color: #111;
