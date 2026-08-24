@@ -92,6 +92,43 @@ export async function setLogEntryColor(logId, color) {
   return updated;
 }
 
+// Free-text tags on a log entry — a second, unbounded way to mark an entry
+// alongside its single color (see colorPalette.js) and comment thread.
+// Add/remove rather than a single setter, matching how the tag editor UI
+// (renderTagEditor in ui/colorPicker.js) actually interacts with them: one
+// chip removed or one word typed and submitted at a time.
+export async function addLogEntryTag(logId, tag) {
+  const trimmed = tag.trim();
+  if (!trimmed) return null;
+  const logEntry = await getLogEntry(logId);
+  if (!logEntry) return null;
+  const existing = logEntry.tags || [];
+  if (existing.includes(trimmed)) return logEntry;
+  const updated = {
+    ...logEntry,
+    tags: [...existing, trimmed],
+    clientUpdatedAt: new Date().toISOString(),
+    dirty: true,
+  };
+  await putLogEntry(updated);
+  return updated;
+}
+
+export async function removeLogEntryTag(logId, tag) {
+  const logEntry = await getLogEntry(logId);
+  if (!logEntry) return null;
+  const existing = logEntry.tags || [];
+  if (!existing.includes(tag)) return logEntry;
+  const updated = {
+    ...logEntry,
+    tags: existing.filter((t) => t !== tag),
+    clientUpdatedAt: new Date().toISOString(),
+    dirty: true,
+  };
+  await putLogEntry(updated);
+  return updated;
+}
+
 // Display-time merge for duplicate rows logged before the chatter guard
 // above existed (or from any other source of near-simultaneous re-opens):
 // collapses runs of same-article rows within CHATTER_WINDOW_MS of each

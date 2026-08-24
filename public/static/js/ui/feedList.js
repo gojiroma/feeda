@@ -1,5 +1,6 @@
 import { highlightText } from "../highlight.js";
 import { COLOR_PALETTE, COLOR_BY_KEY } from "../colorPalette.js";
+import { renderTagEditor } from "./colorPicker.js";
 
 const LONG_PRESS_MS = 550;
 
@@ -58,6 +59,8 @@ export function renderFeedList(
     onTogglePause,
     onTogglePin,
     onSetColor,
+    onAddFeedTag,
+    onRemoveFeedTag,
     onCopyUrl,
     onSelectGroup,
   }
@@ -107,7 +110,7 @@ export function renderFeedList(
       else collapsedGroups.add(status.key);
     });
 
-    const interactions = { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl };
+    const interactions = { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag, onCopyUrl };
 
     // A status with exactly one subgroup keyed the same as the status itself
     // is a flat, single-purpose bucket (currently just 📌 ピン留め — see
@@ -216,6 +219,18 @@ function renderFeedItemsList(feeds, { selectedFeedId, query, interactions }) {
       li.appendChild(dot);
     }
 
+    if (feed.tags && feed.tags.length > 0) {
+      const tagRow = document.createElement("div");
+      tagRow.className = "tag-chip-row tag-chip-row--display";
+      for (const tag of feed.tags) {
+        const chip = document.createElement("span");
+        chip.className = "tag-chip tag-chip--display";
+        chip.textContent = tag;
+        tagRow.appendChild(chip);
+      }
+      li.appendChild(tagRow);
+    }
+
     attachFeedInteractions(li, feed, interactions, selectedFeedId);
     ul.appendChild(li);
   }
@@ -223,7 +238,12 @@ function renderFeedItemsList(feeds, { selectedFeedId, query, interactions }) {
   return ul;
 }
 
-function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl }, selectedFeedId) {
+function attachFeedInteractions(
+  li,
+  feed,
+  { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag, onCopyUrl },
+  selectedFeedId
+) {
   let longPressTriggered = false;
 
   li.addEventListener("click", () => {
@@ -247,7 +267,7 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
 
   li.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
-    openFeedContextMenu(feed, ev.clientX, ev.clientY, { onTogglePause, onTogglePin, onSetColor });
+    openFeedContextMenu(feed, ev.clientX, ev.clientY, { onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag });
   });
 
   li.addEventListener("auxclick", (ev) => {
@@ -303,7 +323,7 @@ function attachFeedInteractions(li, feed, { onSelect, onHover, onTogglePause, on
     longPressTimer = setTimeout(() => {
       longPressTriggered = true;
       finish();
-      openFeedContextMenu(feed, clientX, clientY, { onTogglePause, onTogglePin, onSetColor });
+      openFeedContextMenu(feed, clientX, clientY, { onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag });
     }, LONG_PRESS_MS);
   });
 }
@@ -331,7 +351,7 @@ function closeFeedContextMenu() {
 // "更新停止" group and are skipped entirely by refreshAll), plus a row of
 // color swatches to tag the feed for at-a-glance grouping in the sidebar
 // (see .feed-item--colored in style.css).
-function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColor }) {
+function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag }) {
   closeFeedContextMenu();
 
   const menu = document.createElement("div");
@@ -339,58 +359,92 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
 
-  if (onTogglePin) {
-    const pinItem = document.createElement("button");
-    pinItem.type = "button";
-    pinItem.className = "feed-context-menu-item";
-    pinItem.textContent = feed.pinned ? "ピン留めを解除" : "上部にピン留め";
-    pinItem.addEventListener("click", () => {
-      onTogglePin(feed.feedId);
-      closeFeedContextMenu();
-    });
-    menu.appendChild(pinItem);
-  }
+  // Tags (unlike pin/pause/color) don't close the menu on every action —
+  // adding several in a row is the common case, so the tag section below
+  // redraws itself in place instead, mirroring main.js's showAnnotatePopup.
+  let currentFeed = feed;
+  const draw = () => {
+    menu.innerHTML = "";
 
-  const pauseItem = document.createElement("button");
-  pauseItem.type = "button";
-  pauseItem.className = "feed-context-menu-item";
-  pauseItem.textContent = feed.paused ? "更新を再開" : "更新を停止";
-  pauseItem.addEventListener("click", () => {
-    onTogglePause(feed.feedId);
-    closeFeedContextMenu();
-  });
-  menu.appendChild(pauseItem);
-
-  if (onSetColor) {
-    const swatchRow = document.createElement("div");
-    swatchRow.className = "feed-color-swatch-row";
-
-    for (const { key, rgb } of COLOR_PALETTE) {
-      const swatch = document.createElement("button");
-      swatch.type = "button";
-      swatch.className = "feed-color-swatch" + (feed.color === key ? " selected" : "");
-      swatch.style.setProperty("--feed-color", rgb);
-      swatch.title = `色${key}`;
-      swatch.addEventListener("click", () => {
-        onSetColor(feed.feedId, key);
+    if (onTogglePin) {
+      const pinItem = document.createElement("button");
+      pinItem.type = "button";
+      pinItem.className = "feed-context-menu-item";
+      pinItem.textContent = currentFeed.pinned ? "ピン留めを解除" : "上部にピン留め";
+      pinItem.addEventListener("click", () => {
+        onTogglePin(currentFeed.feedId);
         closeFeedContextMenu();
       });
-      swatchRow.appendChild(swatch);
+      menu.appendChild(pinItem);
     }
 
-    const clearBtn = document.createElement("button");
-    clearBtn.type = "button";
-    clearBtn.className = "feed-color-swatch feed-color-swatch--clear" + (!feed.color ? " selected" : "");
-    clearBtn.title = "色をクリア";
-    clearBtn.textContent = "×";
-    clearBtn.addEventListener("click", () => {
-      onSetColor(feed.feedId, null);
+    const pauseItem = document.createElement("button");
+    pauseItem.type = "button";
+    pauseItem.className = "feed-context-menu-item";
+    pauseItem.textContent = currentFeed.paused ? "更新を再開" : "更新を停止";
+    pauseItem.addEventListener("click", () => {
+      onTogglePause(currentFeed.feedId);
       closeFeedContextMenu();
     });
-    swatchRow.appendChild(clearBtn);
+    menu.appendChild(pauseItem);
 
-    menu.appendChild(swatchRow);
-  }
+    if (onSetColor) {
+      const swatchRow = document.createElement("div");
+      swatchRow.className = "feed-color-swatch-row";
+
+      for (const { key, rgb } of COLOR_PALETTE) {
+        const swatch = document.createElement("button");
+        swatch.type = "button";
+        swatch.className = "feed-color-swatch" + (currentFeed.color === key ? " selected" : "");
+        swatch.style.setProperty("--feed-color", rgb);
+        swatch.title = `色${key}`;
+        swatch.addEventListener("click", () => {
+          onSetColor(currentFeed.feedId, key);
+          closeFeedContextMenu();
+        });
+        swatchRow.appendChild(swatch);
+      }
+
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.className = "feed-color-swatch feed-color-swatch--clear" + (!currentFeed.color ? " selected" : "");
+      clearBtn.title = "色をクリア";
+      clearBtn.textContent = "×";
+      clearBtn.addEventListener("click", () => {
+        onSetColor(currentFeed.feedId, null);
+        closeFeedContextMenu();
+      });
+      swatchRow.appendChild(clearBtn);
+
+      menu.appendChild(swatchRow);
+    }
+
+    if (onAddFeedTag && onRemoveFeedTag) {
+      const tagWrap = document.createElement("div");
+      tagWrap.className = "feed-context-menu-tags";
+      renderTagEditor(tagWrap, {
+        tags: currentFeed.tags || [],
+        onAddTag: (tag) => {
+          Promise.resolve(onAddFeedTag(currentFeed.feedId, tag)).then((updated) => {
+            if (updated) {
+              currentFeed = updated;
+              draw();
+            }
+          });
+        },
+        onRemoveTag: (tag) => {
+          Promise.resolve(onRemoveFeedTag(currentFeed.feedId, tag)).then((updated) => {
+            if (updated) {
+              currentFeed = updated;
+              draw();
+            }
+          });
+        },
+      });
+      menu.appendChild(tagWrap);
+    }
+  };
+  draw();
 
   document.body.appendChild(menu);
   activeMenu = menu;

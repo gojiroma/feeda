@@ -9,13 +9,15 @@ import {
   closeFloatingPopup,
   closeFloatingPopupIfMissing,
   renderColorSwatches,
+  renderTagEditor,
   attachContextTrigger,
 } from "./colorPicker.js";
 
 // Right-click (desktop) or long-press (touch) an entry to tag it with one
 // of COLOR_PALETTE's colors, shown as a left border + low-alpha background
 // tint via --reflect-color (see .reflect-log-item--colored /
-// .reflect-color-swatch in style.css).
+// .reflect-color-swatch in style.css), plus free-text tags (see
+// renderTagEditor) shown as chips on the row itself.
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -44,20 +46,54 @@ function renderComment(comment) {
   return li;
 }
 
-function openColorPicker(logEntry, x, y, onSetColor) {
+function openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag) {
+  let current = logEntry;
   openFloatingPopup({
     id: logEntry.id,
     x,
     y,
     className: "reflect-color-picker",
     build: (picker) => {
-      renderColorSwatches(picker, {
-        currentColor: logEntry.color,
-        onSetColor: (color) => {
-          onSetColor(logEntry.id, color);
-          closeFloatingPopup();
-        },
-      });
+      const draw = () => {
+        picker.innerHTML = "";
+
+        const swatchRow = document.createElement("div");
+        swatchRow.className = "reflect-color-swatch-row";
+        renderColorSwatches(swatchRow, {
+          currentColor: current.color,
+          onSetColor: (color) => {
+            onSetColor(logEntry.id, color);
+            closeFloatingPopup();
+          },
+        });
+        picker.appendChild(swatchRow);
+
+        if (onAddTag && onRemoveTag) {
+          const tagWrap = document.createElement("div");
+          tagWrap.className = "reflect-tags";
+          renderTagEditor(tagWrap, {
+            tags: current.tags || [],
+            onAddTag: (tag) => {
+              Promise.resolve(onAddTag(logEntry.id, tag)).then((updated) => {
+                if (updated) {
+                  current = updated;
+                  draw();
+                }
+              });
+            },
+            onRemoveTag: (tag) => {
+              Promise.resolve(onRemoveTag(logEntry.id, tag)).then((updated) => {
+                if (updated) {
+                  current = updated;
+                  draw();
+                }
+              });
+            },
+          });
+          picker.appendChild(tagWrap);
+        }
+      };
+      draw();
     },
   });
 }
@@ -66,15 +102,15 @@ function openColorPicker(logEntry, x, y, onSetColor) {
 // pattern. Skips the comment form/input specifically so right-clicking (to
 // paste, say) or a long press while selecting text there doesn't get
 // hijacked into opening the color picker instead.
-function attachColorPicker(li, logEntry, onSetColor) {
+function attachColorPicker(li, logEntry, onSetColor, onAddTag, onRemoveTag) {
   if (!onSetColor) return;
   attachContextTrigger(li, {
-    onOpenRequest: (x, y) => openColorPicker(logEntry, x, y, onSetColor),
+    onOpenRequest: (x, y) => openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag),
     isExcluded: (ev) => Boolean(ev.target.closest(".reflect-comment-form")),
   });
 }
 
-function renderLogItem(logEntry, onAddComment, onSetColor) {
+function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag) {
   const li = document.createElement("li");
   li.className = "reflect-log-item";
   const rgb = logEntry.color && COLOR_BY_KEY.get(logEntry.color);
@@ -104,6 +140,19 @@ function renderLogItem(logEntry, onAddComment, onSetColor) {
     meta.className = "reflect-log-meta";
     meta.textContent = logEntry.feedTitle;
     body.appendChild(meta);
+  }
+
+  const tags = logEntry.tags || [];
+  if (tags.length > 0) {
+    const tagRow = document.createElement("div");
+    tagRow.className = "tag-chip-row tag-chip-row--display";
+    for (const tag of tags) {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip tag-chip--display";
+      chip.textContent = tag;
+      tagRow.appendChild(chip);
+    }
+    body.appendChild(tagRow);
   }
 
   const comments = logEntry.comments || [];
@@ -138,7 +187,7 @@ function renderLogItem(logEntry, onAddComment, onSetColor) {
   body.appendChild(form);
 
   li.appendChild(body);
-  attachColorPicker(li, logEntry, onSetColor);
+  attachColorPicker(li, logEntry, onSetColor, onAddTag, onRemoveTag);
   return li;
 }
 
@@ -178,7 +227,7 @@ export function renderLogColorFilter(container, { entries, activeColors, onToggl
   }
 }
 
-export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, emptyHint }) {
+export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onAddTag, onRemoveTag, emptyHint }) {
   container.innerHTML = "";
   // The picker lives in document.body (see openColorPicker), so rebuilding
   // this list doesn't touch it — closing it unconditionally on every redraw
@@ -200,7 +249,7 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
 
   const ul = document.createElement("ul");
   ul.className = "reflect-timeline-list";
-  for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor));
+  for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag));
   container.appendChild(ul);
 }
 

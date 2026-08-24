@@ -32,6 +32,9 @@ function feedToPayload(feed) {
     // Pinned to its own top-of-sidebar group (see frequency.js's
     // PINNED_STATUS) regardless of read state, staleness, or pause.
     pinned: feed.pinned || false,
+    // Free-text tags (see ui/colorPicker.js's renderTagEditor), a second,
+    // unbounded way to mark a feed alongside its single color.
+    tags: feed.tags || [],
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -105,6 +108,7 @@ export async function pullUpdates() {
       userManagedPause: payload.userManagedPause || false,
       color: payload.color || null,
       pinned: payload.pinned || false,
+      tags: payload.tags || [],
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,

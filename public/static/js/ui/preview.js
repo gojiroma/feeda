@@ -1,5 +1,6 @@
 import { sanitizeHtmlToFragment } from "../sanitize.js";
 import { highlightText, highlightFragment } from "../highlight.js";
+import { renderAnnotatePopup } from "./articleList.js";
 
 // YouTube channel feeds (and single-video Atom/RSS feeds) link each entry
 // straight to the video's watch page — e.g. https://www.youtube.com/watch?v=ID,
@@ -27,7 +28,12 @@ function youtubeVideoId(link) {
   return null;
 }
 
-export function renderPreview(container, entry, query, { onLinkClick } = {}) {
+export function renderPreview(
+  container,
+  entry,
+  query,
+  { onLinkClick, logEntry, onSetColor, onAddComment, onAddTag, onRemoveTag } = {}
+) {
   container.innerHTML = "";
 
   if (!entry) {
@@ -82,4 +88,18 @@ export function renderPreview(container, entry, query, { onLinkClick } = {}) {
   highlightFragment(bodyFragment, query);
   body.appendChild(bodyFragment);
   container.appendChild(body);
+
+  // Same color-swatch-plus-comment-thread UI as the article list's
+  // right-click/long-press popup (see renderAnnotatePopup), just always
+  // visible here instead of opened on request — reading an entry in the
+  // preview pane is itself a natural place to tag or comment on it without
+  // having to go back and right-click its row. Only offered when the caller
+  // actually wired up handlers for it (main.js's renderDesktop/renderWideGrid);
+  // the tablet/mobile layouts have no preview pane to hang this off of.
+  if (onSetColor && onAddComment) {
+    const annotateWrap = document.createElement("div");
+    annotateWrap.className = "preview-annotate";
+    renderAnnotatePopup(annotateWrap, { logEntry, onSetColor, onAddComment, onAddTag, onRemoveTag, autoFocus: false });
+    container.appendChild(annotateWrap);
+  }
 }

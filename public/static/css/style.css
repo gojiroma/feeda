@@ -535,6 +535,57 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.85rem;
   line-height: 1;
 }
+.feed-item {
+  flex-wrap: wrap;
+}
+
+/* Free-text tags (see ui/colorPicker.js's renderTagEditor) — a second,
+   unbounded way to mark a feed or article alongside its single color.
+   Shared by the feed context menu, the article annotate popup/inline
+   preview, and reflect's per-entry popup; --display variants are the
+   read-only chips shown inline on a feed/article row (no remove button). */
+.tag-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tag-chip-row--display {
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-alt);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.tag-chip button {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+  padding: 0;
+}
+.tag-chip--display {
+  padding: 1px 7px;
+}
+.tag-add-form {
+  display: flex;
+  gap: 6px;
+}
+.tag-add-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  padding: 4px 6px;
+}
 
 /* Article list */
 .show-read-toggle {
@@ -1056,14 +1107,20 @@ input[type="text"], input[type="url"], input[type="search"] {
 .reflect-color-picker {
   position: fixed;
   z-index: 30;
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 8px;
+  width: 220px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+.reflect-color-swatch-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
 }
 .reflect-color-swatch {
   width: 28px;
