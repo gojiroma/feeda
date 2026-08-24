@@ -50,13 +50,13 @@
       <button type="button" id="brand-btn" class="brand" title="クリックで全画面表示を切り替え">feeda</button>
       <div class="search-wrap">
         <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
-        <ul id="search-history" class="search-history hidden"></ul>
       </div>
       <button type="button" id="ng-word-btn" title="NGワードを管理">NGワード</button>
       <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
       <button type="button" id="wide-grid-toggle-btn" class="mode-toggle-btn">マルチカラム</button>
       <button type="button" id="mode-toggle-btn" class="mode-toggle-btn">振り返る</button>
     </header>
+    <div id="search-history-bar" class="search-history-bar"></div>
     <button type="button" id="next-fetch-bar" class="next-fetch-bar hidden">
       次回取得: <span id="next-fetch-time">--:--</span>（タップで今すぐ取得）
     </button>
@@ -73,6 +73,7 @@
         <div id="article-list"></div>
       </section>
       <div class="pane-resizer" data-resizer="1"></div>
+      <div class="wide-grid-row-resizer" id="wide-grid-row-resizer"></div>
       <section class="pane preview-pane" id="preview-pane">
         <div id="preview"></div>
       </section>

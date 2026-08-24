@@ -24,22 +24,25 @@ import { fetchFeed } from "./feedFetch.js";
 import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
+import { colorForWord } from "./colorPalette.js";
 import { renderArticleList, renderAnnotatePopup } from "./ui/articleList.js";
 import { renderPreview } from "./ui/preview.js";
 import { renderMobileList } from "./ui/mobile.js";
 import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
 import { openFloatingPopup } from "./ui/colorPicker.js";
 import { setupSearchBar } from "./ui/searchBar.js";
-import { setupPaneResizing } from "./ui/resizer.js";
+import { setupPaneResizing, setupWideGridRowResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
 import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
 import { updateFavicon } from "./favicon.js";
+import { extractArticlePreview } from "./sanitize.js";
 
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
 const feedListEl = document.getElementById("feed-list");
 const feedColorFilterEl = document.getElementById("feed-color-filter");
+const searchInputEl = document.getElementById("search-input");
 const articleListEl = document.getElementById("article-list");
 const showReadToggleWrapEl = document.getElementById("show-read-toggle-wrap");
 const showReadToggleInputEl = document.getElementById("show-read-toggle");
@@ -178,6 +181,20 @@ const state = {
   unreadTimelineSnapshot: null,
 };
 
+// Shared by autoPauseDuplicateFeeds (same-host feed clustering) and
+// dedupeCrossHostDuplicates (cross-host entry dedup) below — both need
+// "which site is this actually from" rather than the feed's own title,
+// which two independent subscriptions to the same site's feed can easily
+// disagree on (e.g. one renamed by the user).
+function feedHost(feed) {
+  if (!feed || !feed.url) return null;
+  try {
+    return new URL(feed.url).host;
+  } catch {
+    return null;
+  }
+}
+
 function isUnread(entry, feed) {
   if (!feed) return true;
   if (!entry || !entry.pubDate) {
@@ -241,12 +258,63 @@ async function refreshFeedInState(feedId) {
   state.feedsById.set(feedId, freshFeed);
   state.feedTitleById.set(feedId, freshFeed.title || freshFeed.url);
   state.entriesByFeed.set(feedId, entries);
-  // Newly-fetched unread entries need to be able to show up in the no-feed-
-  // selected cross-feed timeline right away too, so its frozen snapshot
-  // (see currentArticles) has to be invalidated here — safe to do mid-fetch
-  // since that freeze only ever exists to stop an entry the user is reading
-  // *now* from vanishing mid-read, not to hide brand-new arrivals.
-  state.unreadTimelineSnapshot = null;
+  mergeIntoUnreadTimeline(freshFeed, entries);
+}
+
+// Used to fold one just-fetched feed's entries into the frozen cross-feed
+// timeline (see currentArticles) instead of invalidating the whole snapshot
+// outright — invalidating used to mean the next render re-filtered *every*
+// feed by its current read state, which drops any entry the user has read
+// since the snapshot froze (including moments ago, e.g. by hovering it in
+// wide-grid mode or right-clicking it open to annotate) the same way it
+// drops genuinely stale ones. That was the bug behind an annotate popup
+// closing itself right after opening: a background refetch landing mid-
+// popup would rebuild the timeline, the just-annotated entry (now read)
+// would no longer qualify, and renderArticleList's closeFloatingPopupIfMissing
+// would treat it as gone and close the popup out from under the user. Only
+// ever adds entries that aren't in the snapshot yet, so anything already
+// surfaced — read or not — stays exactly where it was.
+function mergeIntoUnreadTimeline(feed, entries) {
+  if (!state.unreadTimelineSnapshot) return;
+  const existingIds = new Set(state.unreadTimelineSnapshot.map((e) => e.id));
+  const fresh = entries.filter((e) => !existingIds.has(e.id) && (state.showReadInTimeline || isUnread(e, feed)));
+  if (fresh.length === 0) return;
+  const merged = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
+  state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(merged);
+}
+
+// Same title + same first 10 characters of body text, syndicated by two
+// feeds on different sites (a press release picked up by multiple outlets,
+// a blog post cross-posted elsewhere) — one host repeating its own content
+// is a different, unrelated case (autoPauseDuplicateFeeds below already
+// handles that at the *feed* level), so this only ever drops the second
+// entry when its feed's host differs from the first one's; entries sharing
+// a host keep every match. Runs once when the cross-feed timeline is built
+// or merged (see currentArticles/mergeIntoUnreadTimeline), not per render,
+// since extractArticlePreview does real HTML parsing per entry.
+function dedupContentKey(entry) {
+  const title = (entry.title || "").trim();
+  if (!title) return null;
+  const { snippet } = extractArticlePreview(entry.content || entry.summary || "");
+  return `${title} ${snippet.slice(0, 10)}`;
+}
+
+function dedupeCrossHostDuplicates(entries) {
+  const hostByKey = new Map();
+  const result = [];
+  for (const entry of entries) {
+    const key = dedupContentKey(entry);
+    if (!key) {
+      result.push(entry);
+      continue;
+    }
+    const host = feedHost(state.feedsById.get(entry.feedId));
+    const seenHost = hostByKey.get(key);
+    if (seenHost && host && seenHost !== host) continue; // same story, different site — drop it
+    if (seenHost === undefined) hostByKey.set(key, host);
+    result.push(entry);
+  }
+  return result;
 }
 
 // Article titles and preview/body text highlight this instead of the live
@@ -255,19 +323,20 @@ async function refreshFeedInState(feedId) {
 // own comment) in the normal yellow .search-highlight, listed first so it
 // wins wherever it overlaps a history term; and every *other* saved search-
 // history keyword (state.searchHistoryWords, kept fresh by loadAppData and
-// searchBar.js's onHistoryChange) in a visually distinct fluorescent green
-// (.search-highlight-history) — a standing "things I've looked for before"
-// marker that doesn't depend on the search box having anything in it. Feed
-// names deliberately keep using the live searchQuery directly (see
-// renderDesktop/renderTabletTwoPane) instead of this, so they only
-// highlight while a search is actually active.
+// searchBar.js's onHistoryChange) in .search-highlight-history, each word
+// its own stable color (see colorPalette.js's colorForWord) so it also
+// matches that word's chip in the search-history bar — a standing "things
+// I've looked for before" marker that doesn't depend on the search box
+// having anything in it. Feed names deliberately keep using the live
+// searchQuery directly (see renderDesktop/renderTabletTwoPane) instead of
+// this, so they only highlight while a search is actually active.
 function highlightQuery() {
   const current = (state.searchQuery.trim() || state.lastSearchQuery).trim();
   const terms = [];
   if (current) terms.push({ text: current, className: "search-highlight" });
   for (const word of state.searchHistoryWords) {
     if (word && word.toLowerCase() !== current.toLowerCase()) {
-      terms.push({ text: word, className: "search-highlight-history" });
+      terms.push({ text: word, className: "search-highlight-history", color: colorForWord(word) });
     }
   }
   return terms;
@@ -311,14 +380,14 @@ let collapsedGroups = null;
 const reflectCollapsedGroups = new Set();
 
 function collapsedGroupsFor(tree) {
-  // While a color filter is active, `tree` already only contains matching
-  // feeds (see currentFeedGroups) — force every group open so they're all
-  // visible at a glance instead of making the user click into each
-  // frequency group to go check. A fresh Set each call rather than
+  // While a color filter or search query is active, `tree` already only
+  // contains matching feeds (see currentFeedGroups) — force every group open
+  // so they're all visible at a glance instead of making the user click into
+  // each frequency group to go check. A fresh Set each call rather than
   // mutating/returning the persisted one below, so this is purely a
   // rendering override: manual collapse-state from before the filter was
   // applied comes back untouched once it's cleared.
-  if (state.feedColorFilter.size > 0) return new Set();
+  if (state.feedColorFilter.size > 0 || state.searchQuery.trim()) return new Set();
 
   if (collapsedGroups === null) {
     collapsedGroups = new Set();
@@ -409,7 +478,7 @@ function currentArticles() {
       }
     }
     timeline.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    state.unreadTimelineSnapshot = timeline;
+    state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(timeline);
   }
   return {
     entries: filterByNgWords(state.unreadTimelineSnapshot),
@@ -744,6 +813,7 @@ function renderDesktop() {
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
     onSelectGroup: selectFeedGroup,
+    onShowAllUnread: showAllUnread,
   });
 
   // Only meaningful on the cross-feed home timeline (see currentArticles) —
@@ -752,6 +822,13 @@ function renderDesktop() {
   showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
 
   const { entries, showFeedName, emptyHint } = currentArticles();
+  // The cross-feed unread timeline (nothing selected, no search) is the one
+  // place in the 3-pane layout that also marks read on hover, same as
+  // wide-grid mode always does (see previewEntryAndMarkRead) — a specific
+  // feed's own list keeps plain hover-to-preview, since that's still a
+  // dense single-column list where a passing cursor sweep would read
+  // articles it never meant to (the "だるま落とし" bug).
+  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
@@ -759,14 +836,14 @@ function renderDesktop() {
     query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onSelect: openEntry,
-    onHover: previewEntry,
+    onHover: isAllUnreadView ? previewEntryAndMarkRead : previewEntry,
     onAnnotate: openAnnotateForEntry,
     logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
   });
 
-  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen });
+  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
 }
 
 // Narrow-portrait layout (see the isTabletTwoPaneLayout breakpoint): same
@@ -792,6 +869,7 @@ function renderTabletTwoPane() {
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
     onSelectGroup: selectFeedGroup,
+    onShowAllUnread: showAllUnread,
   });
 
   const { entries, showFeedName, emptyHint } = currentArticles();
@@ -833,6 +911,7 @@ function renderWideGrid() {
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
     onSelectGroup: selectFeedGroup,
+    onShowAllUnread: showAllUnread,
   });
 
   showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
@@ -852,7 +931,7 @@ function renderWideGrid() {
     emptyHint,
   });
 
-  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen });
+  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
 }
 
 // render() no-ops entirely in reflect mode (see its own comment) — but the
@@ -937,24 +1016,22 @@ function toggleFeedColorFilter(colorKey) {
   render();
 }
 
-// Duplicate-feed cleanup — DISABLED FOR NOW, not called from refreshAll
-// (see restorePreviouslyAutoPausedFeeds above). It was pausing feeds the
-// user didn't consider duplicates too often. Left in place in case the
-// overlap heuristic gets revisited later.
-//
-// Rather than grouping by URL/host (which falsely lumps together completely
-// unrelated feeds on platform sites where many different users/channels
-// share one domain, e.g. hatena/note/YouTube), it compared feeds by how
-// much their *article lists* actually overlap — the real-world case this
-// caught was a site that publishes the same content as both an RSS2 feed
-// and an Atom feed at different URLs. Two feeds counted as duplicates when
-// a large fraction of one's article links also appeared in the other's.
+// Duplicate-feed cleanup, called from refreshAll after every crawl. Two
+// active feeds count as duplicates when they're on the *same host* (so
+// platform sites where many different users/channels share one domain,
+// e.g. hatena/note/YouTube, are never lumped together just for that) AND
+// their article titles substantially overlap — the real-world case this
+// catches is a site that publishes the same content as both an RSS2 feed
+// and an Atom feed at different URLs. Titles rather than links: two feeds
+// for the same underlying content don't always link to identical URLs
+// (tracking params, AMP vs. canonical, ...) but do publish the same
+// headlines.
 const DUPLICATE_OVERLAP_THRESHOLD = 0.8;
 const DUPLICATE_MIN_ENTRIES = 3;
 
-function entryLinkSet(feedId) {
+function entryTitleSet(feedId) {
   const entries = state.entriesByFeed.get(feedId) || [];
-  return new Set(entries.map((e) => e.link).filter(Boolean));
+  return new Set(entries.map((e) => (e.title || "").trim()).filter(Boolean));
 }
 
 function overlapRatio(setA, setB) {
@@ -969,10 +1046,12 @@ function overlapRatio(setA, setB) {
 
 async function autoPauseDuplicateFeeds() {
   const activeFeeds = [...state.feedsById.values()].filter((f) => !f.paused);
-  const linkSets = new Map(activeFeeds.map((f) => [f.feedId, entryLinkSet(f.feedId)]));
+  const titleSets = new Map(activeFeeds.map((f) => [f.feedId, entryTitleSet(f.feedId)]));
+  const hosts = new Map(activeFeeds.map((f) => [f.feedId, feedHost(f)]));
 
-  // Union-find over "enough article overlap" pairs, so A/B/C all matching
-  // pairwise end up in one cluster even if not every pair was compared.
+  // Union-find over "same host, enough title overlap" pairs, so A/B/C all
+  // matching pairwise end up in one cluster even if not every pair was
+  // compared.
   const parent = new Map(activeFeeds.map((f) => [f.feedId, f.feedId]));
   const find = (id) => {
     while (parent.get(id) !== id) id = parent.get(id);
@@ -985,10 +1064,13 @@ async function autoPauseDuplicateFeeds() {
   };
 
   for (let i = 0; i < activeFeeds.length; i++) {
-    const setA = linkSets.get(activeFeeds[i].feedId);
+    const hostA = hosts.get(activeFeeds[i].feedId);
+    if (!hostA) continue;
+    const setA = titleSets.get(activeFeeds[i].feedId);
     if (setA.size < DUPLICATE_MIN_ENTRIES) continue;
     for (let j = i + 1; j < activeFeeds.length; j++) {
-      const setB = linkSets.get(activeFeeds[j].feedId);
+      if (hosts.get(activeFeeds[j].feedId) !== hostA) continue;
+      const setB = titleSets.get(activeFeeds[j].feedId);
       if (setB.size < DUPLICATE_MIN_ENTRIES) continue;
       if (overlapRatio(setA, setB) >= DUPLICATE_OVERLAP_THRESHOLD) {
         union(activeFeeds[i].feedId, activeFeeds[j].feedId);
@@ -1183,14 +1265,29 @@ function previewEntry(entry) {
   render();
 }
 
-// Wide-grid mode's own onHover (see renderWideGrid) — previews *and* marks
-// read on hover, unlike previewEntry above. Deliberately scoped to that one
-// layout: in a dense single-column list, sweeping the cursor down catching
-// everything it crosses was the "だるま落とし" bug (see previewFeed's
-// comment) — the reason hover never marks read anywhere else in this app.
-// A multi-column card grid doesn't have that failure mode the same way (far
-// fewer, much larger targets under the cursor at once), and the request
-// this exists for was specifically about that grid.
+// Bundles the currently-previewed entry's log entry plus its color/comment
+// handlers for renderPreview's inline annotate section (see
+// renderDesktop/renderWideGrid) — spread into renderPreview's options
+// rather than passed as a separate parameter so a layout with no preview
+// pane (mobile, tablet two-pane) just never calls this instead of needing
+// its own no-op case.
+function previewAnnotateProps() {
+  const entry = state.selectedEntry;
+  if (!entry) return {};
+  return {
+    logEntry: state.logByEntryId.get(entry.id) || null,
+    onSetColor: (color) => annotatePreviewColor(entry, color),
+    onAddComment: (text) => annotatePreviewComment(entry, text),
+  };
+}
+
+// Previews *and* marks read on hover, unlike previewEntry above. Used by
+// wide-grid mode's article grid (see renderWideGrid) and by the 3-pane
+// layout's cross-feed unread timeline (see renderDesktop's isAllUnreadView)
+// — deliberately not used for a specific feed's own article list, which
+// stays a dense single-column list where a passing cursor sweep would read
+// everything it crosses (the "だるま落とし" bug, see previewFeed's
+// comment).
 async function previewEntryAndMarkRead(entry) {
   state.selectedEntry = entry;
   setFocusedPane("article");
@@ -1205,6 +1302,20 @@ async function selectFeed(feedId) {
   previewFeed(feedId);
   const topEntry = state.selectedEntry;
   if (topEntry) await advanceProgress(topEntry);
+}
+
+// "すべての未読" link above the feed list's 未読 group (see
+// renderFeedList in ui/feedList.js) — the only way back to the cross-feed
+// unread timeline (see currentArticles) once a feed or search has taken
+// over the article pane. Without this, getting back meant reloading the
+// page, since neither selecting a feed nor searching ever clears back to
+// nothing selected on their own.
+function showAllUnread() {
+  state.selectedFeedId = null;
+  state.selectedFeedGroupIds = null;
+  state.searchQuery = "";
+  searchInputEl.value = "";
+  render();
 }
 
 // Shared by openEntry (selecting an article) and the preview pane's outbound
@@ -1224,13 +1335,15 @@ async function openEntry(entry) {
   await advanceProgress(entry);
 }
 
-// Right-click/long-press on an article-list row (see articleList.js's
-// onAnnotate) opens a floating color+comment popup for that entry. Tagging
-// or commenting something is itself an act of having read it, so this marks
-// the entry read the same way actually opening it would — reusing its
-// existing log entry if reflect (or an earlier annotation) already created
-// one, rather than logging a second "open" just for this.
-async function openAnnotateForEntry(entry, x, y) {
+// Shared by the article list's right-click/long-press popup and the
+// always-visible copy under the preview pane's body (see renderPreview's
+// onSetColor/onAddComment) — both need a log entry to attach a color or
+// comment to, reusing one reflect (or an earlier annotation) already
+// created rather than logging a second "open" just for this. Tagging or
+// commenting something is itself an act of having read it, so this marks
+// the entry read the same way actually opening it would, regardless of
+// which of the two UIs triggered it.
+async function ensureLogEntryForEntry(entry) {
   let logEntry = state.logByEntryId.get(entry.id) || null;
   if (!logEntry) {
     logEntry = await recordOpen(entry, state.feedsById.get(entry.feedId));
@@ -1240,9 +1353,33 @@ async function openAnnotateForEntry(entry, x, y) {
     }
   }
   await advanceProgress(entry);
+  return logEntry;
+}
+
+// Right-click/long-press on an article-list row (see articleList.js's
+// onAnnotate) opens a floating color+comment popup for that entry.
+async function openAnnotateForEntry(entry, x, y) {
+  const logEntry = await ensureLogEntryForEntry(entry);
   if (!logEntry) return;
   scheduleLogSync();
   showAnnotatePopup(entry, logEntry, x, y);
+}
+
+// onSetColor/onAddComment for the preview pane's own always-visible
+// annotate section (see renderPreview) — same underlying writes as the
+// popup's (setEntryLogColor/addEntryLogComment below), just preceded by
+// ensureLogEntryForEntry since previewing/hovering an entry doesn't log it
+// the way opening or right-clicking it does.
+async function annotatePreviewColor(entry, color) {
+  const logEntry = await ensureLogEntryForEntry(entry);
+  if (!logEntry) return;
+  await setEntryLogColor(entry, logEntry.id, color);
+}
+
+async function annotatePreviewComment(entry, text) {
+  const logEntry = await ensureLogEntryForEntry(entry);
+  if (!logEntry) return;
+  await addEntryLogComment(entry, logEntry.id, text);
 }
 
 async function setEntryLogColor(entry, logId, color) {
@@ -1375,11 +1512,13 @@ async function refreshAll({ force = false } = {}) {
   }
   hideStatus();
   await loadAppData();
-  // autoPauseDuplicateFeeds is disabled for now — its overlap heuristic was
-  // pausing feeds the user didn't consider duplicates. Restore anything it
-  // paused in the past instead (feeds paused without userManagedPause could
-  // only have come from it, never from the user directly toggling pause).
+  // Restore anything auto-paused last run before re-deriving clusters fresh
+  // (feeds paused without userManagedPause could only have come from
+  // autoPauseDuplicateFeeds, never from the user directly toggling pause) —
+  // otherwise a feed whose content has since diverged from its old cluster
+  // would stay paused forever instead of picking back up.
   await restorePreviouslyAutoPausedFeeds();
+  await autoPauseDuplicateFeeds();
   render();
 }
 
@@ -1634,7 +1773,7 @@ function toggleFullscreen() {
 
 function wireApp() {
   setupSearchBar(
-    document.getElementById("search-input"),
+    searchInputEl,
     (query) => {
       state.searchQuery = query;
       // Sticky across the box clearing (see lastSearchQuery's own comment and
@@ -1673,6 +1812,7 @@ function wireApp() {
     render();
   });
   setupPaneResizing();
+  setupWideGridRowResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
   setupSeedModal(document.getElementById("seed-btn"), document.getElementById("seed-modal"), {

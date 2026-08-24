@@ -40,6 +40,10 @@ export function highlightText(text, terms) {
     if (bestIdx > pos) fragment.appendChild(document.createTextNode(text.slice(pos, bestIdx)));
     const mark = document.createElement("mark");
     mark.className = bestTerm.className;
+    // Per-word color (see colorPalette.js's colorForWord) for history terms
+    // — read by .search-highlight-history in style.css via rgba(var(...)),
+    // same convention as --feed-color/--reflect-color elsewhere in the app.
+    if (bestTerm.color) mark.style.setProperty("--search-highlight-color", bestTerm.color);
     mark.textContent = text.slice(bestIdx, bestIdx + bestTerm.text.length);
     fragment.appendChild(mark);
     pos = bestIdx + bestTerm.text.length;
