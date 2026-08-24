@@ -420,6 +420,31 @@ input[type="text"], input[type="url"], input[type="search"] {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+/* Label + "まとめて見る" button, side by side inside a group's <summary> —
+   see buildGroupSummary in feedList.js for why this flex row lives on an
+   inner wrapper instead of the <summary> element itself. */
+.feed-group-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.feed-group-view-all {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  text-transform: none;
+  letter-spacing: normal;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.feed-group-view-all:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
 .feed-list-group { list-style: none; margin: 0; padding: 0; }
 .feed-item {
   display: flex;

@@ -114,6 +114,11 @@ const state = {
   // posted recently but gone unengaged.
   feedScoreById: new Map(),
   selectedFeedId: null,
+  // Set of feedIds when viewing a frequency group's or the pinned group's
+  // articles combined (see selectFeedGroup/currentArticles) — mutually
+  // exclusive with selectedFeedId; picking a single feed clears this and
+  // vice versa.
+  selectedFeedGroupIds: null,
   selectedEntry: null,
   searchQuery: "",
   // The most recent non-empty search query, kept around after searchQuery
@@ -372,6 +377,18 @@ function currentArticles() {
       emptyHint: "記事がありません。",
     };
   }
+  // "まとめて見る" on a frequency group or the pinned group (see
+  // selectFeedGroup) — every entry from every feed in that group, combined
+  // and sorted like a single feed's own list would be, since there's no
+  // single feed name to head this list with.
+  if (state.selectedFeedGroupIds) {
+    const combined = [];
+    for (const feedId of state.selectedFeedGroupIds) {
+      combined.push(...(state.entriesByFeed.get(feedId) || []));
+    }
+    combined.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
+    return { entries: filterByNgWords(combined), showFeedName: true, emptyHint: "記事がありません。" };
+  }
   // Nothing selected: show unread entries across all feeds, newest first
   // (date-less unread entries have no position to sort by, so they sink to
   // the end — see the pubDate-less comparator behavior below). The set of
@@ -594,6 +611,10 @@ async function renderReflectFeedList() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    // No onSelectGroup here — reflect's tree is already one flat group (see
+    // renderReflectFeedList's own comment), and "まとめて見る" would call
+    // into the normal view's selectedFeedGroupIds/render(), which no-ops
+    // entirely while in reflect mode (see render()'s own early return).
   });
 }
 
@@ -722,6 +743,7 @@ function renderDesktop() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    onSelectGroup: selectFeedGroup,
   });
 
   // Only meaningful on the cross-feed home timeline (see currentArticles) —
@@ -769,6 +791,7 @@ function renderTabletTwoPane() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    onSelectGroup: selectFeedGroup,
   });
 
   const { entries, showFeedName, emptyHint } = currentArticles();
@@ -809,6 +832,7 @@ function renderWideGrid() {
     onTogglePin: togglePinFeed,
     onSetColor: setFeedColor,
     onCopyUrl: copyFeedUrl,
+    onSelectGroup: selectFeedGroup,
   });
 
   showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
@@ -1132,8 +1156,24 @@ async function advanceProgress(entry) {
 // sweeping the cursor down the list read everything it crossed.
 function previewFeed(feedId) {
   state.selectedFeedId = feedId;
+  state.selectedFeedGroupIds = null;
   state.selectedEntry = sortedEntriesForFeed(feedId)[0] || null;
   setFocusedPane("feed");
+  render();
+}
+
+// "まとめて見る" on a frequency group or the pinned group (see
+// buildGroupSummary in ui/feedList.js) — same idea as previewFeed/selectFeed
+// but for every feed in that group combined (see currentArticles), instead
+// of a single one. Deliberate action, not hover-triggered, so — like
+// selectFeed — it also clears state.selectedFeedId, previews the top entry,
+// and moves focus to the article pane right away rather than needing a
+// separate commit step.
+function selectFeedGroup(feedIds) {
+  state.selectedFeedId = null;
+  state.selectedFeedGroupIds = new Set(feedIds);
+  state.selectedEntry = currentArticles().entries[0] || null;
+  setFocusedPane("article");
   render();
 }
 

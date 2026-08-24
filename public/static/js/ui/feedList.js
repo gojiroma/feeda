@@ -47,7 +47,20 @@ export function renderFeedColorFilter(container, { feeds, activeColors, onToggle
 // buckets, so they need the status prefix to stay distinct).
 export function renderFeedList(
   container,
-  { groups, totalFeedCount, selectedFeedId, query, collapsedGroups, onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl }
+  {
+    groups,
+    totalFeedCount,
+    selectedFeedId,
+    query,
+    collapsedGroups,
+    onSelect,
+    onHover,
+    onTogglePause,
+    onTogglePin,
+    onSetColor,
+    onCopyUrl,
+    onSelectGroup,
+  }
 ) {
   container.innerHTML = "";
   // The menu lives in document.body (see openFeedContextMenu), so rebuilding
@@ -94,10 +107,6 @@ export function renderFeedList(
       else collapsedGroups.add(status.key);
     });
 
-    const statusSummary = document.createElement("summary");
-    statusSummary.textContent = `${status.label} (${feedCount})`;
-    statusDetails.appendChild(statusSummary);
-
     const interactions = { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onCopyUrl };
 
     // A status with exactly one subgroup keyed the same as the status itself
@@ -108,9 +117,20 @@ export function renderFeedList(
     // group label repeating the status label right above it.
     const isFlatStatus = subgroups.length === 1 && subgroups[0].group.key === status.key;
 
+    // "まとめて見る" (see onSelectGroup) is offered on a frequency subgroup
+    // or the flat pinned group — a *posting-cadence or curation* grouping,
+    // where "show me everything in this bucket at once" is a meaningful
+    // thing to ask for. The plain status level (未読/既読/更新なし/更新停止)
+    // doesn't get it: that's just this same feed list sliced by read state,
+    // not a grouping worth its own combined view.
     if (isFlatStatus) {
+      statusDetails.appendChild(buildGroupSummary(status.label, subgroups[0].feeds, onSelectGroup));
       statusDetails.appendChild(renderFeedItemsList(subgroups[0].feeds, { selectedFeedId, query, interactions }));
     } else {
+      const plainSummary = document.createElement("summary");
+      plainSummary.textContent = `${status.label} (${feedCount})`;
+      statusDetails.appendChild(plainSummary);
+
       for (const { group, feeds } of subgroups) {
         const groupKey = `${status.key}:${group.key}`;
         const details = document.createElement("details");
@@ -121,10 +141,7 @@ export function renderFeedList(
           else collapsedGroups.add(groupKey);
         });
 
-        const summary = document.createElement("summary");
-        summary.textContent = `${group.label} (${feeds.length})`;
-        details.appendChild(summary);
-
+        details.appendChild(buildGroupSummary(group.label, feeds, onSelectGroup));
         details.appendChild(renderFeedItemsList(feeds, { selectedFeedId, query, interactions }));
         statusDetails.appendChild(details);
       }
@@ -132,6 +149,43 @@ export function renderFeedList(
 
     container.appendChild(statusDetails);
   }
+}
+
+// A group <summary> with a "まとめて見る" button alongside its label/count —
+// clicking it should select the whole group's combined article list (see
+// onSelectGroup in main.js), not toggle the <details> the summary itself
+// belongs to, hence preventDefault (blocks the native toggle) *and*
+// stopPropagation (belt and braces, since a click on a nested control
+// inside <summary> still bubbles through it).
+function buildGroupSummary(label, feeds, onSelectGroup) {
+  const summary = document.createElement("summary");
+  // The label/button pair is flexed via this inner wrapper rather than the
+  // <summary> element itself — <summary> defaults to display:list-item,
+  // which is what draws its native disclosure triangle; switching *it* to
+  // flex drops that marker in Chrome/Firefox, so the flex row lives one
+  // level in instead.
+  const row = document.createElement("div");
+  row.className = "feed-group-summary-row";
+  const labelSpan = document.createElement("span");
+  labelSpan.textContent = `${label} (${feeds.length})`;
+  row.appendChild(labelSpan);
+
+  if (onSelectGroup && feeds.length > 0) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "feed-group-view-all";
+    btn.textContent = "まとめて見る";
+    btn.title = "このグループの記事をまとめて表示";
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      onSelectGroup(feeds.map((f) => f.feedId));
+    });
+    row.appendChild(btn);
+  }
+
+  summary.appendChild(row);
+  return summary;
 }
 
 function renderFeedItemsList(feeds, { selectedFeedId, query, interactions }) {
