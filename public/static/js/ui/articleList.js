@@ -83,9 +83,177 @@ export function renderAnnotatePopup(container, { logEntry, onSetColor, onAddComm
   if (autoFocus) input.focus();
 }
 
+function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, logByEntryId, showFeedName }) {
+  const logEntry = logByEntryId ? logByEntryId.get(entry.id) : null;
+  const comments = logEntry ? logEntry.comments || [] : [];
+  const tags = logEntry ? logEntry.tags || [] : [];
+  const rgb = logEntry && logEntry.color && COLOR_BY_KEY.get(logEntry.color);
+
+  const li = document.createElement("li");
+  li.className =
+    "article-item" +
+    (entry.id === selectedEntryId ? " selected" : "") +
+    (isUnread(entry) ? " unread" : "") +
+    // Colored and/or commented from reflect (or right here — see
+    // onAnnotate below) stand out from the rest of the list: a left
+    // border/background tint for the color, both alone if there's no
+    // color but a comment exists.
+    (rgb || comments.length > 0 || tags.length > 0 ? " article-item--annotated" : "") +
+    (rgb ? " article-item--colored" : "");
+  if (rgb) li.style.setProperty("--reflect-color", rgb);
+  li.addEventListener("click", () => onSelect(entry));
+  // Hovering previews too (touch has no hover, so this is mouse/stylus
+  // only) but must NOT mark the entry read — see onHover in main.js.
+  // Skipped when this entry is already selected: onHover triggers a full
+  // re-render, which tears down and rebuilds this <li>; without the
+  // guard, the pointer landing on its own replacement would re-fire
+  // mouseenter and loop.
+  li.addEventListener("mouseenter", () => {
+    if (entry.id === selectedEntryId) return;
+    onHover(entry);
+  });
+
+  const { imageSrc, snippet } = extractArticlePreview(entry.content || entry.summary || "");
+
+  if (imageSrc) {
+    const thumb = document.createElement("img");
+    thumb.className = "article-thumb";
+    thumb.src = imageSrc;
+    thumb.alt = "";
+    thumb.loading = "lazy";
+    li.appendChild(thumb);
+  }
+
+  const main = document.createElement("div");
+  main.className = "article-main";
+
+  const title = document.createElement("div");
+  title.className = "article-title";
+  title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
+  main.appendChild(title);
+
+  const meta = document.createElement("div");
+  meta.className = "article-meta";
+  const parts = [];
+  if (showFeedName) parts.push(feedTitleById.get(entry.feedId) || "");
+  if (entry.pubDate) parts.push(new Date(entry.pubDate).toLocaleString("ja-JP"));
+  meta.textContent = parts.join(" ・ ");
+  main.appendChild(meta);
+
+  if (snippet) {
+    const snippetEl = document.createElement("div");
+    snippetEl.className = "article-snippet";
+    snippetEl.appendChild(highlightText(snippet, query));
+    main.appendChild(snippetEl);
+  }
+
+  if (comments.length > 0) {
+    const preview = document.createElement("div");
+    preview.className = "article-comment-preview";
+    preview.textContent = `💬 ${truncate(comments[comments.length - 1].text, COMMENT_PREVIEW_MAX_LENGTH)}`;
+    main.appendChild(preview);
+  }
+
+  if (tags.length > 0) {
+    const tagRow = document.createElement("div");
+    tagRow.className = "tag-chip-row tag-chip-row--display";
+    for (const tag of tags) {
+      const chip = document.createElement("span");
+      chip.className = "tag-chip tag-chip--display";
+      chip.textContent = tag;
+      tagRow.appendChild(chip);
+    }
+    main.appendChild(tagRow);
+  }
+
+  li.appendChild(main);
+
+  // Right-click (desktop) or long-press (touch) opens a combined
+  // color-tag + comment popup — same interaction reflect's own timeline
+  // uses (see reflect.js), but reachable straight from the news list. Not
+  // a hover-revealed inline form: unlike reflect's timeline, this list
+  // marks read on hover-triggered re-renders (see onHover above), and a
+  // form whose visibility (and thus this row's height) changed on hover
+  // would reflow the rows below it under a still-stationary cursor,
+  // cascading into their mouseenter firing too — see .article-item's own
+  // comment in style.css. A floating, position-fixed popup never touches
+  // this row's layout, so it sidesteps that entirely.
+  if (onAnnotate) {
+    attachContextTrigger(li, {
+      onOpenRequest: (x, y) => onAnnotate(entry, x, y),
+    });
+  }
+
+  return li;
+}
+
+// Groups entries by feedId, ordered by `feedOrder` (front = first) — falling
+// back to first-appearance order in `entries` for any feed feedOrder doesn't
+// mention (a feed that gained entries between feedOrder being computed and
+// this render, or no feedOrder at all). Never drops an entry: every feedId
+// present in `entries` gets a group even if feedOrder is empty/missing.
+function groupEntriesByFeed(entries, feedOrder) {
+  const byFeed = new Map();
+  for (const entry of entries) {
+    if (!byFeed.has(entry.feedId)) byFeed.set(entry.feedId, []);
+    byFeed.get(entry.feedId).push(entry);
+  }
+  const order = [...(feedOrder || [])].filter((id) => byFeed.has(id));
+  for (const feedId of byFeed.keys()) {
+    if (!order.includes(feedId)) order.push(feedId);
+  }
+  return order.map((feedId) => ({ feedId, entries: byFeed.get(feedId) }));
+}
+
+// Feed name + "更新停止"/"更新を再開" button headlining one feed's block in
+// the grouped-by-feed rendering (see renderArticleList's groupByFeed) — the
+// same pause action already offered per-feed from the sidebar's context menu
+// and the article list's own action bar for a single selected feed, just
+// reachable straight from the cross-feed unread view/wide-grid columns too.
+function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed }) {
+  const header = document.createElement("div");
+  header.className = "article-feed-header";
+
+  const title = document.createElement("span");
+  title.className = "article-feed-header-title";
+  title.textContent = feedTitleById.get(feedId) || "";
+  header.appendChild(title);
+
+  if (onTogglePauseFeed) {
+    const feed = feedsById ? feedsById.get(feedId) : null;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "article-feed-header-pause-btn";
+    btn.textContent = feed && feed.paused ? "更新を再開" : "更新停止";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onTogglePauseFeed(feedId);
+    });
+    header.appendChild(btn);
+  }
+
+  return header;
+}
+
 export function renderArticleList(
   container,
-  { entries, feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, logByEntryId, showFeedName, emptyHint }
+  {
+    entries,
+    feedTitleById,
+    selectedEntryId,
+    query,
+    isUnread,
+    onSelect,
+    onHover,
+    onAnnotate,
+    logByEntryId,
+    showFeedName,
+    emptyHint,
+    groupByFeed,
+    feedOrder,
+    feedsById,
+    onTogglePauseFeed,
+  }
 ) {
   container.innerHTML = "";
   // Same "don't slam shut on an unrelated redraw" rule as reflect's own
@@ -102,112 +270,38 @@ export function renderArticleList(
     return;
   }
 
-  const ul = document.createElement("ul");
-  ul.className = "article-list";
+  const itemProps = { feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, logByEntryId };
 
-  for (const entry of entries) {
-    const logEntry = logByEntryId ? logByEntryId.get(entry.id) : null;
-    const comments = logEntry ? logEntry.comments || [] : [];
-    const tags = logEntry ? logEntry.tags || [] : [];
-    const rgb = logEntry && logEntry.color && COLOR_BY_KEY.get(logEntry.color);
+  if (groupByFeed) {
+    // Each feed gets its own header (name + pause button) and its own <ul>,
+    // stacked or laid out side by side purely via CSS (see .article-list-
+    // grouped and its wide-grid-mode override in style.css) — a feed's block
+    // never straddles another's, so a background refetch can move a whole
+    // block to the top of the pile without disturbing anything else on
+    // screen (see main.js's mergeIntoUnreadTimeline).
+    const wrap = document.createElement("div");
+    wrap.className = "article-list-grouped";
+    for (const { feedId, entries: feedEntries } of groupEntriesByFeed(entries, feedOrder)) {
+      const block = document.createElement("div");
+      block.className = "article-feed-block";
+      block.appendChild(buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed }));
 
-    const li = document.createElement("li");
-    li.className =
-      "article-item" +
-      (entry.id === selectedEntryId ? " selected" : "") +
-      (isUnread(entry) ? " unread" : "") +
-      // Colored and/or commented from reflect (or right here — see
-      // onAnnotate below) stand out from the rest of the list: a left
-      // border/background tint for the color, both alone if there's no
-      // color but a comment exists.
-      (rgb || comments.length > 0 || tags.length > 0 ? " article-item--annotated" : "") +
-      (rgb ? " article-item--colored" : "");
-    if (rgb) li.style.setProperty("--reflect-color", rgb);
-    li.addEventListener("click", () => onSelect(entry));
-    // Hovering previews too (touch has no hover, so this is mouse/stylus
-    // only) but must NOT mark the entry read — see onHover in main.js.
-    // Skipped when this entry is already selected: onHover triggers a full
-    // re-render, which tears down and rebuilds this <li>; without the
-    // guard, the pointer landing on its own replacement would re-fire
-    // mouseenter and loop.
-    li.addEventListener("mouseenter", () => {
-      if (entry.id === selectedEntryId) return;
-      onHover(entry);
-    });
-
-    const { imageSrc, snippet } = extractArticlePreview(entry.content || entry.summary || "");
-
-    if (imageSrc) {
-      const thumb = document.createElement("img");
-      thumb.className = "article-thumb";
-      thumb.src = imageSrc;
-      thumb.alt = "";
-      thumb.loading = "lazy";
-      li.appendChild(thumb);
-    }
-
-    const main = document.createElement("div");
-    main.className = "article-main";
-
-    const title = document.createElement("div");
-    title.className = "article-title";
-    title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
-    main.appendChild(title);
-
-    const meta = document.createElement("div");
-    meta.className = "article-meta";
-    const parts = [];
-    if (showFeedName) parts.push(feedTitleById.get(entry.feedId) || "");
-    if (entry.pubDate) parts.push(new Date(entry.pubDate).toLocaleString("ja-JP"));
-    meta.textContent = parts.join(" ・ ");
-    main.appendChild(meta);
-
-    if (snippet) {
-      const snippetEl = document.createElement("div");
-      snippetEl.className = "article-snippet";
-      snippetEl.appendChild(highlightText(snippet, query));
-      main.appendChild(snippetEl);
-    }
-
-    if (comments.length > 0) {
-      const preview = document.createElement("div");
-      preview.className = "article-comment-preview";
-      preview.textContent = `💬 ${truncate(comments[comments.length - 1].text, COMMENT_PREVIEW_MAX_LENGTH)}`;
-      main.appendChild(preview);
-    }
-
-    if (tags.length > 0) {
-      const tagRow = document.createElement("div");
-      tagRow.className = "tag-chip-row tag-chip-row--display";
-      for (const tag of tags) {
-        const chip = document.createElement("span");
-        chip.className = "tag-chip tag-chip--display";
-        chip.textContent = tag;
-        tagRow.appendChild(chip);
+      const ul = document.createElement("ul");
+      ul.className = "article-list";
+      for (const entry of feedEntries) {
+        ul.appendChild(buildArticleItem(entry, { ...itemProps, showFeedName: false }));
       }
-      main.appendChild(tagRow);
+      block.appendChild(ul);
+      wrap.appendChild(block);
     }
-
-    li.appendChild(main);
-
-    // Right-click (desktop) or long-press (touch) opens a combined
-    // color-tag + comment popup — same interaction reflect's own timeline
-    // uses (see reflect.js), but reachable straight from the news list. Not
-    // a hover-revealed inline form: unlike reflect's timeline, this list
-    // marks read on hover-triggered re-renders (see onHover above), and a
-    // form whose visibility (and thus this row's height) changed on hover
-    // would reflow the rows below it under a still-stationary cursor,
-    // cascading into their mouseenter firing too — see .article-item's own
-    // comment in style.css. A floating, position-fixed popup never touches
-    // this row's layout, so it sidesteps that entirely.
-    if (onAnnotate) {
-      attachContextTrigger(li, {
-        onOpenRequest: (x, y) => onAnnotate(entry, x, y),
-      });
-    }
-
-    ul.appendChild(li);
+    container.appendChild(wrap);
+    return;
   }
 
+  const ul = document.createElement("ul");
+  ul.className = "article-list";
+  for (const entry of entries) {
+    ul.appendChild(buildArticleItem(entry, { ...itemProps, showFeedName }));
+  }
   container.appendChild(ul);
 }

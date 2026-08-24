@@ -271,22 +271,6 @@ input[type="text"], input[type="url"], input[type="search"] {
   white-space: nowrap;
 }
 
-.next-fetch-bar {
-  display: block;
-  width: 100%;
-  font: inherit;
-  font-size: 0.78rem;
-  text-align: center;
-  padding: 4px 8px;
-  border: none;
-  border-radius: 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.next-fetch-bar:hover { background: var(--bg-alt); }
-
 .panes {
   flex: 1;
   display: flex;
@@ -382,6 +366,46 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .article-list-action-btn {
   flex: 1;
+}
+
+/* Grouped-by-feed rendering of the cross-feed unread timeline (see
+   groupByFeed in articleList.js) — one block per feed, each headlined by its
+   own name + pause button instead of a per-row feed name. Plain vertical
+   stacking here; wide-grid mode overrides this into horizontal, independently
+   scrollable columns instead (see .app.wide-grid-mode .article-list-grouped
+   below), reusing the exact same markup. */
+.article-list-grouped {
+  display: flex;
+  flex-direction: column;
+}
+.article-feed-block + .article-feed-block {
+  margin-top: 4px;
+}
+.article-feed-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.article-feed-header-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.article-feed-header-pause-btn {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  font-weight: 400;
+  padding: 2px 8px;
 }
 .preview-pane {
   flex: 1;
@@ -936,10 +960,13 @@ input[type="text"], input[type="url"], input[type="search"] {
 /* Wide-grid mode itself (see isWideGridLayout/renderWideGrid in main.js) —
    same three panes as desktop (feed/article/preview — same components too,
    so annotate/keyboard-nav/.selected all keep working unchanged), just
-   reflowed: feed pane still on the left, but article and preview stack on
-   top of each other in the remaining space instead of sitting side by
-   side, and the article list itself lays its rows out as a multi-column
-   card grid (CSS `columns`) instead of one column. Grid areas let this
+   reflowed: feed pane still on the left, article and preview stack on top of
+   each other in the remaining space instead of sitting side by side, and the
+   article list itself becomes one independently vertically-scrolling column
+   per feed, laid out left to right with the whole row scrolling horizontally
+   (see .article-list-grouped's override below) — not a single reflowed
+   masonry grid mixing every feed's articles together, so a feed is always a
+   self-contained column you can park your eyes on. Grid areas let this
    ignore the panes' actual DOM order (feed, resizer, article, resizer,
    preview) rather than needing it restructured for two different layouts.
    Both resizers are drag-against-nothing here (grid areas, not flex
@@ -958,6 +985,14 @@ input[type="text"], input[type="url"], input[type="search"] {
   width: auto !important;
   border-right: none;
   border-bottom: 1px solid var(--border);
+  /* The pane itself no longer scrolls (base .pane sets overflow-y: auto) —
+     each column scrolls independently instead (see .article-feed-block
+     below), and the pane just stacks the column row above the sticky
+     mark-read/pause action bar. */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 .app.wide-grid-mode .preview-pane {
   grid-area: preview;
@@ -992,13 +1027,42 @@ input[type="text"], input[type="url"], input[type="search"] {
 .app.wide-grid-mode .wide-grid-row-resizer.dragging {
   background: var(--accent);
 }
-.app.wide-grid-mode .article-list {
-  columns: 360px;
-  column-gap: 0;
+/* #article-list is renderArticleList's own container — always holds exactly
+   one .article-list-grouped wrapper in wide-grid mode (see groupByFeed in
+   renderWideGrid), which does the actual horizontal-scrolling flex row; this
+   just lets that row fill the available height without also becoming a
+   second, redundant scroll container itself. */
+#article-list {
+  min-height: 0;
 }
-.app.wide-grid-mode .article-item {
-  break-inside: avoid;
+.app.wide-grid-mode #article-list {
+  flex: 1;
+  overflow: hidden;
+}
+.app.wide-grid-mode .article-list-grouped {
+  flex-direction: row;
+  align-items: stretch;
+  height: 100%;
+  overflow-x: auto;
+}
+.app.wide-grid-mode .article-feed-block {
+  flex: 0 0 340px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: 1px solid var(--border);
+}
+.app.wide-grid-mode .article-feed-block + .article-feed-block {
+  margin-top: 0;
+}
+.app.wide-grid-mode .article-feed-block .article-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.app.wide-grid-mode .article-list-actions {
+  flex-shrink: 0;
 }
 
 .reflect-view {
@@ -1008,8 +1072,7 @@ input[type="text"], input[type="url"], input[type="search"] {
    every reading-mode surface with !important so it wins over their own
    display rules (media queries, .hidden toggles) regardless of viewport. */
 .app.reflect-mode .panes,
-.app.reflect-mode .mobile-view,
-.app.reflect-mode .next-fetch-bar {
+.app.reflect-mode .mobile-view {
   display: none !important;
 }
 .app.reflect-mode .reflect-view {

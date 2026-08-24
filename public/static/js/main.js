@@ -182,6 +182,12 @@ const state = {
   // the user is currently looking at — see currentArticles(). Cleared
   // whenever fresh data is loaded from IndexedDB (loadAppData).
   unreadTimelineSnapshot: null,
+  // Block order (front = top) for the grouped-by-feed rendering of the
+  // above timeline — see mergeIntoUnreadTimeline. Kept separate from the
+  // snapshot's own (still chronological) entry order so a feed that just
+  // got new unread entries can jump its whole block to the top without
+  // having to re-sort — or re-render the position of — anything else.
+  unreadFeedOrder: [],
 };
 
 // Shared by autoPauseDuplicateFeeds (same-host feed clustering) and
@@ -284,6 +290,13 @@ function mergeIntoUnreadTimeline(feed, entries) {
   if (fresh.length === 0) return;
   const merged = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
   state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(merged);
+  // Bump this feed's block to the top of the grouped view (see
+  // unreadFeedOrder's own comment) instead of leaving the new entries to
+  // land wherever their pubDate happens to sort them in the flat snapshot
+  // above — that's what used to make a background refetch splice new rows
+  // into the middle of the list mid-read ("ミルフィーユ" — a different
+  // feed's new stuff shouldn't shove itself between rows already on screen).
+  state.unreadFeedOrder = [feed.feedId, ...state.unreadFeedOrder.filter((id) => id !== feed.feedId)];
 }
 
 // Same title + same first 10 characters of body text, syndicated by two
@@ -464,23 +477,37 @@ function currentArticles() {
     return { entries: filterByNgWords(matched.slice(0, 200)), showFeedName: true, emptyHint: "検索結果がありません。" };
   }
   if (state.selectedFeedId) {
+    const feed = state.feedsById.get(state.selectedFeedId);
+    const entries = sortedEntriesForFeed(state.selectedFeedId).filter(
+      (e) => state.showReadInTimeline || isUnread(e, feed)
+    );
     return {
-      entries: filterByNgWords(sortedEntriesForFeed(state.selectedFeedId)),
+      entries: filterByNgWords(entries),
       showFeedName: false,
-      emptyHint: "記事がありません。",
+      emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
     };
   }
   // "まとめて見る" on a frequency group or the pinned group (see
   // selectFeedGroup) — every entry from every feed in that group, combined
   // and sorted like a single feed's own list would be, since there's no
-  // single feed name to head this list with.
+  // single feed name to head this list with. Filtered to unread the same
+  // way the cross-feed home timeline is (see showReadInTimeline below) —
+  // a group can span many feeds, so without this a couple of stale feeds
+  // full of old read entries would bury whatever's actually new.
   if (state.selectedFeedGroupIds) {
     const combined = [];
     for (const feedId of state.selectedFeedGroupIds) {
-      combined.push(...(state.entriesByFeed.get(feedId) || []));
+      const feed = state.feedsById.get(feedId);
+      for (const entry of state.entriesByFeed.get(feedId) || []) {
+        if (state.showReadInTimeline || isUnread(entry, feed)) combined.push(entry);
+      }
     }
     combined.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    return { entries: filterByNgWords(combined), showFeedName: true, emptyHint: "記事がありません。" };
+    return {
+      entries: filterByNgWords(combined),
+      showFeedName: true,
+      emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
+    };
   }
   // Nothing selected: show unread entries across all feeds, newest first
   // (date-less unread entries have no position to sort by, so they sink to
@@ -503,9 +530,16 @@ function currentArticles() {
     }
     timeline.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
     state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(timeline);
+    // Initial block order for the grouped view (see unreadFeedOrder's own
+    // comment): first-appearance order in the just-sorted timeline, i.e.
+    // whichever feed's most recent entry is newest goes on top. A dedup'd
+    // Map's insertion order does the "first occurrence per feedId" dedup for
+    // free.
+    state.unreadFeedOrder = [...new Map(state.unreadTimelineSnapshot.map((e) => [e.feedId, true])).keys()];
   }
   return {
     entries: filterByNgWords(state.unreadTimelineSnapshot),
+    feedOrder: state.unreadFeedOrder,
     showFeedName: true,
     emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
   };
@@ -531,7 +565,6 @@ function render() {
     renderDesktop();
   }
   updateFavicon(countUnreadSources());
-  updateNextFetchIndicator();
 }
 
 // While sitting on 振り返る, pick up log rows written from elsewhere —
@@ -862,18 +895,22 @@ function renderDesktop() {
     onShowAllUnread: showAllUnread,
   });
 
-  // Only meaningful on the cross-feed home timeline (see currentArticles) —
-  // a specific feed's own list, and search results, already include read
-  // entries regardless, so the toggle would be a no-op there.
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
+  // Meaningful anywhere currentArticles() applies an unread filter — the
+  // cross-feed home timeline, a single feed, and a "まとめて見る" group all
+  // do now. Only search results ignore read state regardless, so the toggle
+  // would be a no-op there.
+  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()));
 
-  const { entries, showFeedName, emptyHint } = currentArticles();
+  const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
   // The cross-feed unread timeline (nothing selected, no search) is the one
   // place in the 3-pane layout that also marks read on hover, same as
   // wide-grid mode always does (see previewEntryAndMarkRead) — a specific
   // feed's own list keeps plain hover-to-preview, since that's still a
   // dense single-column list where a passing cursor sweep would read
-  // articles it never meant to (the "だるま落とし" bug).
+  // articles it never meant to (the "だるま落とし" bug). It's also the only
+  // one of the three grouped by feed (see groupByFeed) — a single feed or
+  // group's own list has nothing to group by, and search results are
+  // ranked by relevance, not by feed.
   const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
   renderArticleList(articleListEl, {
     entries,
@@ -887,6 +924,10 @@ function renderDesktop() {
     logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
+    groupByFeed: isAllUnreadView,
+    feedOrder,
+    feedsById: state.feedsById,
+    onTogglePauseFeed: isAllUnreadView ? togglePauseFeed : undefined,
   });
   renderArticleListActions();
 
@@ -938,11 +979,13 @@ function renderTabletTwoPane() {
 // only offered at wideGridQuery's width) — same feed pane, article list, and
 // preview pane components as desktop (so annotate, keyboard nav, and the
 // .selected/.unread styling all keep working unchanged), just laid out
-// differently: the article list becomes a multi-column card grid (CSS
-// `columns`, see .app.wide-grid-mode in style.css) with the preview pane
-// moved below it instead of beside it, so more of the unread queue is
-// visible at a glance. The one real behavioral difference is onHover —
-// see previewEntryAndMarkRead.
+// differently: the article list is always grouped by feed (see groupByFeed
+// below), one independently-scrolling column per feed laid out left to
+// right (see .app.wide-grid-mode in style.css) — not a single reflowed grid
+// mixing every feed's articles together — with the preview pane moved below
+// it instead of beside it, so several feeds are readable side by side at
+// once. The one real behavioral difference is onHover — see
+// previewEntryAndMarkRead.
 function renderWideGrid() {
   const query = state.searchQuery;
   const feedGroups = currentFeedGroups();
@@ -966,9 +1009,9 @@ function renderWideGrid() {
     onShowAllUnread: showAllUnread,
   });
 
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(state.selectedFeedId) || Boolean(query.trim()));
+  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()));
 
-  const { entries, showFeedName, emptyHint } = currentArticles();
+  const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
@@ -981,6 +1024,14 @@ function renderWideGrid() {
     logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
+    // Always grouped into columns here (unlike renderDesktop, which only
+    // groups the cross-feed home timeline) — a single feed or group still
+    // renders fine as one column, and search results as one column per feed
+    // they matched in, so the layout never has to branch on selection state.
+    groupByFeed: true,
+    feedOrder,
+    feedsById: state.feedsById,
+    onTogglePauseFeed: togglePauseFeed,
   });
   renderArticleListActions();
 
@@ -1700,10 +1751,7 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
 // large backlog across several sessions rather than bursting it into one.
 const MAX_FETCHES_PER_SESSION = 30;
 
-// force:true bypasses the due-schedule filter (used by tapping the
-// next-fetch indicator) — a paused feed is skipped either way, since
-// pausing is an explicit "don't fetch this at all" rather than a schedule.
-async function refreshAll({ force = false } = {}) {
+async function refreshAll() {
   try {
     await syncNow();
   } catch (err) {
@@ -1744,12 +1792,12 @@ async function refreshAll({ force = false } = {}) {
   const now = Date.now();
   let dueFeeds = [...state.feedsById.values()]
     .filter((feed) => !feed.paused)
-    .filter((feed) => force || !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
+    .filter((feed) => !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
     // Low-frequency feeds only get checked on their own assigned weekday
     // (see isCheckDayForFeed) — a large tail of monthly/rare/unknown feeds
     // shouldn't compete for fetch time every single day just because their
     // own nextCheckAt has lapsed.
-    .filter((feed) => force || isCheckDayForFeed(feed))
+    .filter((feed) => isCheckDayForFeed(feed))
     .sort((a, b) => {
       const unreadDiff = Number(hasUnread(b)) - Number(hasUnread(a));
       if (unreadDiff !== 0) return unreadDiff;
@@ -1757,22 +1805,41 @@ async function refreshAll({ force = false } = {}) {
       const bi = FREQUENCY_ORDER.indexOf(b.frequencyGroup || "unknown");
       return ai - bi;
     });
-  if (!force) dueFeeds = dueFeeds.slice(0, MAX_FETCHES_PER_SESSION);
+  dueFeeds = dueFeeds.slice(0, MAX_FETCHES_PER_SESSION);
 
-  for (let i = 0; i < dueFeeds.length; i++) {
-    const feed = dueFeeds[i];
-    showStatus(`フィードを取得中… (${i + 1}/${dueFeeds.length}) ${feed.title || feed.url}`, i / dueFeeds.length);
-    try {
-      await fetchFeed(feed);
-      // Reflect this one feed's new entries right away instead of waiting
-      // for every other due feed to finish fetching too — with a large
-      // subscription list, that wait could be a while, and there's no
-      // reason to sit on unread content we already know about.
-      await refreshFeedInState(feed.feedId);
-      render();
-    } catch (err) {
-      console.error(`fetch failed for ${feed.url}`, err);
+  // Fetched with a handful of workers in flight at once rather than one
+  // feed at a time — with up to MAX_FETCHES_PER_SESSION due feeds, a strictly
+  // serial loop means the whole round trip (proxy + origin fetch + parse) of
+  // every single one stacks up end to end, which is most of why opening the
+  // app after a while away used to sit on "取得中" for so long. Each feed's
+  // own put/read calls are keyed by its feedId, so nothing here contends
+  // across workers; only the shared `nextIndex` needs to stay race-free,
+  // which a plain synchronous pre-increment (no await before it) guarantees
+  // in JS regardless of how many workers are mid-flight.
+  const FETCH_CONCURRENCY = 5;
+  let nextIndex = 0;
+  let completed = 0;
+  async function fetchWorker() {
+    while (nextIndex < dueFeeds.length) {
+      const feed = dueFeeds[nextIndex++];
+      try {
+        await fetchFeed(feed);
+        // Reflect this one feed's new entries right away instead of waiting
+        // for every other due feed to finish fetching too — with a large
+        // subscription list, that wait could be a while, and there's no
+        // reason to sit on unread content we already know about.
+        await refreshFeedInState(feed.feedId);
+        render();
+      } catch (err) {
+        console.error(`fetch failed for ${feed.url}`, err);
+      }
+      completed++;
+      showStatus(`フィードを取得中… (${completed}/${dueFeeds.length})`, completed / dueFeeds.length);
     }
+  }
+  if (dueFeeds.length > 0) {
+    showStatus(`フィードを取得中… (0/${dueFeeds.length})`, 0);
+    await Promise.all(Array.from({ length: Math.min(FETCH_CONCURRENCY, dueFeeds.length) }, fetchWorker));
   }
   hideStatus();
   await loadAppData();
@@ -1889,32 +1956,6 @@ function startClockWatermark() {
   // worth trading for the complexity of scheduling around the exact next
   // minute boundary instead.
   setInterval(updateClockWatermark, 1000);
-}
-
-// --- next-fetch indicator ------------------------------------------------
-// Shown for the first 30s after load only (see wireApp), on both mobile and
-// desktop — a quick orientation of "when will feeda next check anything",
-// with a tap-to-force-fetch escape hatch, without being a permanent fixture
-// once the user has settled in.
-
-const nextFetchBarEl = document.getElementById("next-fetch-bar");
-const nextFetchTimeEl = document.getElementById("next-fetch-time");
-let nextFetchIndicatorExpired = false;
-
-function updateNextFetchIndicator() {
-  if (nextFetchIndicatorExpired) return;
-
-  const feeds = [...state.feedsById.values()];
-  if (feeds.length === 0) {
-    nextFetchBarEl.classList.add("hidden");
-    return;
-  }
-
-  const now = Date.now();
-  const soonest = Math.min(...feeds.map((f) => (f.nextCheckAt ? new Date(f.nextCheckAt).getTime() : now)));
-  nextFetchTimeEl.textContent =
-    soonest <= now ? "まもなく" : new Date(soonest).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-  nextFetchBarEl.classList.remove("hidden");
 }
 
 // --- pane focus + keyboard navigation ---------------------------------
@@ -2111,16 +2152,6 @@ function wireApp() {
   mobileQuery.addEventListener("change", () => render());
   tabletQuery.addEventListener("change", () => render());
   wideGridQuery.addEventListener("change", () => render());
-
-  nextFetchBarEl.addEventListener("click", () => {
-    refreshAll({ force: true }).catch((err) => console.error("forced refresh failed", err));
-  });
-  // Only worth showing right after load, as a quick orientation — not a
-  // permanent fixture once the user has settled into reading.
-  setTimeout(() => {
-    nextFetchIndicatorExpired = true;
-    nextFetchBarEl.classList.add("hidden");
-  }, 30000);
 }
 
 async function startApp() {
