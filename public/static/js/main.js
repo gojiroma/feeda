@@ -46,6 +46,7 @@ const feedListEl = document.getElementById("feed-list");
 const feedColorFilterEl = document.getElementById("feed-color-filter");
 const searchInputEl = document.getElementById("search-input");
 const articleListEl = document.getElementById("article-list");
+const articleListActionsEl = document.getElementById("article-list-actions");
 const showReadToggleWrapEl = document.getElementById("show-read-toggle-wrap");
 const showReadToggleInputEl = document.getElementById("show-read-toggle");
 const previewEl = document.getElementById("preview");
@@ -405,6 +406,27 @@ function collapsedGroupsFor(tree) {
 
 function flatFeedList() {
   return currentFeedGroups().flatMap(({ subgroups }) => subgroups.flatMap((sg) => sg.feeds));
+}
+
+// Same flattening feedList.js's renderFeedList does to decide which feeds
+// share a single "まとめて見る" button (isFlatStatus: a status with exactly
+// one subgroup, like 📌 ピン留め, counts as one group; otherwise each
+// frequency subgroup within the status is its own group) — used to find
+// "the next group" after the article list's "すべて既読" button finishes
+// off the one currently open (see markAllReadAndAdvance).
+function flatFeedGroupList() {
+  const groups = [];
+  for (const { status, subgroups } of currentFeedGroups()) {
+    const isFlatStatus = subgroups.length === 1 && subgroups[0].group.key === status.key;
+    if (isFlatStatus) {
+      if (subgroups[0].feeds.length > 0) groups.push(subgroups[0].feeds.map((f) => f.feedId));
+    } else {
+      for (const { feeds } of subgroups) {
+        if (feeds.length > 0) groups.push(feeds.map((f) => f.feedId));
+      }
+    }
+  }
+  return groups;
 }
 
 // Buckets entries by their feed's (live-computed, same as the feed list's
@@ -866,6 +888,7 @@ function renderDesktop() {
     showFeedName,
     emptyHint,
   });
+  renderArticleListActions();
 
   renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
 }
@@ -908,6 +931,7 @@ function renderTabletTwoPane() {
     showFeedName,
     emptyHint,
   });
+  renderArticleListActions();
 }
 
 // Opt-in ultra-wide layout (see the "マルチカラム" button/isWideGridLayout,
@@ -958,6 +982,7 @@ function renderWideGrid() {
     showFeedName,
     emptyHint,
   });
+  renderArticleListActions();
 
   renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
 }
@@ -976,26 +1001,49 @@ function refreshAfterFeedChange() {
   }
 }
 
-// "更新を停止/再開" in the feed context menu (see ui/feedList.js) — toggles
-// whether the feed gets fetched at all. Paused feeds sort into their own
-// "更新停止" group (see frequency.js) and are skipped entirely by
-// refreshAll, even when forced. Marks the feed userManagedPause so
-// autoPauseDuplicateFeeds (below) never overrides a deliberate choice the
-// user made either way.
-async function togglePauseFeed(feedId) {
+// Shared by togglePauseFeed and pauseFeedGroup (the article list's own
+// "更新停止" button — see renderArticleListActions) — persists a feed's
+// paused state without rendering or syncing itself, so a group of feeds
+// can be paused one at a time and still only trigger one render/sync at
+// the end. Marks the feed userManagedPause so autoPauseDuplicateFeeds
+// (below) never overrides a deliberate choice the user made either way.
+async function setFeedPaused(feedId, paused) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
-  let updated = { ...feed, paused: !feed.paused, userManagedPause: true };
+  let updated = { ...feed, paused, userManagedPause: true };
   // Pausing means "I'm done with this feed for now" — catch it up to read
   // at the same moment, the same way advanceReadState does for an entry
   // actually viewed, so it doesn't keep sitting there with an unread dot
   // under 更新停止 for something you've deliberately stopped following.
-  if (updated.paused) {
+  if (paused) {
     updated = { ...updated, readUntil: new Date().toISOString() };
     if (updated.latestContentHash) updated = { ...updated, contentHash: updated.latestContentHash };
   }
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
+}
+
+// "更新を停止/再開" in the feed context menu (see ui/feedList.js) and the
+// article list's own action bar for a single selected feed — toggles
+// whether the feed gets fetched at all. Paused feeds sort into their own
+// "更新停止" group (see frequency.js) and are skipped entirely by
+// refreshAll, even when forced.
+async function togglePauseFeed(feedId) {
+  const feed = state.feedsById.get(feedId);
+  if (!feed) return;
+  await setFeedPaused(feedId, !feed.paused);
+  refreshAfterFeedChange();
+  syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// "更新停止" in the article list's action bar while viewing a "まとめて見る"
+// group (see renderArticleListActions) — pauses every feed in the group at
+// once. Unlike togglePauseFeed this is one-directional (pause only, no
+// resume-all): a group can mix already-paused and active feeds, so there's
+// no single "next state" to toggle to; resuming stays a per-feed action via
+// the feed context menu.
+async function pauseFeedGroup(feedIds) {
+  await Promise.all(feedIds.map((feedId) => setFeedPaused(feedId, true)));
   refreshAfterFeedChange();
   syncNow().catch((err) => console.error("sync failed", err));
 }
@@ -1376,6 +1424,94 @@ function showAllUnread() {
   state.searchQuery = "";
   searchInputEl.value = "";
   render();
+}
+
+// Shared by markAllReadAndAdvance for both a single feed and every member
+// of a "まとめて見る" group — catches the feed up to now the same way
+// pausing does (see setFeedPaused), without rendering or syncing itself so
+// a group can be marked read one feed at a time and still only trigger one
+// render/sync at the end.
+async function markFeedAllRead(feedId) {
+  const feed = state.feedsById.get(feedId);
+  if (!feed) return;
+  let updated = { ...feed, readUntil: new Date().toISOString() };
+  if (updated.latestContentHash) updated = { ...updated, contentHash: updated.latestContentHash };
+  await markFeedDirty(updated);
+  state.feedsById.set(feedId, updated);
+}
+
+// "すべて既読" in the article list's own action bar (see
+// renderArticleListActions) — marks the currently selected feed, or every
+// feed in the currently selected "まとめて見る" group, as read, then moves
+// straight on to whatever's next in the sidebar tree (flatFeedList/
+// flatFeedGroupList, same ordering arrow-key feed nav and "まとめて見る"
+// use) rather than leaving the now-empty list on screen. That snapshot is
+// taken *before* marking anything read, since marking read can move the
+// feed(s) into a different status bucket (未読 → 既読) and reshuffle the
+// tree out from under a snapshot taken after. Falls back to the cross-feed
+// unread timeline once there's nothing left after the current spot.
+async function markAllReadAndAdvance() {
+  if (state.selectedFeedId) {
+    const feeds = flatFeedList();
+    const idx = feeds.findIndex((f) => f.feedId === state.selectedFeedId);
+    const next = idx === -1 ? null : feeds[idx + 1];
+    await markFeedAllRead(state.selectedFeedId);
+    syncNow().catch((err) => console.error("sync failed", err));
+    if (next) await selectFeed(next.feedId);
+    else showAllUnread();
+    return;
+  }
+  if (state.selectedFeedGroupIds) {
+    const currentIds = state.selectedFeedGroupIds;
+    const groups = flatFeedGroupList();
+    const idx = groups.findIndex((g) => g.length === currentIds.size && g.every((id) => currentIds.has(id)));
+    const next = idx === -1 ? null : groups[idx + 1];
+    await Promise.all([...currentIds].map((feedId) => markFeedAllRead(feedId)));
+    syncNow().catch((err) => console.error("sync failed", err));
+    if (next) selectFeedGroup(next);
+    else showAllUnread();
+  }
+}
+
+// Bottom action bar under a single feed's or a "まとめて見る" group's own
+// article list (see index.html's #article-list-actions and
+// renderDesktop/renderTabletTwoPane/renderWideGrid) — not shown for the
+// cross-feed unread timeline or search results, where there's no single
+// feed/group for these buttons to act on.
+function renderArticleListActions() {
+  articleListActionsEl.innerHTML = "";
+  const show = Boolean(state.selectedFeedId || state.selectedFeedGroupIds) && !state.searchQuery.trim();
+  articleListActionsEl.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  const markReadBtn = document.createElement("button");
+  markReadBtn.type = "button";
+  markReadBtn.className = "article-list-action-btn";
+  markReadBtn.textContent = "すべて既読";
+  markReadBtn.addEventListener("click", () => {
+    markAllReadAndAdvance().catch((err) => console.error("mark all read failed", err));
+  });
+  articleListActionsEl.appendChild(markReadBtn);
+
+  const pauseBtn = document.createElement("button");
+  pauseBtn.type = "button";
+  pauseBtn.className = "article-list-action-btn";
+  if (state.selectedFeedId) {
+    const feedId = state.selectedFeedId;
+    const feed = state.feedsById.get(feedId);
+    pauseBtn.textContent = feed && feed.paused ? "更新を再開" : "更新停止";
+    pauseBtn.addEventListener("click", () => {
+      togglePauseFeed(feedId).catch((err) => console.error("toggle pause failed", err));
+    });
+  } else {
+    const feedIds = [...state.selectedFeedGroupIds];
+    pauseBtn.textContent = "更新停止";
+    pauseBtn.title = "このグループのフィードをすべて更新停止にします";
+    pauseBtn.addEventListener("click", () => {
+      pauseFeedGroup(feedIds).catch((err) => console.error("pause group failed", err));
+    });
+  }
+  articleListActionsEl.appendChild(pauseBtn);
 }
 
 // Shared by openEntry (selecting an article) and the preview pane's outbound

@@ -362,6 +362,27 @@ input[type="text"], input[type="url"], input[type="search"] {
   flex-shrink: 0;
   border-right: 1px solid var(--border);
 }
+/* Bottom action bar under a single feed's or a "まとめて見る" group's own
+   article list (see renderArticleListActions in main.js) — sticky to the
+   bottom of .article-pane's own scroll (not the viewport) so it's reachable
+   without scrolling all the way past every article first, same idea as
+   .feed-color-filter's sticky-top treatment above. Hidden (see the global
+   .hidden rule) for the cross-feed unread timeline and search results,
+   where there's no single feed/group for these buttons to act on. */
+.article-list-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+.article-list-action-btn {
+  flex: 1;
+}
 .preview-pane {
   flex: 1;
   min-width: 0;
