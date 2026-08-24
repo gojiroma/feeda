@@ -19,3 +19,18 @@ export const COLOR_PALETTE = [
   { key: "10", rgb: "130,130,130" }, // gray
 ];
 export const COLOR_BY_KEY = new Map(COLOR_PALETTE.map((c) => [c.key, c.rgb]));
+
+// Stable per-word color, used to give each saved search-history term its
+// own distinct highlight/chip color (see main.js's highlightQuery and
+// ui/searchBar.js's history bar) without persisting a color assignment
+// anywhere — the same word always hashes to the same palette entry, so its
+// color stays consistent across renders, reloads, and between the two
+// places (highlight marks, history chips) that both need to agree on it.
+export function colorForWord(word) {
+  let hash = 5381;
+  for (let i = 0; i < word.length; i++) {
+    hash = (hash * 33) ^ word.charCodeAt(i);
+  }
+  const idx = Math.abs(hash) % COLOR_PALETTE.length;
+  return COLOR_PALETTE[idx].rgb;
+}

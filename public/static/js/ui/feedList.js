@@ -63,6 +63,7 @@ export function renderFeedList(
     onRemoveFeedTag,
     onCopyUrl,
     onSelectGroup,
+    onShowAllUnread,
   }
 ) {
   container.innerHTML = "";
@@ -98,6 +99,20 @@ export function renderFeedList(
 
   for (const { status, subgroups } of groups) {
     const feedCount = subgroups.reduce((n, sg) => n + sg.feeds.length, 0);
+
+    // Sits right above the 未読 bucket so it reads as "go to the unread
+    // view" rather than a generic action — the only way back to the
+    // cross-feed unread timeline (see currentArticles in main.js) once a
+    // feed or search has taken over the article pane, short of reloading.
+    if (status.key === "unread" && onShowAllUnread) {
+      const allUnreadBtn = document.createElement("button");
+      allUnreadBtn.type = "button";
+      allUnreadBtn.className = "feed-list-all-unread";
+      allUnreadBtn.textContent = "すべての未読";
+      allUnreadBtn.addEventListener("click", () => onShowAllUnread());
+      container.appendChild(allUnreadBtn);
+    }
+
     const statusDetails = document.createElement("details");
     statusDetails.open = !collapsedGroups.has(status.key);
     statusDetails.className = "feed-status-group";
