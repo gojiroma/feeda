@@ -23,7 +23,7 @@ import {
   shiftDateStr,
 } from "./logbook.js";
 import { fetchFeed } from "./feedFetch.js";
-import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER } from "./frequency.js";
+import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER, isCheckDayForFeed } from "./frequency.js";
 import { searchEntries, searchFeeds } from "./search.js";
 import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
 import { colorForWord } from "./colorPalette.js";
@@ -1690,6 +1690,16 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
   });
 }
 
+// Upper bound on how many feeds a single refreshAll() round will actually
+// fetch (when not forced). Without this, a device that's new or has sat
+// idle long enough for most nextCheckAt values to lapse — e.g. a second
+// device opened right after clearing everything unread on a first one —
+// treats its entire subscription list as "due" at once and fires off a
+// fetch for every single one on that one visit. The excess simply stays
+// due and rolls into the next visit/scheduled run instead, spreading a
+// large backlog across several sessions rather than bursting it into one.
+const MAX_FETCHES_PER_SESSION = 30;
+
 // force:true bypasses the due-schedule filter (used by tapping the
 // next-fetch indicator) — a paused feed is skipped either way, since
 // pausing is an explicit "don't fetch this at all" rather than a schedule.
@@ -1732,9 +1742,14 @@ async function refreshAll({ force = false } = {}) {
   // history yet can use it) breaks ties within each of those two groups,
   // most-frequent-first, same as before this split existed.
   const now = Date.now();
-  const dueFeeds = [...state.feedsById.values()]
+  let dueFeeds = [...state.feedsById.values()]
     .filter((feed) => !feed.paused)
     .filter((feed) => force || !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
+    // Low-frequency feeds only get checked on their own assigned weekday
+    // (see isCheckDayForFeed) — a large tail of monthly/rare/unknown feeds
+    // shouldn't compete for fetch time every single day just because their
+    // own nextCheckAt has lapsed.
+    .filter((feed) => force || isCheckDayForFeed(feed))
     .sort((a, b) => {
       const unreadDiff = Number(hasUnread(b)) - Number(hasUnread(a));
       if (unreadDiff !== 0) return unreadDiff;
@@ -1742,6 +1757,7 @@ async function refreshAll({ force = false } = {}) {
       const bi = FREQUENCY_ORDER.indexOf(b.frequencyGroup || "unknown");
       return ai - bi;
     });
+  if (!force) dueFeeds = dueFeeds.slice(0, MAX_FETCHES_PER_SESSION);
 
   for (let i = 0; i < dueFeeds.length; i++) {
     const feed = dueFeeds[i];

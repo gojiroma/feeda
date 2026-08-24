@@ -88,6 +88,35 @@ export function nextCheckDelayMs(groupKey) {
   return CHECK_INTERVAL_MS[groupKey] ?? CHECK_INTERVAL_MS.unknown;
 }
 
+// Frequency groups slow enough that missing today's check costs nothing —
+// their own CHECK_INTERVAL_MS is already 1-7 days, so gating them to one
+// fixed weekday still checks them at least as often as their own schedule
+// implies. Daily/several-per-week feeds are excluded: those are exactly the
+// ones a reader actually wants checked every day.
+const WEEKDAY_THINNED_GROUPS = new Set(["weekly", "monthly", "rare", UNKNOWN_GROUP.key]);
+
+// Deterministic per-feed weekday (0=Sun..6=Sat). Derived purely from feedId
+// so it's stable across devices/sessions with nothing to sync or store.
+function assignedWeekday(feedId) {
+  let hash = 0;
+  for (let i = 0; i < feedId.length; i++) {
+    hash = (hash * 31 + feedId.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % 7;
+}
+
+// Whether a feed is allowed to actually fetch today, on top of its own
+// nextCheckAt schedule. Low-frequency feeds (see WEEKDAY_THINNED_GROUPS)
+// only get checked on their one assigned weekday, so a large subscription
+// list of rarely-updated feeds doesn't compete for fetch time on every
+// single visit — a feed whose nextCheckAt is overdue but whose day hasn't
+// come yet just waits, unchanged, until it does.
+export function isCheckDayForFeed(feed, now = new Date()) {
+  const group = feed.frequencyGroup || UNKNOWN_GROUP.key;
+  if (!WEEKDAY_THINNED_GROUPS.has(group)) return true;
+  return now.getDay() === assignedWeekday(feed.feedId);
+}
+
 export function computeFrequencyGroup(entries) {
   const dated = entries
     .map((e) => e.pubDate)
