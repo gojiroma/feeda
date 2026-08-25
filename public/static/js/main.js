@@ -294,7 +294,9 @@ async function refreshFeedInState(feedId) {
 function mergeIntoUnreadTimeline(feed, entries) {
   if (!state.unreadTimelineSnapshot) return;
   const existingIds = new Set(state.unreadTimelineSnapshot.map((e) => e.id));
-  const fresh = entries.filter((e) => !existingIds.has(e.id) && (state.showReadInTimeline || isUnread(e, feed)));
+  // Ignores showReadInTimeline the same way currentArticles' own build of
+  // this snapshot now does — see that comment for why.
+  const fresh = entries.filter((e) => !existingIds.has(e.id) && isUnread(e, feed));
   if (fresh.length === 0) return;
   const merged = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
   state.unreadTimelineSnapshot = dedupeByContent(merged);
@@ -507,10 +509,12 @@ function currentArticles() {
   // "まとめて見る" on a frequency group or the pinned group (see
   // selectFeedGroup) — every entry from every feed in that group, combined
   // and sorted like a single feed's own list would be, since there's no
-  // single feed name to head this list with. Filtered to unread the same
-  // way the cross-feed home timeline is (see showReadInTimeline below) —
-  // a group can span many feeds, so without this a couple of stale feeds
-  // full of old read entries would bury whatever's actually new.
+  // single feed name to head this list with. Filtered to unread, same as a
+  // single feed's own list — a group can span many feeds, so without this
+  // a couple of stale feeds full of old read entries would bury whatever's
+  // actually new. Unlike the cross-feed home timeline below, a group is a
+  // small enough slice for showReadInTimeline (the "既読も表示" toggle) to
+  // stay safe to offer here.
   if (state.selectedFeedGroupIds) {
     const combined = [];
     for (const feedId of state.selectedFeedGroupIds) {
@@ -533,17 +537,20 @@ function currentArticles() {
   // needed and reused after that — opening an entry marks it (and possibly
   // its whole feed) as read, and isUnread is re-evaluated live for styling,
   // but the entry stays in place instead of vanishing out of the list.
+  //
+  // Deliberately ignores showReadInTimeline (the "既読も表示" toggle is
+  // hidden here too — see renderDesktop/renderWideGrid) even if some earlier
+  // feed/group view left it turned on: this is every feed's entire cached
+  // history at once, and folding every already-read entry from every feed
+  // into one timeline is a render of thousands of rows, not a handful —
+  // "恐ろしいレンダリング" nobody asked for. A single feed or group's own
+  // list stays bounded enough for the toggle to make sense there.
   if (!state.unreadTimelineSnapshot) {
-    // showReadInTimeline (see the "既読も表示" toggle in wireApp) folds
-    // already-read entries into this same timeline instead of hiding them —
-    // otherwise a read entry with nothing further to say about it has no
-    // page it shows up on at all (short of opening its specific feed), so
-    // there'd be nowhere left to color-tag/comment it after the fact.
     const timeline = [];
     const newestByFeed = new Map();
     for (const feed of state.feedsById.values()) {
       for (const entry of state.entriesByFeed.get(feed.feedId) || []) {
-        if (state.showReadInTimeline || isUnread(entry, feed)) {
+        if (isUnread(entry, feed)) {
           timeline.push(entry);
           if (!newestByFeed.has(feed.feedId) || (entry.pubDate || "") > newestByFeed.get(feed.feedId)) {
             newestByFeed.set(feed.feedId, entry.pubDate || "");
@@ -575,7 +582,7 @@ function currentArticles() {
     entries: filterByNgWords(state.unreadTimelineSnapshot),
     feedOrder: state.unreadFeedOrder,
     showFeedName: true,
-    emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
+    emptyHint: "未読の記事はありません。",
   };
 }
 
@@ -943,11 +950,15 @@ function renderDesktop() {
     onShowAllUnread: showAllUnread,
   });
 
-  // Meaningful anywhere currentArticles() applies an unread filter — the
-  // cross-feed home timeline, a single feed, and a "まとめて見る" group all
-  // do now. Only search results ignore read state regardless, so the toggle
-  // would be a no-op there.
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()));
+  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
+  // Meaningful for a single feed or a "まとめて見る" group — bounded lists a
+  // handful of already-read rows won't hurt to fold in. Hidden for search
+  // (ranked by relevance, read state doesn't apply) and for the cross-feed
+  // home timeline: that one ignores showReadInTimeline outright regardless
+  // of this toggle (see currentArticles' own comment) since folding in
+  // every already-read entry from every feed at once is a render of
+  // thousands of rows, not something a checkbox should be able to trigger.
+  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()) || isAllUnreadView);
 
   const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
   // The cross-feed unread timeline (nothing selected, no search) is the one
@@ -959,7 +970,6 @@ function renderDesktop() {
   // one of the three grouped by feed (see groupByFeed) — a single feed or
   // group's own list has nothing to group by, and search results are
   // ranked by relevance, not by feed.
-  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
@@ -1060,7 +1070,11 @@ function renderWideGrid() {
     onShowAllUnread: showAllUnread,
   });
 
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()));
+  // See renderDesktop's own comment on this same condition — the cross-feed
+  // home timeline always ignores showReadInTimeline regardless of the
+  // toggle, so it's hidden there too rather than left dangling.
+  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
+  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()) || isAllUnreadView);
 
   const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
   renderArticleList(articleListEl, {
