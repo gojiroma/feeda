@@ -199,11 +199,10 @@ const state = {
   unreadFeedOrder: [],
 };
 
-// Shared by autoPauseDuplicateFeeds (same-host feed clustering) and
-// dedupeCrossHostDuplicates (cross-host entry dedup) below — both need
-// "which site is this actually from" rather than the feed's own title,
-// which two independent subscriptions to the same site's feed can easily
-// disagree on (e.g. one renamed by the user).
+// Used by autoPauseDuplicateFeeds's same-host feed clustering — "which site
+// is this actually from" rather than the feed's own title, which two
+// independent subscriptions to the same site's feed can easily disagree on
+// (e.g. one renamed by the user).
 function feedHost(feed) {
   if (!feed || !feed.url) return null;
   try {
@@ -298,7 +297,7 @@ function mergeIntoUnreadTimeline(feed, entries) {
   const fresh = entries.filter((e) => !existingIds.has(e.id) && (state.showReadInTimeline || isUnread(e, feed)));
   if (fresh.length === 0) return;
   const merged = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-  state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(merged);
+  state.unreadTimelineSnapshot = dedupeByContent(merged);
   // Move this feed's block to the *back* of the grouped view (see
   // unreadFeedOrder's own comment) instead of leaving the new entries to
   // land wherever their pubDate happens to sort them in the flat snapshot
@@ -311,15 +310,13 @@ function mergeIntoUnreadTimeline(feed, entries) {
   state.unreadFeedOrder = [...state.unreadFeedOrder.filter((id) => id !== feed.feedId), feed.feedId];
 }
 
-// Same title + same first 10 characters of body text, syndicated by two
-// feeds on different sites (a press release picked up by multiple outlets,
-// a blog post cross-posted elsewhere) — one host repeating its own content
-// is a different, unrelated case (autoPauseDuplicateFeeds below already
-// handles that at the *feed* level), so this only ever drops the second
-// entry when its feed's host differs from the first one's; entries sharing
-// a host keep every match. Runs once when the cross-feed timeline is built
-// or merged (see currentArticles/mergeIntoUnreadTimeline), not per render,
-// since extractArticlePreview does real HTML parsing per entry.
+// Same title + same first 10 characters of body text — a press release
+// picked up by multiple outlets, a blog post cross-posted elsewhere, or
+// (see dedupeByContent below) the exact same article surfacing through two
+// different feeds of the same platform. Runs once when the cross-feed
+// timeline is built or merged (see currentArticles/mergeIntoUnreadTimeline),
+// not per render, since extractArticlePreview does real HTML parsing per
+// entry.
 function dedupContentKey(entry) {
   const title = (entry.title || "").trim();
   if (!title) return null;
@@ -327,19 +324,27 @@ function dedupContentKey(entry) {
   return `${title} ${snippet.slice(0, 10)}`;
 }
 
-function dedupeCrossHostDuplicates(entries) {
-  const hostByKey = new Map();
+// Used to also require the two entries' *feeds* to be on different hosts —
+// meant to only catch "same story, different outlet" while leaving
+// same-host repeats alone (on the assumption that was just a near-duplicate
+// feed pair, already handled by autoPauseDuplicateFeeds). That broke down
+// for platform aggregator feeds like Hatena Bookmark's own ranking feeds:
+// two different category feeds (e.g. 総合 and 世の中) are both hosted at
+// b.hatena.ne.jp, so a viral story bookmarked into both categories kept
+// showing up twice in the unread timeline — identical title, identical
+// snippet, "same host" only because both feeds happen to be Hatena's own,
+// not because it was actually the same feed. A title+snippet match this
+// exact is never a coincidence worth keeping both copies of, regardless of
+// which feed(s) surfaced it, so this now drops every repeat outright.
+function dedupeByContent(entries) {
+  const seenKeys = new Set();
   const result = [];
   for (const entry of entries) {
     const key = dedupContentKey(entry);
-    if (!key) {
-      result.push(entry);
-      continue;
+    if (key) {
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
     }
-    const host = feedHost(state.feedsById.get(entry.feedId));
-    const seenHost = hostByKey.get(key);
-    if (seenHost && host && seenHost !== host) continue; // same story, different site — drop it
-    if (seenHost === undefined) hostByKey.set(key, host);
     result.push(entry);
   }
   return result;
@@ -547,7 +552,7 @@ function currentArticles() {
       }
     }
     timeline.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(timeline);
+    state.unreadTimelineSnapshot = dedupeByContent(timeline);
     // Initial block order for the grouped view (see unreadFeedOrder's own
     // comment): pinned first, then engagement score — a feed you've
     // actually opened, commented on, or color-tagged outranks one that's
