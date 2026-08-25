@@ -1,7 +1,6 @@
 import { highlightText } from "../highlight.js";
 import { COLOR_BY_KEY } from "../colorPalette.js";
 import { attachContextTrigger, renderColorSwatches, renderTagEditor, closeFloatingPopupIfMissing } from "./colorPicker.js";
-import { extractArticlePreview } from "../sanitize.js";
 
 const COMMENT_PREVIEW_MAX_LENGTH = 60;
 
@@ -113,17 +112,13 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
     onHover(entry);
   });
 
-  const { imageSrc, snippet } = extractArticlePreview(entry.content || entry.summary || "");
-
-  if (imageSrc) {
-    const thumb = document.createElement("img");
-    thumb.className = "article-thumb";
-    thumb.src = imageSrc;
-    thumb.alt = "";
-    thumb.loading = "lazy";
-    li.appendChild(thumb);
-  }
-
+  // No thumbnail, snippet, or timestamp here (unlike ui/mobile.js's own row
+  // renderer) — this list always sits next to a preview pane (3-pane and
+  // wide-grid both keep one; see renderDesktop/renderWideGrid), so the
+  // title alone is enough to scan and everything past it is one hover/click
+  // away. feedTitleById still shows when showFeedName is set (search
+  // results mixing several feeds, where there's no per-block header to
+  // supply that context another way — see groupByFeed above).
   const main = document.createElement("div");
   main.className = "article-main";
 
@@ -132,19 +127,11 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
   title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
   main.appendChild(title);
 
-  const meta = document.createElement("div");
-  meta.className = "article-meta";
-  const parts = [];
-  if (showFeedName) parts.push(feedTitleById.get(entry.feedId) || "");
-  if (entry.pubDate) parts.push(new Date(entry.pubDate).toLocaleString("ja-JP"));
-  meta.textContent = parts.join(" ・ ");
-  main.appendChild(meta);
-
-  if (snippet) {
-    const snippetEl = document.createElement("div");
-    snippetEl.className = "article-snippet";
-    snippetEl.appendChild(highlightText(snippet, query));
-    main.appendChild(snippetEl);
+  if (showFeedName) {
+    const meta = document.createElement("div");
+    meta.className = "article-meta";
+    meta.textContent = feedTitleById.get(entry.feedId) || "";
+    main.appendChild(meta);
   }
 
   if (comments.length > 0) {
@@ -216,7 +203,7 @@ function groupEntriesByFeed(entries, feedOrder) {
 // deliberate action worth a click, letting the rule-driven default quietly
 // handle the far more common case of a high-frequency feed nobody's
 // actually reading.
-function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed }) {
+function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed, onTogglePinFeed }) {
   const header = document.createElement("div");
   header.className = "article-feed-header";
 
@@ -226,6 +213,23 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
   header.appendChild(title);
 
   const feed = feedsById ? feedsById.get(feedId) : null;
+
+  // Independent of paused/keep (see togglePinFeed in main.js) — pins the
+  // feed to its own group at the top of the sidebar, so it's offered
+  // alongside whichever of 再開/残す applies rather than replacing either.
+  if (onTogglePinFeed) {
+    const pinBtn = document.createElement("button");
+    pinBtn.type = "button";
+    pinBtn.className = "article-feed-header-pin-btn" + (feed && feed.pinned ? " article-feed-header-pin-btn--active" : "");
+    pinBtn.textContent = "📌";
+    pinBtn.title = feed && feed.pinned ? "ピン留めを解除" : "上部にピン留め";
+    pinBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onTogglePinFeed(feedId);
+    });
+    header.appendChild(pinBtn);
+  }
+
   if (feed && feed.paused && onTogglePauseFeed) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -272,6 +276,7 @@ export function renderArticleList(
     feedsById,
     onTogglePauseFeed,
     onToggleKeepFeed,
+    onTogglePinFeed,
   }
 ) {
   // Wide-grid mode's columns (and, in principle, the vertical grouped view
@@ -321,7 +326,9 @@ export function renderArticleList(
       const block = document.createElement("div");
       block.className = "article-feed-block";
       block.dataset.feedId = feedId;
-      block.appendChild(buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed }));
+      block.appendChild(
+        buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed, onTogglePinFeed })
+      );
 
       const ul = document.createElement("ul");
       ul.className = "article-list";

@@ -576,6 +576,12 @@ function render() {
   // from its own actions (toggleMode, changeReflectDate, jumpReflectToToday,
   // handleAddComment) — see renderReflect callers below.
   if (state.mode === "reflect") return;
+  // Doubles as the registered-feed count display (see ui/feedList.js's own
+  // comment on why that used to be a standalone label above the feed tree)
+  // and a discoverable hint that pasting a URL here registers it as a new
+  // subscription (see the http(s):// branch in searchBar.js's onSubscribe),
+  // instead of spending a dedicated line on either.
+  searchInputEl.placeholder = `${state.feedsById.size}件を検索・URLを貼り付けて登録`;
   appRoot.classList.toggle("wide-grid-mode", isWideGridLayout());
   if (isMobileLayout()) {
     renderMobile();
@@ -649,7 +655,10 @@ function toggleMode() {
 // isWideGridLayout() itself on every call anyway.
 function toggleWideGridMode() {
   state.wideGridMode = !state.wideGridMode;
-  wideGridToggleBtn.textContent = state.wideGridMode ? "3ペインに戻る" : "マルチカラム";
+  // Icon-only (see .icon-btn in style.css) — same convention as
+  // #mode-toggle-btn: the glyph stays put, .active carries the current
+  // state, and title covers the label for hover/screen readers.
+  wideGridToggleBtn.title = state.wideGridMode ? "3ペインに戻る" : "マルチカラム";
   wideGridToggleBtn.classList.toggle("active", state.wideGridMode);
   render();
 }
@@ -956,6 +965,7 @@ function renderDesktop() {
     feedsById: state.feedsById,
     onTogglePauseFeed: isAllUnreadView ? togglePauseFeed : undefined,
     onToggleKeepFeed: isAllUnreadView ? toggleKeepFeed : undefined,
+    onTogglePinFeed: isAllUnreadView ? togglePinFeed : undefined,
   });
   renderArticleListActions();
 
@@ -1061,6 +1071,7 @@ function renderWideGrid() {
     feedsById: state.feedsById,
     onTogglePauseFeed: togglePauseFeed,
     onToggleKeepFeed: toggleKeepFeed,
+    onTogglePinFeed: togglePinFeed,
   });
   renderArticleListActions();
 

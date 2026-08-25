@@ -79,11 +79,22 @@ export function renderFeedList(
     closeFeedContextMenu();
   }
 
-  if (typeof totalFeedCount === "number") {
-    const summary = document.createElement("p");
-    summary.className = "feed-list-total";
-    summary.textContent = `${totalFeedCount}件のフィードを登録`;
-    container.appendChild(summary);
+  // The single highest-priority entry in the whole tree — go back to the
+  // cross-feed unread timeline (see currentArticles in main.js), the one
+  // thing every other row here is subordinate to. Pinned to the very top
+  // rather than tucked in front of the 未読 bucket further down (its
+  // previous spot): that placement made it read as just one more line in
+  // the tree instead of the primary way back once a feed or search has
+  // taken over the article pane. Shown regardless of whether groups is
+  // empty (a search with no feed matches, or a fresh install) — it's
+  // still the fastest way back to "nothing selected".
+  if (onShowAllUnread) {
+    const allUnreadBtn = document.createElement("button");
+    allUnreadBtn.type = "button";
+    allUnreadBtn.className = "feed-list-all-unread";
+    allUnreadBtn.textContent = "📥 すべての未読";
+    allUnreadBtn.addEventListener("click", () => onShowAllUnread());
+    container.appendChild(allUnreadBtn);
   }
 
   if (groups.length === 0) {
@@ -99,19 +110,6 @@ export function renderFeedList(
 
   for (const { status, subgroups } of groups) {
     const feedCount = subgroups.reduce((n, sg) => n + sg.feeds.length, 0);
-
-    // Sits right above the 未読 bucket so it reads as "go to the unread
-    // view" rather than a generic action — the only way back to the
-    // cross-feed unread timeline (see currentArticles in main.js) once a
-    // feed or search has taken over the article pane, short of reloading.
-    if (status.key === "unread" && onShowAllUnread) {
-      const allUnreadBtn = document.createElement("button");
-      allUnreadBtn.type = "button";
-      allUnreadBtn.className = "feed-list-all-unread";
-      allUnreadBtn.textContent = "すべての未読";
-      allUnreadBtn.addEventListener("click", () => onShowAllUnread());
-      container.appendChild(allUnreadBtn);
-    }
 
     const statusDetails = document.createElement("details");
     statusDetails.open = !collapsedGroups.has(status.key);

@@ -5,6 +5,7 @@
   --text: #1c1e21;
   --text-muted: #6b7280;
   --accent: #2563eb;
+  --accent-rgb: 37, 99, 235;
   --accent-fg: #ffffff;
   --unread: #111827;
   --danger: #dc2626;
@@ -18,6 +19,7 @@
     --text: #e7e9ea;
     --text-muted: #9aa1ab;
     --accent: #5b8def;
+    --accent-rgb: 91, 141, 239;
     --accent-fg: #0b0d10;
     --unread: #f5f6f8;
   }
@@ -468,6 +470,21 @@ input[type="text"], input[type="url"], input[type="search"] {
   color: var(--accent-fg);
   border-color: var(--accent);
 }
+.article-feed-header-pin-btn {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 2px 6px;
+  opacity: 0.4;
+}
+.article-feed-header-pin-btn:hover {
+  opacity: 0.75;
+}
+.article-feed-header-pin-btn--active {
+  opacity: 1;
+  background: rgba(var(--accent-rgb), 0.15);
+  border-color: var(--accent);
+}
 .preview-pane {
   flex: 1;
   min-width: 0;
@@ -497,46 +514,49 @@ input[type="text"], input[type="url"], input[type="search"] {
 
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
 
-/* Feed list */
-.feed-list-total {
-  margin: 0 0 8px;
-  padding: 4px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
+/* Feed list — see renderFeedList in ui/feedList.js for the tree this
+   styles. Information priority top to bottom: 📥 すべての未読 (the one
+   escape hatch back to the cross-feed timeline) stands apart from the tree
+   as its own filled pill; the tree itself de-emphasizes structure (status/
+   frequency headers go quieter and smaller the deeper they nest) so a
+   feed's own name — the thing actually being scanned — stays the loudest
+   text in the pane. */
 .feed-list-all-unread {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
   text-align: left;
-  background: none;
+  background: rgba(var(--accent-rgb), 0.12);
   border: none;
-  cursor: pointer;
-  font-size: 0.8rem;
-  color: var(--accent);
-  padding: 4px;
-  margin: 0 0 2px;
-}
-.feed-list-all-unread:hover { text-decoration: underline; }
-.feed-status-group summary {
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--accent);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+}
+.feed-list-all-unread:hover { background: rgba(var(--accent-rgb), 0.2); }
+.feed-status-group summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
   padding: 6px 4px;
 }
-.feed-status-group + .feed-status-group { margin-top: 4px; }
+.feed-status-group + .feed-status-group { margin-top: 10px; }
 .feed-group {
-  margin-left: 10px;
-  padding-left: 6px;
+  margin-left: 8px;
+  padding-left: 8px;
   border-left: 1px solid var(--border);
 }
 .feed-group summary {
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   color: var(--text-muted);
-  padding: 6px 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  opacity: 0.75;
+  padding: 5px 4px;
 }
 /* Label + "まとめて見る" button, side by side inside a group's <summary> —
    see buildGroupSummary in feedList.js for why this flex row lives on an
@@ -549,33 +569,37 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .feed-group-view-all {
   flex-shrink: 0;
-  font-size: 0.72rem;
-  text-transform: none;
-  letter-spacing: normal;
+  font-size: 0.7rem;
   padding: 2px 8px;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 10px;
-  background: var(--bg);
+  background: var(--bg-alt);
   color: var(--text-muted);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.feed-group-summary-row:hover .feed-group-view-all,
+.feed-group-view-all:focus-visible {
+  opacity: 1;
 }
 .feed-group-view-all:hover {
   color: var(--text);
-  border-color: var(--accent);
+  background: var(--border);
 }
 .feed-list-group { list-style: none; margin: 0; padding: 0; }
 .feed-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 7px 8px;
   border-radius: 6px;
   cursor: pointer;
   user-select: none; /* avoid text selection flashing during long-press */
 }
 .feed-item:hover { background: var(--bg-alt); }
 .feed-item.selected { background: var(--accent); color: var(--accent-fg); }
-.feed-item.paused { opacity: 0.55; }
+.feed-item.paused { opacity: 0.5; }
 .feed-item.copy-flash { background: var(--accent); color: var(--accent-fg); transition: background 0.15s ease, color 0.15s ease; }
 /* --feed-color is an "R,G,B" triplet set inline per feed (see feedList.js,
    colorPalette.js) — same quiet-tag convention as reflect's
@@ -589,14 +613,27 @@ input[type="text"], input[type="url"], input[type="search"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+}
+/* An unread feed's name itself carries the weight now (rather than relying
+   only on the dot) — easier to scan a long list for "what's actually new"
+   at a glance instead of hunting for a small circle. */
+.feed-item:has(.unread-dot) .feed-name {
+  font-weight: 600;
+  color: var(--unread);
+}
+.feed-item.selected .feed-name {
+  color: inherit;
 }
 .unread-dot {
-  width: 8px;
-  height: 8px;
-  min-width: 8px;
+  width: 7px;
+  height: 7px;
+  min-width: 7px;
   border-radius: 50%;
-  background: var(--danger);
+  background: var(--accent);
+}
+.feed-item.selected .unread-dot {
+  background: var(--accent-fg);
 }
 
 /* Feed context menu — right-click/long-press a feed (see ui/feedList.js).

@@ -209,7 +209,7 @@ export async function setMeta(key, value) {
   });
 }
 
-const SEARCH_HISTORY_LIMIT = 20;
+const SEARCH_HISTORY_LIMIT = 100;
 
 // put() with the query text itself as the key means searching the same
 // thing again overwrites the existing row's lastUsedAt in place rather than
