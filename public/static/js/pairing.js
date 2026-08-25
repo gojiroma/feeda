@@ -64,6 +64,16 @@ export async function createPairingCode(apiBase, payload) {
   throw new Error("コードの発行に失敗しました（他のコードと衝突し続けました。もう一度お試しください）");
 }
 
+// Invalidates a code this device generated earlier — see
+// setupPairingShareUI in pairingModal.js, which calls this right before
+// generating a replacement so only the most recently generated code is
+// ever valid. Best-effort: a network failure here just means the old code
+// keeps working until its own (now much longer, see PAIR_TTL_SECONDS)
+// expiry, not a reason to block generating the new one.
+export async function invalidatePairingCode(apiBase, code) {
+  await fetch(apiUrl(apiBase, `/api/pair/${code}`), { method: "DELETE" });
+}
+
 // Polled by the sharing device only — never consumes the code, just reports
 // whether it's still waiting, was picked up, or is gone (expired/unknown).
 export async function pollPairingStatus(apiBase, code) {

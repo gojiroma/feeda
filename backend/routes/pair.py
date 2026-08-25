@@ -81,6 +81,29 @@ def put_pair(code):
     return jsonify(expiresAt=expires_at.isoformat())
 
 
+@pair_bp.delete("/api/pair/<code>")
+@limiter.limit(lambda: Config.RATE_LIMIT_PAIR_WRITE)
+def delete_pair(code):
+    # Lets the sharing device invalidate a code it just generated (see
+    # setupPairingShareUI in pairingModal.js — called right before PUTting a
+    # replacement, so only the most recently generated code is ever valid)
+    # without waiting out its own TTL. No ownership check beyond knowing the
+    # code itself, same as every other route here — see the module-level
+    # comment on why these routes skip require_account_id. A code that's
+    # already gone (never existed, expired, already deleted) is still a
+    # success: the caller's goal — "this code no longer works" — already
+    # holds either way.
+    if not CODE_RE.match(code):
+        return jsonify(error="code must be 6 digits"), 400
+
+    ensure_schema()
+    pool = get_pool()
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM pairing_rows WHERE code = %s", (code,))
+
+    return "", 204
+
+
 @pair_bp.get("/api/pair/<code>/status")
 @limiter.limit(lambda: Config.RATE_LIMIT_PAIR_STATUS)
 def get_pair_status(code):

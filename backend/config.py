@@ -31,13 +31,18 @@ class Config:
     # limit is intentionally the tightest of the three: it's the one an
     # attacker would hammer to brute-force a 6-digit code (1,000,000
     # possibilities) within PAIR_TTL_SECONDS. This doesn't make brute-forcing
-    # impossible on its own — a short TTL and single-use consumption are
-    # doing most of the real work — but it keeps a single client from just
-    # trying every code in a tight loop.
+    # impossible on its own — TTL and single-use consumption are doing most
+    # of the real work — but it keeps a single client from just trying every
+    # code in a tight loop. PAIR_TTL_SECONDS is intentionally generous (3h,
+    # long enough to walk a code over to another device at leisure) rather
+    # than the tighter few-minute window this was originally built with —
+    # the tradeoff is a wider brute-force window, which RATE_LIMIT_PAIR_READ
+    # and generating a fresh code (invalidating the previous one — see
+    # setupPairingShareUI in pairingModal.js) are relied on to cover instead.
     RATE_LIMIT_PAIR_WRITE = os.environ.get("RATE_LIMIT_PAIR_WRITE", "20 per minute")
     RATE_LIMIT_PAIR_READ = os.environ.get("RATE_LIMIT_PAIR_READ", "10 per minute")
     RATE_LIMIT_PAIR_STATUS = os.environ.get("RATE_LIMIT_PAIR_STATUS", "60 per minute")
-    PAIR_TTL_SECONDS = int(os.environ.get("PAIR_TTL_SECONDS", "180"))
+    PAIR_TTL_SECONDS = int(os.environ.get("PAIR_TTL_SECONDS", str(3 * 60 * 60)))
 
     @classmethod
     def require_database_url(cls):

@@ -1,15 +1,20 @@
 import { renderQrCode, startQrScanner } from "../qr.js";
-import { createPairingCode, pollPairingStatus, consumePairingCode } from "../pairing.js";
+import { createPairingCode, pollPairingStatus, consumePairingCode, invalidatePairingCode } from "../pairing.js";
 
 const POLL_INTERVAL_MS = 2500;
 
+// PAIR_TTL_SECONDS is hours-long now (see config.py), not a few minutes —
+// includes the hour digit whenever there's at least one, so this reads as
+// "残り 2:59:42" instead of an unbroken minute count like "179:42".
 function formatRemaining(expiresAtIso) {
   const ms = new Date(expiresAtIso).getTime() - Date.now();
   if (ms <= 0) return null;
   const totalSec = Math.ceil(ms / 1000);
-  const m = Math.floor(totalSec / 60);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  return `残り ${m}:${String(s).padStart(2, "0")}`;
+  const time = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+  return `残り ${time}`;
 }
 
 // Wires the two "share this device's seed" flows (QR + 6-digit code), both
@@ -57,15 +62,29 @@ export function setupPairingShareUI({ getSeed, getApiBase }) {
     stopPolling();
   }
 
+  // The code just shown, if any — so generating a new one can invalidate it
+  // first (see below). PAIR_TTL_SECONDS is now hours-long rather than a few
+  // minutes, so without this a re-share (e.g. the first code went to the
+  // wrong device, or was just misread) would leave the old code sitting
+  // around valid for hours instead of expiring with the modal.
+  let lastGeneratedCode = null;
+
   codeBtn.addEventListener("click", async () => {
     codeValueEl.textContent = "------";
     codeStatusEl.textContent = "コードを発行しています…";
     codeModal.classList.remove("hidden");
     stopPolling();
+    const apiBase = getApiBase();
+    if (lastGeneratedCode) {
+      invalidatePairingCode(apiBase, lastGeneratedCode).catch((err) =>
+        console.error("[feeda] previous pairing code invalidation failed", err)
+      );
+      lastGeneratedCode = null;
+    }
     try {
-      const apiBase = getApiBase();
       const payload = { seed: getSeed(), apiBase };
       const { code, expiresAt } = await createPairingCode(apiBase, payload);
+      lastGeneratedCode = code;
       codeValueEl.textContent = code;
 
       pollTimer = setInterval(async () => {
