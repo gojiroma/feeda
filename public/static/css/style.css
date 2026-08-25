@@ -253,19 +253,26 @@ input[type="text"], input[type="url"], input[type="search"] {
    own chip in the same per-word color as its .search-highlight-history mark
    elsewhere (see colorPalette.js's colorForWord) so the two stay visually
    tied together. :empty collapses it to nothing before any search has ever
-   been recorded. */
+   been recorded. One row, not wrapped — with up to SEARCH_HISTORY_LIMIT
+   (100, see db.js) chips wrapping would eat the header several rows deep;
+   scrolling horizontally within this one row instead keeps the most
+   recently (re-)used queries (chip order — see getSearchHistory) at the
+   visible front and lets everything past that scroll off, rather than
+   growing the header's height with the list. */
 .search-history-bar {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
+  overflow-x: auto;
 }
 .search-history-bar:empty {
   display: none;
 }
 .search-history-chip {
+  flex-shrink: 0;
   font: inherit;
   font-size: 0.8rem;
   line-height: 1.4;
