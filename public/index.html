@@ -51,15 +51,22 @@
       <div class="search-wrap">
         <input id="search-input" type="search" class="search-input" placeholder="フィード名・記事名・本文を検索" autocomplete="off">
       </div>
-      <button type="button" id="ng-word-btn" title="NGワードを管理">NGワード</button>
-      <button type="button" id="seed-btn" title="シードとAPIベースURLを表示">シード</button>
       <button type="button" id="wide-grid-toggle-btn" class="mode-toggle-btn">マルチカラム</button>
-      <button type="button" id="mode-toggle-btn" class="mode-toggle-btn">振り返る</button>
+      <button type="button" id="mode-toggle-btn" class="mode-toggle-btn icon-btn" title="振り返る">📖</button>
+      <div class="menu-wrap">
+        <button type="button" id="more-menu-btn" class="icon-btn" title="その他" aria-haspopup="true" aria-expanded="false">⋯</button>
+        <div id="more-menu" class="more-menu hidden" role="menu">
+          <button type="button" id="ng-word-btn" title="NGワードを管理" role="menuitem">NGワード</button>
+          <button type="button" id="seed-btn" title="シードとAPIベースURLを表示" role="menuitem">シード</button>
+        </div>
+      </div>
     </header>
-    <div id="search-history-bar" class="search-history-bar"></div>
+    <div class="filter-row">
+      <div id="feed-color-filter" class="feed-color-filter"></div>
+      <div id="search-history-bar" class="search-history-bar"></div>
+    </div>
     <div class="panes">
       <aside class="pane feed-pane" id="feed-pane">
-        <div id="feed-color-filter" class="feed-color-filter"></div>
         <div id="feed-list"></div>
       </aside>
       <div class="pane-resizer" data-resizer="0"></div>

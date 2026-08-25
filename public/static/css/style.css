@@ -232,19 +232,33 @@ input[type="text"], input[type="url"], input[type="search"] {
 .brand:hover { opacity: 0.75; }
 .search-wrap { position: relative; flex: 1; min-width: 0; }
 .search-input { width: 100%; }
-/* Persistent one-row strip below the topbar (see setupSearchBar in
-   ui/searchBar.js) — every saved search-history query, always visible
-   rather than only on focus, each its own chip in the same per-word color
-   as its .search-highlight-history mark elsewhere (see colorPalette.js's
-   colorForWord) so the two stay visually tied together. :empty collapses it
-   to nothing before any search has ever been recorded. */
+/* Shared row below the topbar holding the feed color-palette filter (left)
+   and the search-history bar (right) — see feedColorFilterEl/searchHistoryBarEl
+   in main.js. Kept as one flex row rather than two independent bars so
+   they read as one "filters" strip; each side still collapses itself via
+   its own :empty rule when it has nothing to show, and the row as a whole
+   then has no border to show either. */
+.filter-row {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+.filter-row:has(> .feed-color-filter:empty):has(> .search-history-bar:empty) {
+  border-bottom: none;
+}
+/* Persistent strip of every saved search-history query (see setupSearchBar
+   in ui/searchBar.js), always visible rather than only on focus, each its
+   own chip in the same per-word color as its .search-highlight-history mark
+   elsewhere (see colorPalette.js's colorForWord) so the two stay visually
+   tied together. :empty collapses it to nothing before any search has ever
+   been recorded. */
 .search-history-bar {
   display: flex;
+  flex: 1;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
 }
 .search-history-bar:empty {
   display: none;
@@ -263,12 +277,56 @@ input[type="text"], input[type="url"], input[type="search"] {
 .search-history-chip:hover {
   background: rgba(var(--search-highlight-color), 0.55);
 }
-/* Narrow phones fit brand + search + two buttons only if the buttons
-   refuse to shrink into vertically-wrapped CJK text — search-input (the
-   only flexible child) absorbs the squeeze instead. */
+/* Narrow phones fit brand + search + buttons only if the buttons refuse to
+   shrink into vertically-wrapped CJK text — search-input (the only
+   flexible child) absorbs the squeeze instead. */
 .topbar button {
   flex-shrink: 0;
   white-space: nowrap;
+}
+/* Emoji-labelled buttons (振り返る, the "⋯" overflow menu trigger) — a
+   touch larger than the default button font so the glyph doesn't read as
+   undersized next to the topbar's text buttons. */
+.icon-btn {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+#mode-toggle-btn.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+/* "⋯" overflow menu (see wireApp in main.js) holding NGワード/シード — both
+   opened rarely enough that they don't need their own permanent topbar
+   buttons; unlike 振り返る (used constantly) or マルチカラム (its own
+   width-gated toggle), these only need to be a click or two away. */
+.menu-wrap {
+  position: relative;
+}
+.more-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  margin-top: 4px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+.more-menu button {
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+.more-menu button:hover {
+  background: var(--bg-alt);
 }
 
 .panes {
@@ -292,26 +350,21 @@ input[type="text"], input[type="url"], input[type="search"] {
   flex-shrink: 0;
   border-right: 1px solid var(--border);
 }
-/* Filter row above the feed list (see renderFeedColorFilter in
-   ui/feedList.js) — only holds swatches for colors actually in use on some
-   feed, so it's empty (and hidden via :empty) until at least one feed is
-   color-tagged. Sticky so it stays reachable without scrolling back to the
-   top of a long subscription list. */
+/* Left half of .filter-row, ahead of the search-history bar (see
+   renderFeedColorFilter in ui/feedList.js) — only holds swatches for colors
+   actually in use on some feed, so it's empty (and hidden via :empty) until
+   at least one feed is color-tagged. */
 .feed-color-filter {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  padding: 6px 12px;
+  border-right: 1px solid var(--border);
 }
 .feed-color-filter:empty {
   display: none;
+  border-right: none;
 }
 .feed-color-filter-swatch {
   width: 16px;
@@ -406,6 +459,14 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.72rem;
   font-weight: 400;
   padding: 2px 8px;
+}
+/* "残す" already applied (see toggleKeepFeed in main.js) — same accent
+   treatment as #wide-grid-toggle-btn.active, so it's clear at a glance
+   which feeds are exempt from autoPauseInactiveFeeds. */
+.article-feed-header-pause-btn--active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }
 .preview-pane {
   flex: 1;
@@ -1070,9 +1131,15 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 /* Reflect is a separate top-level screen, not another pane layout — hide
    every reading-mode surface with !important so it wins over their own
-   display rules (media queries, .hidden toggles) regardless of viewport. */
+   display rules (media queries, .hidden toggles) regardless of viewport.
+   .filter-row (color filter + search history) and マルチカラム are reading-
+   view-only concepts — reflect has its own #reflect-color-filter and has no
+   article grid to lay out in columns, so both would just be dead controls
+   here. */
 .app.reflect-mode .panes,
-.app.reflect-mode .mobile-view {
+.app.reflect-mode .mobile-view,
+.app.reflect-mode .filter-row,
+.app.reflect-mode #wide-grid-toggle-btn {
   display: none !important;
 }
 .app.reflect-mode .reflect-view {

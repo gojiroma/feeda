@@ -205,12 +205,18 @@ function groupEntriesByFeed(entries, feedOrder) {
   return order.map((feedId) => ({ feedId, entries: byFeed.get(feedId) }));
 }
 
-// Feed name + "更新停止"/"更新を再開" button headlining one feed's block in
-// the grouped-by-feed rendering (see renderArticleList's groupByFeed) — the
-// same pause action already offered per-feed from the sidebar's context menu
-// and the article list's own action bar for a single selected feed, just
-// reachable straight from the cross-feed unread view/wide-grid columns too.
-function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed }) {
+// Feed name + one action button headlining one feed's block in the
+// grouped-by-feed rendering (see renderArticleList's groupByFeed) — reached
+// straight from the cross-feed unread view/wide-grid columns while reading,
+// without a trip to the sidebar's context menu. Which action depends on the
+// feed's current state (see main.js's autoPauseInactiveFeeds/toggleKeepFeed):
+// an already-paused feed only offers "再開" (resume), since stopping itself
+// is handled automatically now rather than by hand; an active feed offers
+// "残す" (keep) instead of a stop button — vouching for a feed is the rarer,
+// deliberate action worth a click, letting the rule-driven default quietly
+// handle the far more common case of a high-frequency feed nobody's
+// actually reading.
+function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed }) {
   const header = document.createElement("div");
   header.className = "article-feed-header";
 
@@ -219,15 +225,27 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed }
   title.textContent = feedTitleById.get(feedId) || "";
   header.appendChild(title);
 
-  if (onTogglePauseFeed) {
-    const feed = feedsById ? feedsById.get(feedId) : null;
+  const feed = feedsById ? feedsById.get(feedId) : null;
+  if (feed && feed.paused && onTogglePauseFeed) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "article-feed-header-pause-btn";
-    btn.textContent = feed && feed.paused ? "更新を再開" : "更新停止";
+    btn.textContent = "再開";
+    btn.title = "このフィードの取得を再開します";
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       onTogglePauseFeed(feedId);
+    });
+    header.appendChild(btn);
+  } else if (onToggleKeepFeed) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "article-feed-header-pause-btn" + (feed && feed.keep ? " article-feed-header-pause-btn--active" : "");
+    btn.textContent = feed && feed.keep ? "残す ✓" : "残す";
+    btn.title = "自動停止の対象から外します";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onToggleKeepFeed(feedId);
     });
     header.appendChild(btn);
   }
@@ -253,8 +271,26 @@ export function renderArticleList(
     feedOrder,
     feedsById,
     onTogglePauseFeed,
+    onToggleKeepFeed,
   }
 ) {
+  // Wide-grid mode's columns (and, in principle, the vertical grouped view
+  // too) scroll independently of the rest of the page — but every render
+  // wipes and rebuilds the whole container (innerHTML = "" below), and
+  // render() runs on every hover (see previewEntryAndMarkRead in main.js),
+  // not just on an actual click. Without capturing and restoring these, just
+  // moving the mouse across a column snapped its horizontal scroll (and
+  // every column's own vertical scroll) back to zero on every single row.
+  const prevWrap = container.querySelector(".article-list-grouped");
+  const prevScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
+  const prevScrollTopByFeed = new Map();
+  if (prevWrap) {
+    for (const block of prevWrap.querySelectorAll(".article-feed-block")) {
+      const list = block.querySelector(".article-list");
+      if (list) prevScrollTopByFeed.set(block.dataset.feedId, list.scrollTop);
+    }
+  }
+
   container.innerHTML = "";
   // Same "don't slam shut on an unrelated redraw" rule as reflect's own
   // color picker (see reflect.js's renderReflectTimeline) — only close the
@@ -284,7 +320,8 @@ export function renderArticleList(
     for (const { feedId, entries: feedEntries } of groupEntriesByFeed(entries, feedOrder)) {
       const block = document.createElement("div");
       block.className = "article-feed-block";
-      block.appendChild(buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed }));
+      block.dataset.feedId = feedId;
+      block.appendChild(buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed }));
 
       const ul = document.createElement("ul");
       ul.className = "article-list";
@@ -295,6 +332,14 @@ export function renderArticleList(
       wrap.appendChild(block);
     }
     container.appendChild(wrap);
+    // Only meaningful once the new elements are actually laid out in the
+    // document — an unattached node's scrollHeight is always 0, which would
+    // clamp any restore attempted before this back down to nothing.
+    wrap.scrollLeft = prevScrollLeft;
+    for (const block of wrap.querySelectorAll(".article-feed-block")) {
+      if (!prevScrollTopByFeed.has(block.dataset.feedId)) continue;
+      block.querySelector(".article-list").scrollTop = prevScrollTopByFeed.get(block.dataset.feedId);
+    }
     return;
   }
 

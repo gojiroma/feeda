@@ -57,6 +57,8 @@ const mobileListEl = document.getElementById("mobile-article-list");
 const clockWatermarkEl = document.getElementById("clock-watermark");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const wideGridToggleBtn = document.getElementById("wide-grid-toggle-btn");
+const moreMenuBtn = document.getElementById("more-menu-btn");
+const moreMenuEl = document.getElementById("more-menu");
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
@@ -290,13 +292,16 @@ function mergeIntoUnreadTimeline(feed, entries) {
   if (fresh.length === 0) return;
   const merged = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
   state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(merged);
-  // Bump this feed's block to the top of the grouped view (see
+  // Move this feed's block to the *back* of the grouped view (see
   // unreadFeedOrder's own comment) instead of leaving the new entries to
   // land wherever their pubDate happens to sort them in the flat snapshot
   // above — that's what used to make a background refetch splice new rows
   // into the middle of the list mid-read ("ミルフィーユ" — a different
-  // feed's new stuff shouldn't shove itself between rows already on screen).
-  state.unreadFeedOrder = [feed.feedId, ...state.unreadFeedOrder.filter((id) => id !== feed.feedId)];
+  // feed's new stuff shouldn't shove itself between rows already on
+  // screen). The back, not the front: appearing at the bottom keeps it out
+  // of the way of whatever's already in view up top, rather than bumping
+  // it down by pushing a new block in ahead of it.
+  state.unreadFeedOrder = [...state.unreadFeedOrder.filter((id) => id !== feed.feedId), feed.feedId];
 }
 
 // Same title + same first 10 characters of body text, syndicated by two
@@ -523,19 +528,36 @@ function currentArticles() {
     // page it shows up on at all (short of opening its specific feed), so
     // there'd be nowhere left to color-tag/comment it after the fact.
     const timeline = [];
+    const newestByFeed = new Map();
     for (const feed of state.feedsById.values()) {
       for (const entry of state.entriesByFeed.get(feed.feedId) || []) {
-        if (state.showReadInTimeline || isUnread(entry, feed)) timeline.push(entry);
+        if (state.showReadInTimeline || isUnread(entry, feed)) {
+          timeline.push(entry);
+          if (!newestByFeed.has(feed.feedId) || (entry.pubDate || "") > newestByFeed.get(feed.feedId)) {
+            newestByFeed.set(feed.feedId, entry.pubDate || "");
+          }
+        }
       }
     }
     timeline.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
     state.unreadTimelineSnapshot = dedupeCrossHostDuplicates(timeline);
     // Initial block order for the grouped view (see unreadFeedOrder's own
-    // comment): first-appearance order in the just-sorted timeline, i.e.
-    // whichever feed's most recent entry is newest goes on top. A dedup'd
-    // Map's insertion order does the "first occurrence per feedId" dedup for
-    // free.
-    state.unreadFeedOrder = [...new Map(state.unreadTimelineSnapshot.map((e) => [e.feedId, true])).keys()];
+    // comment): pinned first, then engagement score — a feed you've
+    // actually opened, commented on, or color-tagged outranks one that's
+    // merely posted recently but gone unengaged (see getFeedEngagementScores
+    // in logbook.js), same "満足度優先" priority the sidebar's own
+    // compareFeeds already uses (frequency.js) — falling back to newest-
+    // entry recency only to break ties between equally (un)engaged feeds.
+    const feedIdsPresent = new Set(timeline.map((e) => e.feedId));
+    state.unreadFeedOrder = [...feedIdsPresent].sort((a, b) => {
+      const feedA = state.feedsById.get(a);
+      const feedB = state.feedsById.get(b);
+      const pinnedDiff = Number(Boolean(feedB && feedB.pinned)) - Number(Boolean(feedA && feedA.pinned));
+      if (pinnedDiff !== 0) return pinnedDiff;
+      const scoreDiff = (state.feedScoreById.get(b) || 0) - (state.feedScoreById.get(a) || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return (newestByFeed.get(b) || "").localeCompare(newestByFeed.get(a) || "");
+    });
   }
   return {
     entries: filterByNgWords(state.unreadTimelineSnapshot),
@@ -605,7 +627,12 @@ document.addEventListener("visibilitychange", () => {
 function toggleMode() {
   state.mode = state.mode === "view" ? "reflect" : "view";
   appRoot.classList.toggle("reflect-mode", state.mode === "reflect");
-  modeToggleBtn.textContent = state.mode === "reflect" ? "見るに戻る" : "振り返る";
+  // Icon-only button (see .icon-btn in style.css) — the glyph itself
+  // (📖) doesn't change, .active carries which mode is current the same
+  // way #wide-grid-toggle-btn.active does, and the title covers what a
+  // click does for anyone hovering/using a screen reader.
+  modeToggleBtn.classList.toggle("active", state.mode === "reflect");
+  modeToggleBtn.title = state.mode === "reflect" ? "見るに戻る" : "振り返る";
   if (state.mode === "reflect") {
     renderReflect().catch((err) => console.error("reflect render failed", err));
     startReflectLiveRefresh();
@@ -928,6 +955,7 @@ function renderDesktop() {
     feedOrder,
     feedsById: state.feedsById,
     onTogglePauseFeed: isAllUnreadView ? togglePauseFeed : undefined,
+    onToggleKeepFeed: isAllUnreadView ? toggleKeepFeed : undefined,
   });
   renderArticleListActions();
 
@@ -1032,6 +1060,7 @@ function renderWideGrid() {
     feedOrder,
     feedsById: state.feedsById,
     onTogglePauseFeed: togglePauseFeed,
+    onToggleKeepFeed: toggleKeepFeed,
   });
   renderArticleListActions();
 
@@ -1107,6 +1136,26 @@ async function togglePinFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
   const updated = { ...feed, pinned: !feed.pinned };
+  await markFeedDirty(updated);
+  state.feedsById.set(feedId, updated);
+  refreshAfterFeedChange();
+  syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// The unread timeline's own per-feed block header offers this instead of a
+// pause button (see renderDesktop/renderWideGrid's groupByFeed rendering) —
+// stopping is the automatic, rule-driven default for a high-frequency feed
+// nobody's engaging with (see autoPauseInactiveFeeds), so the action worth
+// putting front and center while reading is the rarer one: explicitly
+// vouching for a feed so that rule never touches it, even if it's noisy and
+// you go a while between things it posts that are actually worth reading.
+// Independent of pinned (which is about sidebar position, not fetch
+// eligibility) and of paused/userManagedPause (an already-paused feed still
+// needs a manual resume — see togglePauseFeed — keep alone won't fetch it).
+async function toggleKeepFeed(feedId) {
+  const feed = state.feedsById.get(feedId);
+  if (!feed) return;
+  const updated = { ...feed, keep: !feed.keep };
   await markFeedDirty(updated);
   state.feedsById.set(feedId, updated);
   refreshAfterFeedChange();
@@ -1260,6 +1309,51 @@ async function autoPauseDuplicateFeeds() {
     }
   }
 
+  for (const feed of toPause) {
+    const updated = { ...feed, paused: true };
+    await markFeedDirty(updated);
+    state.feedsById.set(feed.feedId, updated);
+  }
+  if (toPause.length > 0) {
+    syncNow().catch((err) => console.error("sync failed", err));
+  }
+}
+
+// A feed posting this often that nobody has opened/tagged/commented on in
+// its entire history (see getFeedEngagementScores) is exactly the kind that
+// buries the rest of the unread timeline in volume without paying for the
+// clutter — see main.js's currentArticles/unreadFeedOrder. Only the highest
+// tiers (daily/several-per-week — see frequency.js's GROUPS) qualify; a
+// feed that already posts rarely doesn't need this, it never crowded
+// anything out to begin with.
+const HIGH_FREQUENCY_GROUPS = new Set(["daily-20", "daily-10", "daily-5", "daily-3", "daily-1", "several-per-week"]);
+// Below this many cached entries, there isn't enough history yet to call a
+// feed "unengaged" — a feed added five minutes ago with two articles hasn't
+// had a fair chance.
+const AUTO_PAUSE_MIN_ENTRIES = 5;
+
+// Runs every refreshAll round (see autoPauseDuplicateFeeds's own call site)
+// so a feed's fetch history growing past AUTO_PAUSE_MIN_ENTRIES, or its
+// frequencyGroup changing, gets picked up without waiting on anything else.
+// pinned/keep/userManagedPause are all distinct "leave this alone" signals
+// (sidebar position, an explicit vouch — see toggleKeepFeed — and a
+// deliberate manual pause/resume respectively) and any one of them is
+// enough to exempt a feed here, same as autoPauseDuplicateFeeds's own
+// userManagedPause carve-out just above.
+async function autoPauseInactiveFeeds() {
+  const toPause = [];
+  for (const feed of state.feedsById.values()) {
+    if (feed.paused || feed.pinned || feed.keep || feed.userManagedPause) continue;
+    if (!HIGH_FREQUENCY_GROUPS.has(feed.frequencyGroup)) continue;
+    const entries = state.entriesByFeed.get(feed.feedId) || [];
+    if (entries.length < AUTO_PAUSE_MIN_ENTRIES) continue;
+    if ((state.feedScoreById.get(feed.feedId) || 0) > 0) continue;
+    toPause.push(feed);
+  }
+  // Deliberately doesn't catch the feed up to read (unlike setFeedPaused) —
+  // this is the system's guess that nobody's looking, not the user saying
+  // "I'm done with this," so the existing unread backlog stays exactly as
+  // unread as it was in case anyone ever does open the feed directly.
   for (const feed of toPause) {
     const updated = { ...feed, paused: true };
     await markFeedDirty(updated);
@@ -1751,6 +1845,13 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
 // large backlog across several sessions rather than bursting it into one.
 const MAX_FETCHES_PER_SESSION = 30;
 
+// Chance, per refreshAll round, of reviving one auto-paused feed for a
+// single extra fetch (see the dueFeeds "先祖返り" step below) — occasional
+// on purpose, not every visit, so it reads as a quiet occasional bonus
+// rather than undermining autoPauseInactiveFeeds by constantly re-surfacing
+// the same silenced feeds.
+const REVIVE_CHANCE = 0.3;
+
 async function refreshAll() {
   try {
     await syncNow();
@@ -1807,6 +1908,25 @@ async function refreshAll() {
     });
   dueFeeds = dueFeeds.slice(0, MAX_FETCHES_PER_SESSION);
 
+  // "先祖返り" — every so often, give one feed autoPauseInactiveFeeds
+  // stopped a single extra fetch anyway, on top of the normal due-schedule
+  // selection above. Doesn't touch feed.paused itself (it stays sorted into
+  // 更新停止 either way — see setFeedPaused), so if nothing comes of it
+  // there's nothing to undo; if the fresh content turns out engaging, the
+  // score that lands in feedScoreById from that will naturally keep
+  // autoPauseInactiveFeeds from re-silencing it on a later round. A feed the
+  // user paused by hand (userManagedPause) is excluded — that "I don't want
+  // this" is never the system's to second-guess.
+  if (Math.random() < REVIVE_CHANCE) {
+    const dueIds = new Set(dueFeeds.map((f) => f.feedId));
+    const reviveCandidates = [...state.feedsById.values()].filter(
+      (f) => f.paused && !f.userManagedPause && !dueIds.has(f.feedId)
+    );
+    if (reviveCandidates.length > 0) {
+      dueFeeds = [...dueFeeds, reviveCandidates[Math.floor(Math.random() * reviveCandidates.length)]];
+    }
+  }
+
   // Fetched with a handful of workers in flight at once rather than one
   // feed at a time — with up to MAX_FETCHES_PER_SESSION due feeds, a strictly
   // serial loop means the whole round trip (proxy + origin fetch + parse) of
@@ -1843,13 +1963,15 @@ async function refreshAll() {
   }
   hideStatus();
   await loadAppData();
-  // Restore anything auto-paused last run before re-deriving clusters fresh
-  // (feeds paused without userManagedPause could only have come from
-  // autoPauseDuplicateFeeds, never from the user directly toggling pause) —
-  // otherwise a feed whose content has since diverged from its old cluster
-  // would stay paused forever instead of picking back up.
+  // Restore anything auto-paused last run before re-deriving both rules
+  // fresh (feeds paused without userManagedPause could only have come from
+  // autoPauseDuplicateFeeds or autoPauseInactiveFeeds below, never from the
+  // user directly toggling pause) — otherwise a feed whose content has
+  // since diverged from its old duplicate cluster, or picked up some
+  // engagement, would stay paused forever instead of picking back up.
   await restorePreviouslyAutoPausedFeeds();
   await autoPauseDuplicateFeeds();
+  await autoPauseInactiveFeeds();
   render();
 }
 
@@ -2143,6 +2265,26 @@ function wireApp() {
   });
   modeToggleBtn.addEventListener("click", toggleMode);
   wideGridToggleBtn.addEventListener("click", toggleWideGridMode);
+  // "⋯" overflow menu (see .menu-wrap/.more-menu in style.css) holding
+  // NGワード/シード — closes itself once either item inside is actually
+  // clicked (each opens its own modal via setupNgWordModal/setupSeedModal
+  // above, unaffected by this) or on any click elsewhere on the page.
+  moreMenuBtn.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const nowHidden = moreMenuEl.classList.toggle("hidden");
+    moreMenuBtn.setAttribute("aria-expanded", String(!nowHidden));
+  });
+  moreMenuEl.addEventListener("click", (ev) => {
+    if (ev.target.closest("button")) {
+      moreMenuEl.classList.add("hidden");
+      moreMenuBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+  document.addEventListener("click", (ev) => {
+    if (moreMenuEl.classList.contains("hidden") || ev.target.closest(".menu-wrap")) return;
+    moreMenuEl.classList.add("hidden");
+    moreMenuBtn.setAttribute("aria-expanded", "false");
+  });
   document.getElementById("reflect-prev-day").addEventListener("click", () => changeReflectDate(-1));
   document.getElementById("reflect-next-day").addEventListener("click", () => changeReflectDate(1));
   document.getElementById("reflect-today-btn").addEventListener("click", jumpReflectToToday);
