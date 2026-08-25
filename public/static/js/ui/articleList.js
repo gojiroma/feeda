@@ -1,6 +1,12 @@
 import { highlightText } from "../highlight.js";
 import { COLOR_BY_KEY } from "../colorPalette.js";
-import { attachContextTrigger, renderColorSwatches, renderTagEditor, closeFloatingPopupIfMissing } from "./colorPicker.js";
+import {
+  attachContextTrigger,
+  renderColorSwatches,
+  renderTagEditor,
+  closeFloatingPopupIfMissing,
+  openFloatingPopup,
+} from "./colorPicker.js";
 
 const COMMENT_PREVIEW_MAX_LENGTH = 60;
 
@@ -28,17 +34,17 @@ function formatCommentTime(iso) {
 export function renderAnnotatePopup(container, { logEntry, onSetColor, onAddComment, onAddTag, onRemoveTag, autoFocus = true }) {
   container.innerHTML = "";
 
-  const swatchRow = document.createElement("div");
-  swatchRow.className = "article-annotate-swatches";
-  renderColorSwatches(swatchRow, { currentColor: logEntry ? logEntry.color : null, onSetColor });
-  container.appendChild(swatchRow);
-
+  // Color swatches, existing tag chips, and the "add a tag" input all flow
+  // into one wrapping row instead of stacking as separate sections — a
+  // color and a tag are both just "a quick mark on this article", so
+  // they read as one compact palette rather than a multi-step form.
+  const paletteRow = document.createElement("div");
+  paletteRow.className = "annotate-palette-row";
+  renderColorSwatches(paletteRow, { currentColor: logEntry ? logEntry.color : null, onSetColor });
   if (onAddTag && onRemoveTag) {
-    const tagWrap = document.createElement("div");
-    tagWrap.className = "article-annotate-tags";
-    renderTagEditor(tagWrap, { tags: logEntry ? logEntry.tags || [] : [], onAddTag, onRemoveTag });
-    container.appendChild(tagWrap);
+    renderTagEditor(paletteRow, { tags: logEntry ? logEntry.tags || [] : [], onAddTag, onRemoveTag });
   }
+  container.appendChild(paletteRow);
 
   const comments = logEntry ? logEntry.comments || [] : [];
   if (comments.length > 0) {
@@ -67,10 +73,6 @@ export function renderAnnotatePopup(container, { logEntry, onSetColor, onAddComm
   input.className = "reflect-comment-input";
   input.placeholder = "コメントを追加…";
   form.appendChild(input);
-  const submitBtn = document.createElement("button");
-  submitBtn.type = "submit";
-  submitBtn.textContent = "追加";
-  form.appendChild(submitBtn);
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = input.value;
@@ -203,16 +205,45 @@ function groupEntriesByFeed(entries, feedOrder) {
 // deliberate action worth a click, letting the rule-driven default quietly
 // handle the far more common case of a high-frequency feed nobody's
 // actually reading.
-function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed, onTogglePinFeed }) {
+function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed, onTogglePinFeed, onSetFeedColor }) {
   const header = document.createElement("div");
   header.className = "article-feed-header";
+
+  const feed = feedsById ? feedsById.get(feedId) : null;
+  const colorRgb = feed && feed.color && COLOR_BY_KEY.get(feed.color);
+  if (colorRgb) {
+    header.classList.add("article-feed-header--colored");
+    header.style.setProperty("--feed-color", colorRgb);
+  }
 
   const title = document.createElement("span");
   title.className = "article-feed-header-title";
   title.textContent = feedTitleById.get(feedId) || "";
   header.appendChild(title);
 
-  const feed = feedsById ? feedsById.get(feedId) : null;
+  // Right-click/long-press the feed name to tag its color right from the
+  // unread view — same swatch popup as reflect's own picker/the article
+  // annotate popup (see .annotate-palette-row), just for a whole feed
+  // instead of one entry, and reachable without a trip to the sidebar's
+  // context menu (see openFeedContextMenu in ui/feedList.js).
+  if (onSetFeedColor) {
+    attachContextTrigger(title, {
+      onOpenRequest: (x, y) => {
+        openFloatingPopup({
+          id: `feed-color:${feedId}`,
+          x,
+          y,
+          className: "annotate-palette-row annotate-palette-popup",
+          build: (popup) => {
+            renderColorSwatches(popup, {
+              currentColor: feed ? feed.color : null,
+              onSetColor: (color) => onSetFeedColor(feedId, color),
+            });
+          },
+        });
+      },
+    });
+  }
 
   // Independent of paused/keep (see togglePinFeed in main.js) — pins the
   // feed to its own group at the top of the sidebar, so it's offered
@@ -277,6 +308,7 @@ export function renderArticleList(
     onTogglePauseFeed,
     onToggleKeepFeed,
     onTogglePinFeed,
+    onSetFeedColor,
   }
 ) {
   // Wide-grid mode's columns (and, in principle, the vertical grouped view
@@ -327,7 +359,7 @@ export function renderArticleList(
       block.className = "article-feed-block";
       block.dataset.feedId = feedId;
       block.appendChild(
-        buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed, onTogglePinFeed })
+        buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, onToggleKeepFeed, onTogglePinFeed, onSetFeedColor })
       );
 
       const ul = document.createElement("ul");

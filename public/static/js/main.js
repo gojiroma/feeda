@@ -36,6 +36,7 @@ import { setupSearchBar } from "./ui/searchBar.js";
 import { setupPaneResizing, setupWideGridRowResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
+import { setupShortcutsModal } from "./ui/shortcutsModal.js";
 import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
 import { updateFavicon } from "./favicon.js";
 import { extractArticlePreview } from "./sanitize.js";
@@ -59,6 +60,12 @@ const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const wideGridToggleBtn = document.getElementById("wide-grid-toggle-btn");
 const moreMenuBtn = document.getElementById("more-menu-btn");
 const moreMenuEl = document.getElementById("more-menu");
+// Set by setupShortcutsModal (see wireApp) — read here so wireKeyboardNav's
+// "?" binding can open the same modal instance instead of each keeping its
+// own. Assigned before wireKeyboardNav's listener can ever actually fire
+// (both happen synchronously inside wireApp), so the placeholder default
+// never really runs.
+let openShortcutsModal = () => {};
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
@@ -966,6 +973,7 @@ function renderDesktop() {
     onTogglePauseFeed: isAllUnreadView ? togglePauseFeed : undefined,
     onToggleKeepFeed: isAllUnreadView ? toggleKeepFeed : undefined,
     onTogglePinFeed: isAllUnreadView ? togglePinFeed : undefined,
+    onSetFeedColor: isAllUnreadView ? setFeedColor : undefined,
   });
   renderArticleListActions();
 
@@ -1072,6 +1080,7 @@ function renderWideGrid() {
     onTogglePauseFeed: togglePauseFeed,
     onToggleKeepFeed: toggleKeepFeed,
     onTogglePinFeed: togglePinFeed,
+    onSetFeedColor: setFeedColor,
   });
   renderArticleListActions();
 
@@ -2148,8 +2157,90 @@ function scrollPreview(delta) {
   document.getElementById("preview-pane").scrollBy({ top: delta, behavior: "smooth" });
 }
 
+// Guards the single-letter shortcuts below (j/k/o/m/u, and Enter as an
+// alias for o) — unlike the arrow keys (see shouldIgnoreArrowKey), these
+// have no legitimate native meaning inside any field, so any focused
+// input/textarea/contentEditable blocks all of them, not just some. Also
+// blocks a focused button/link/select so Enter still activates *that*
+// instead of being hijacked into "open article" — pressing Enter on the
+// "すべての未読" button, a modal's close button, etc. should do what it
+// looks like it does.
+function isInteractiveFocus() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  return ["INPUT", "TEXTAREA", "BUTTON", "SELECT", "A"].includes(el.tagName);
+}
+
+function nextArticle() {
+  setFocusedPane("article");
+  moveArticleSelection(1);
+}
+
+function previousArticle() {
+  setFocusedPane("article");
+  moveArticleSelection(-1);
+}
+
+// Opens the previewed article's own link the same way actually clicking it
+// does (see renderPreview's onLinkClick in ui/preview.js) — reuses that
+// real, already-wired <a target="_blank"> instead of duplicating its
+// open/log-open logic here.
+function openPreviewedArticleLink() {
+  document.querySelector(".preview-link")?.click();
+}
+
+function focusSearchInput() {
+  searchInputEl.focus();
+  searchInputEl.select();
+}
+
 function wireKeyboardNav() {
   document.addEventListener("keydown", (ev) => {
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+
+    // "?" (help) and "/" (search) are useful from anywhere, reflect
+    // included — everything else below acts on the feed/article panes
+    // reflect doesn't have (see .app.reflect-mode's display:none rules).
+    if (ev.key === "?" && !isInteractiveFocus()) {
+      ev.preventDefault();
+      openShortcutsModal();
+      return;
+    }
+    if (ev.key === "/" && !isInteractiveFocus()) {
+      ev.preventDefault();
+      focusSearchInput();
+      return;
+    }
+
+    if (state.mode !== "reflect" && !isInteractiveFocus()) {
+      if (ev.key === "j") {
+        ev.preventDefault();
+        nextArticle();
+        return;
+      }
+      if (ev.key === "k") {
+        ev.preventDefault();
+        previousArticle();
+        return;
+      }
+      if (ev.key === "o" || ev.key === "Enter") {
+        ev.preventDefault();
+        openPreviewedArticleLink();
+        return;
+      }
+      if (ev.key === "m") {
+        ev.preventDefault();
+        markAllReadAndAdvance().catch((err) => console.error("mark all read failed", err));
+        return;
+      }
+      if (ev.key === "u") {
+        ev.preventDefault();
+        showAllUnread();
+        return;
+      }
+    }
+
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
     if (shouldIgnoreArrowKey(ev.key)) return;
 
@@ -2274,6 +2365,10 @@ function wireApp() {
     getSeed: () => getSession().seed,
     getApiBase: () => getSession().apiBase,
   });
+  openShortcutsModal = setupShortcutsModal(
+    document.getElementById("shortcuts-btn"),
+    document.getElementById("shortcuts-modal")
+  ).open;
   modeToggleBtn.addEventListener("click", toggleMode);
   wideGridToggleBtn.addEventListener("click", toggleWideGridMode);
   // "⋯" overflow menu (see .menu-wrap/.more-menu in style.css) holding

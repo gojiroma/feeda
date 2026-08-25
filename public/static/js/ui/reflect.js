@@ -57,21 +57,21 @@ function openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag) {
       const draw = () => {
         picker.innerHTML = "";
 
-        const swatchRow = document.createElement("div");
-        swatchRow.className = "reflect-color-swatch-row";
-        renderColorSwatches(swatchRow, {
+        // Same combined swatches+tags row as the article list's own
+        // annotate popup (see .annotate-palette-row/renderAnnotatePopup in
+        // articleList.js) — one compact palette instead of two stacked
+        // sections.
+        const paletteRow = document.createElement("div");
+        paletteRow.className = "annotate-palette-row";
+        renderColorSwatches(paletteRow, {
           currentColor: current.color,
           onSetColor: (color) => {
             onSetColor(logEntry.id, color);
             closeFloatingPopup();
           },
         });
-        picker.appendChild(swatchRow);
-
         if (onAddTag && onRemoveTag) {
-          const tagWrap = document.createElement("div");
-          tagWrap.className = "reflect-tags";
-          renderTagEditor(tagWrap, {
+          renderTagEditor(paletteRow, {
             tags: current.tags || [],
             onAddTag: (tag) => {
               Promise.resolve(onAddTag(logEntry.id, tag)).then((updated) => {
@@ -90,8 +90,8 @@ function openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag) {
               });
             },
           });
-          picker.appendChild(tagWrap);
         }
+        picker.appendChild(paletteRow);
       };
       draw();
     },
@@ -173,10 +173,6 @@ function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag
   input.className = "reflect-comment-input";
   input.placeholder = "コメントを追加…";
   form.appendChild(input);
-  const submitBtn = document.createElement("button");
-  submitBtn.type = "submit";
-  submitBtn.textContent = "追加";
-  form.appendChild(submitBtn);
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = input.value;

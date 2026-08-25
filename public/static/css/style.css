@@ -182,6 +182,38 @@ input[type="text"], input[type="url"], input[type="search"] {
   padding: 2px 4px;
 }
 
+.shortcuts-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+.shortcuts-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+.shortcuts-list li:last-child {
+  border-bottom: none;
+}
+.shortcuts-list kbd {
+  flex-shrink: 0;
+  min-width: 22px;
+  text-align: center;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 0 var(--border);
+}
+.shortcuts-list span {
+  color: var(--text-muted);
+}
+
 /* App shell */
 .app {
   height: 100%;
@@ -456,12 +488,21 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.8rem;
   font-weight: 600;
 }
+/* --feed-color set inline per feed (see buildFeedHeader) — same quiet-tag
+   convention as the sidebar's .feed-item--colored: a left border plus a
+   low-alpha tint, so a feed's color shows up here too instead of only in
+   the sidebar. */
+.article-feed-header--colored {
+  border-left: 3px solid rgb(var(--feed-color));
+  background: rgba(var(--feed-color), 0.12);
+}
 .article-feed-header-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: context-menu;
 }
 .article-feed-header-pause-btn {
   flex-shrink: 0;
@@ -742,11 +783,22 @@ input[type="text"], input[type="url"], input[type="search"] {
   display: flex;
   gap: 6px;
 }
+/* Quiet by default (see .reflect-comment-input's own rule for the other
+   half of this pair) — full opacity only while actually being used
+   (hovered or focused), so an empty "add a tag/comment" field doesn't
+   visually compete with the swatches/chips/comments that are the point of
+   the popup. */
 .tag-add-input {
   flex: 1;
   min-width: 0;
   font-size: 0.85rem;
   padding: 4px 6px;
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+.tag-add-input:hover,
+.tag-add-input:focus {
+  opacity: 1;
 }
 
 /* Article list */
@@ -854,10 +906,20 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
-.article-annotate-swatches {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+/* Color swatches + existing tag chips + the "add a tag" input, all in one
+   wrapping row (see renderAnnotatePopup in articleList.js and
+   openColorPicker in reflect.js — both build this the same way) instead of
+   stacked as separate sections: a color and a tag are both just a quick
+   mark on the thing, so they read as one compact palette rather than a
+   multi-step form. */
+.annotate-palette-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+.annotate-palette-row .tag-add-form {
+  flex: 1 1 90px;
 }
 .article-annotate-form {
   display: flex;
@@ -893,8 +955,8 @@ input[type="text"], input[type="url"], input[type="search"] {
 
 /* Always-visible copy of the article list's right-click annotate popup
    (see renderAnnotatePopup), stacked under the preview body instead of
-   floating — .article-annotate-swatches/.article-annotate-form are the
-   same layout rules the popup uses, just no longer inside a fixed-position
+   floating — .annotate-palette-row/.article-annotate-form are the same
+   layout rules the popup uses, just no longer inside a fixed-position
    .article-annotate-popup wrapper. */
 .preview-annotate {
   display: flex;
@@ -904,8 +966,7 @@ input[type="text"], input[type="url"], input[type="search"] {
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
-.preview-annotate .article-annotate-swatches {
-  grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+.preview-annotate .annotate-palette-row {
   max-width: 320px;
 }
 
@@ -1411,14 +1472,24 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
-.reflect-color-swatch-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
+/* Small color-only floating popup opened from a feed name in the unread
+   list's block header (see buildFeedHeader's onSetFeedColor in
+   articleList.js) — same floating chrome as .reflect-color-picker, just
+   narrower (no tags/comments to fit) and paired with .annotate-palette-row
+   for the swatch layout itself instead of owning it directly. */
+.annotate-palette-popup {
+  position: fixed;
+  z-index: 30;
+  width: 180px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
 .reflect-color-swatch {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border-radius: 50%;
   border: 2px solid transparent;
@@ -1495,4 +1566,17 @@ input[type="text"], input[type="url"], input[type="search"] {
   flex: 1;
   font-size: 0.85rem;
   padding: 4px 8px;
+}
+/* Same quiet-until-used treatment as .tag-add-input, scoped to the article
+   annotate popup/preview-pane copy specifically — reflect's own timeline
+   row already hides this input entirely until the row itself is hovered
+   (see .reflect-comment-form above), so it doesn't need a second layer of
+   dimming on top of that. */
+.article-annotate-form .reflect-comment-input {
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+.article-annotate-form .reflect-comment-input:hover,
+.article-annotate-form .reflect-comment-input:focus {
+  opacity: 1;
 }

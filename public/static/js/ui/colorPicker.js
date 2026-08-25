@@ -132,10 +132,9 @@ export function renderTagEditor(container, { tags, onAddTag, onRemoveTag }) {
   input.placeholder = "タグを追加…";
   input.className = "tag-add-input";
   form.appendChild(input);
-  const addBtn = document.createElement("button");
-  addBtn.type = "submit";
-  addBtn.textContent = "追加";
-  form.appendChild(addBtn);
+  // No visible submit button — a lone text input already submits its form
+  // on Enter, and a form this small doesn't need a second, redundant way to
+  // trigger the exact same thing right next to it.
   form.addEventListener("submit", (ev) => {
     ev.preventDefault();
     const text = input.value;

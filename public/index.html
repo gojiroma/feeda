@@ -58,6 +58,7 @@
         <div id="more-menu" class="more-menu hidden" role="menu">
           <button type="button" id="ng-word-btn" title="NGワードを管理" role="menuitem">NGワード</button>
           <button type="button" id="seed-btn" title="シードとAPIベースURLを表示" role="menuitem">シード</button>
+          <button type="button" id="shortcuts-btn" title="キーボードショートカット一覧" role="menuitem">キーボードショートカット</button>
         </div>
       </div>
     </header>
@@ -130,6 +131,25 @@
       <ul id="ng-word-list" class="ng-word-list"></ul>
       <div class="setup-row">
         <button id="ng-word-modal-close-btn" type="button" class="primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="shortcuts-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>キーボードショートカット</h1>
+      <ul class="shortcuts-list">
+        <li><kbd>j</kbd> / <kbd>k</kbd><span>次 / 前の記事</span></li>
+        <li><kbd>Enter</kbd> / <kbd>o</kbd><span>記事を新しいタブで開く</span></li>
+        <li><kbd>↑</kbd> <kbd>↓</kbd><span>フォーカス中のペインで選択移動（プレビューはスクロール）</span></li>
+        <li><kbd>←</kbd> <kbd>→</kbd><span>フィード・記事一覧・プレビュー間でフォーカス移動</span></li>
+        <li><kbd>m</kbd><span>選択中のフィード／グループをすべて既読に</span></li>
+        <li><kbd>u</kbd><span>すべての未読へ戻る</span></li>
+        <li><kbd>/</kbd><span>検索にフォーカス</span></li>
+        <li><kbd>?</kbd><span>このヘルプを表示</span></li>
+      </ul>
+      <div class="setup-row">
+        <button id="shortcuts-modal-close-btn" type="button" class="primary">閉じる</button>
       </div>
     </div>
   </div>
