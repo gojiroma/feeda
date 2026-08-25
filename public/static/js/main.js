@@ -1,5 +1,13 @@
 import { generateSeed, isValidSeed, deriveFeedId } from "./crypto.js";
-import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
+import {
+  loadStoredApiBase,
+  initSession,
+  initEphemeralSession,
+  endEphemeralSession,
+  resumeStoredSession,
+  getSession,
+} from "./session.js";
+import { consumeShareLink } from "./shareLink.js";
 import { getAllFeeds, getFeed, getEntriesByFeed, getAllSearchHistoryEntries, getAllLogEntries } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { syncLogNow } from "./logSync.js";
@@ -38,6 +46,7 @@ import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
 import { setupShortcutsModal } from "./ui/shortcutsModal.js";
 import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
+import { setupShareLinkUI } from "./ui/shareLinkModal.js";
 import { updateFavicon } from "./favicon.js";
 import { extractArticlePreview } from "./sanitize.js";
 
@@ -2423,10 +2432,34 @@ function wireApp() {
   setupWideGridRowResizing();
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
-  setupSeedModal(document.getElementById("seed-btn"), document.getElementById("seed-modal"), {
-    getSeed: () => getSession().seed,
-    getApiBase: () => getSession().apiBase,
-  });
+  // A share-link session (see session.js's initEphemeralSession) never gets
+  // the シード button or its own re-sharing options wired up at all: the
+  // whole point of that access is that whoever's using this tab is never
+  // shown the raw seed, and a temporary session re-sharing itself would
+  // undermine "closing the tab ends access". The ephemeral badge (with its
+  // own "今すぐ終了" button) stands in for it instead.
+  if (getSession().ephemeral) {
+    document.getElementById("seed-btn").classList.add("hidden");
+    const badgeEl = document.getElementById("ephemeral-badge");
+    badgeEl.classList.remove("hidden");
+    document.getElementById("ephemeral-end-btn").addEventListener("click", () => {
+      endEphemeralSession();
+      location.href = location.pathname;
+    });
+  } else {
+    setupSeedModal(document.getElementById("seed-btn"), document.getElementById("seed-modal"), {
+      getSeed: () => getSession().seed,
+      getApiBase: () => getSession().apiBase,
+    });
+    setupPairingShareUI({
+      getSeed: () => getSession().seed,
+      getApiBase: () => getSession().apiBase,
+    });
+    setupShareLinkUI({
+      getSeed: () => getSession().seed,
+      getApiBase: () => getSession().apiBase,
+    });
+  }
   setupNgWordModal(document.getElementById("ng-word-btn"), document.getElementById("ng-word-modal"), {
     onChange: () => {
       syncNgWordsNow().catch((err) => console.error("ng word sync failed", err));
@@ -2439,10 +2472,6 @@ function wireApp() {
         })
         .catch((err) => console.error("ng word reload failed", err));
     },
-  });
-  setupPairingShareUI({
-    getSeed: () => getSession().seed,
-    getApiBase: () => getSession().apiBase,
   });
   openShortcutsModal = setupShortcutsModal(
     document.getElementById("shortcuts-btn"),
@@ -2535,10 +2564,39 @@ function wireSetupScreen() {
   });
 }
 
+// Handles a `?share=<id>#k=<token>` URL (see shareLink.js) — consumes the
+// one-time link (this is the link's single "use", regardless of whether
+// decryption below succeeds) and starts an ephemeral session from it. The
+// query/fragment are stripped immediately via replaceState so a later
+// reload of this tab never re-attempts consuming an already-dead link, and
+// so the (now-spent) secret doesn't linger in the visible URL or history.
+async function tryConsumeShareLink() {
+  const url = new URL(location.href);
+  const shareId = url.searchParams.get("share");
+  if (!shareId) return false;
+  const apiBase = url.searchParams.get("api") || "";
+  const token = new URLSearchParams(url.hash.replace(/^#/, "")).get("k") || "";
+  history.replaceState(null, "", url.pathname);
+
+  try {
+    const { seed } = await consumeShareLink(apiBase, shareId, token);
+    await initEphemeralSession(seed, apiBase);
+  } catch (err) {
+    console.error("[feeda] share link consumption failed", err);
+    wireSetupScreen();
+    setupScreen.classList.remove("hidden");
+    document.getElementById("setup-error").textContent = `共有リンクを開けませんでした: ${err.message}`;
+    return true;
+  }
+  setupScreen.classList.add("hidden");
+  await startApp();
+  return true;
+}
+
 async function boot() {
-  const storedSeed = loadStoredSeed();
-  if (storedSeed) {
-    await initSession(storedSeed, loadStoredApiBase());
+  if (await tryConsumeShareLink()) return;
+  const session = await resumeStoredSession();
+  if (session) {
     setupScreen.classList.add("hidden");
     await startApp();
   } else {

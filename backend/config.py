@@ -38,6 +38,19 @@ class Config:
     RATE_LIMIT_PAIR_READ = os.environ.get("RATE_LIMIT_PAIR_READ", "10 per minute")
     RATE_LIMIT_PAIR_STATUS = os.environ.get("RATE_LIMIT_PAIR_STATUS", "60 per minute")
     PAIR_TTL_SECONDS = int(os.environ.get("PAIR_TTL_SECONDS", "180"))
+    # One-time share-link relay (URL-based "let someone else temporarily use
+    # my reader" hand-off — see routes/share_link.py). The id is a ~128-bit
+    # random string the client generates, not something worth brute-forcing
+    # a rate limit against the way the 6-digit pairing code is, so these
+    # limits exist mainly to keep a buggy client from hammering the endpoint
+    # rather than as the main access control (single-use consumption is).
+    RATE_LIMIT_SHARE_LINK_WRITE = os.environ.get("RATE_LIMIT_SHARE_LINK_WRITE", "20 per minute")
+    RATE_LIMIT_SHARE_LINK_READ = os.environ.get("RATE_LIMIT_SHARE_LINK_READ", "30 per minute")
+    # Longer than PAIR_TTL_SECONDS: a pairing code is meant to be typed into
+    # another device within a couple minutes of appearing on screen, while a
+    # share link is meant to be sent elsewhere (chat, email) and opened
+    # later.
+    SHARE_LINK_TTL_SECONDS = int(os.environ.get("SHARE_LINK_TTL_SECONDS", "1800"))
 
     @classmethod
     def require_database_url(cls):

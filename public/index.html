@@ -62,6 +62,10 @@
           <button type="button" id="opml-export-btn" title="購読フィード一覧をOPMLでダウンロード" role="menuitem">OPMLをエクスポート</button>
         </div>
       </div>
+      <span id="ephemeral-badge" class="ephemeral-badge hidden">
+        一時アクセス中（タブを閉じると終了）
+        <button type="button" id="ephemeral-end-btn">今すぐ終了</button>
+      </span>
     </header>
     <div class="filter-row">
       <div id="feed-color-filter" class="feed-color-filter"></div>
@@ -180,6 +184,10 @@
         <button id="seed-qr-share-btn" type="button">QRコードで共有</button>
         <button id="seed-code-share-btn" type="button">6桁コードで共有</button>
       </div>
+      <div class="setup-divider">シードを教えずに一時的に見せる</div>
+      <div class="setup-row setup-row--pairing">
+        <button id="seed-link-share-btn" type="button">一時URLで共有</button>
+      </div>
     </div>
   </div>
 
@@ -208,6 +216,26 @@
       <p class="pairing-status" id="code-share-status"></p>
       <div class="setup-row">
         <button id="code-share-close-btn" type="button" class="primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="link-share-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>一時URLで共有</h1>
+      <p>
+        このリンクを開いた人は、シードを見ることなく通常と同じ権限で「私のRSSリーダー」に一時的にアクセスできます。
+        リンクは一度開かれると使えなくなり、相手がタブを閉じるとそちらの端末からもアクセスできなくなります。
+        リンク自体は他人に見せないでください。
+      </p>
+      <label class="setup-label">
+        共有URL
+        <input id="link-share-url" type="text" readonly>
+      </label>
+      <p class="pairing-status" id="link-share-status"></p>
+      <div class="setup-row">
+        <button id="link-share-copy-btn" type="button">コピー</button>
+        <button id="link-share-close-btn" type="button" class="primary">閉じる</button>
       </div>
     </div>
   </div>
@@ -249,7 +277,12 @@
     #setup-screen and #app so getElementById can actually find them.
   -->
   <script>
-    if (localStorage.getItem("feeda:seed")) {
+    if (new URLSearchParams(location.search).has("share")) {
+      // A one-time share link (see shareLink.js) — main.js's boot() consumes
+      // it asynchronously and shows #app itself once that resolves. Leaving
+      // both screens hidden here avoids flashing #setup-screen first only to
+      // swap it out a moment later.
+    } else if (localStorage.getItem("feeda:seed") || sessionStorage.getItem("feeda:ephemeral:seed")) {
       document.getElementById("app").classList.remove("hidden");
     } else {
       document.getElementById("setup-screen").classList.remove("hidden");

@@ -370,6 +370,44 @@ input[type="text"], input[type="url"], input[type="search"] {
   background: var(--bg-alt);
 }
 
+/* Shown instead of the シード button when this tab is running a share-link
+   session (see session.js's initEphemeralSession/wireApp's ephemeral guard
+   in main.js) — a visible reminder that this access is borrowed and
+   temporary, plus a way to end it early without waiting to close the tab. */
+.ephemeral-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 6px 4px 12px;
+}
+.ephemeral-badge button {
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+}
+
+.next-fetch-bar {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: center;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
 .panes {
   flex: 1;
   display: flex;
