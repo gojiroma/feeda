@@ -6,6 +6,7 @@ const ENC_KEY_INFO = "feeda:enc-key";
 const FEED_ID_INFO = "feeda:feed-id";
 const SEARCH_ID_INFO = "feeda:search-id";
 const NG_WORD_ID_INFO = "feeda:ng-word-id";
+const SHARE_LINK_KEY_INFO = "feeda:share-link-key";
 
 function toBytes(str) {
   return new TextEncoder().encode(str);
@@ -69,6 +70,16 @@ export async function deriveAccountId(seed) {
 export async function deriveEncKey(seed) {
   const seedBytes = toBytes(seed.trim());
   const keyBytes = await hkdf(seedBytes, ENC_KEY_INFO, 32);
+  return crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+// Key for a one-time share link's payload (see shareLink.js). `token` is a
+// 128-bit random string that lives only in the share URL's fragment (never
+// sent to the server — see createShareLink), so unlike deriveKeyFromCode in
+// pairing.js this skips PBKDF2's cost-hardening: there's no small,
+// guessable keyspace here to slow down brute-forcing of.
+export async function deriveShareLinkKey(token) {
+  const keyBytes = await hkdf(toBytes(token.trim()), SHARE_LINK_KEY_INFO, 32);
   return crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
