@@ -1,6 +1,6 @@
 import { generateSeed, isValidSeed, deriveFeedId } from "./crypto.js";
 import { loadStoredSeed, loadStoredApiBase, initSession, getSession } from "./session.js";
-import { getAllFeeds, getFeed, getEntriesByFeed, getAllSearchHistoryEntries } from "./db.js";
+import { getAllFeeds, getFeed, getEntriesByFeed, getAllSearchHistoryEntries, getAllLogEntries } from "./db.js";
 import { syncNow, markFeedDirty } from "./sync.js";
 import { syncLogNow } from "./logSync.js";
 import { syncSearchHistoryNow } from "./searchSync.js";
@@ -847,6 +847,66 @@ function changeReflectDate(deltaDays) {
 function jumpReflectToToday() {
   state.reflectDate = dateStrOf();
   renderReflect().catch((err) => console.error("reflect render failed", err));
+}
+
+// Shared by exportReflectJson/exportOpml — an object URL only needs to
+// survive long enough for the click to start the save, so it's revoked
+// right after rather than left to leak for the rest of the session.
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// 振り返る画面のエクスポートボタン — 開いた・コメントした・色/タグを付けた
+// という記録(logEntries)全件を、日付で絞らずまるごとJSONに書き出す。他の
+// フィールドと違って同期用のdirty/clientUpdatedAtも含めて書き出す(単なる
+// バックアップ/自分用データなので、そのまま読み直せる形を優先し、あえて
+// 削らない)。
+async function exportReflectJson() {
+  const entries = await getAllLogEntries();
+  entries.sort((a, b) => (a.openedAt || "").localeCompare(b.openedAt || ""));
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    count: entries.length,
+    entries,
+  };
+  downloadFile(`feeda-reflect-${dateStrOf()}.json`, JSON.stringify(payload, null, 2), "application/json");
+}
+
+// "⋯" メニューのOPMLエクスポート — state.feedsById（loadAppDataで
+// deletedAt済みは既に除外されている、今まさに購読中のフィード一覧）を
+// そのままOPML 2.0として書き出す。一時停止中のフィードも含める(購読を
+// やめたわけではないため)。
+function exportOpml() {
+  const escapeXml = (str) =>
+    String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const outlines = [...state.feedsById.values()]
+    .map((feed) => {
+      const title = escapeXml(feed.title || feed.url);
+      return `    <outline text="${title}" title="${title}" type="rss" xmlUrl="${escapeXml(feed.url)}" />`;
+    })
+    .join("\n");
+  const opml = `<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>feeda subscriptions</title>
+    <dateCreated>${new Date().toUTCString()}</dateCreated>
+  </head>
+  <body>
+${outlines}
+  </body>
+</opml>
+`;
+  downloadFile(`feeda-subscriptions-${dateStrOf()}.opml`, opml, "text/x-opml");
 }
 
 // Used by the day-chart bars (see renderDayChart) to jump straight to the
@@ -2413,6 +2473,10 @@ function wireApp() {
   document.getElementById("reflect-prev-day").addEventListener("click", () => changeReflectDate(-1));
   document.getElementById("reflect-next-day").addEventListener("click", () => changeReflectDate(1));
   document.getElementById("reflect-today-btn").addEventListener("click", jumpReflectToToday);
+  document.getElementById("reflect-export-btn").addEventListener("click", () => {
+    exportReflectJson().catch((err) => console.error("reflect export failed", err));
+  });
+  document.getElementById("opml-export-btn").addEventListener("click", exportOpml);
   // Re-render across the mobile/tablet/desktop/wide-grid breakpoints (window
   // resize, or a foldable/rotation crossing one) so the right layout's
   // markup is kept up to date even if it wasn't the active one a moment ago.
