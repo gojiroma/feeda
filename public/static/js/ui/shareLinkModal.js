@@ -1,4 +1,4 @@
-import { createShareLink } from "../shareLink.js";
+import { createShareLink, invalidateShareLink } from "../shareLink.js";
 
 function formatExpiry(expiresAtIso) {
   const d = new Date(expiresAtIso);
@@ -22,12 +22,27 @@ export function setupShareLinkUI({ getSeed, getApiBase }) {
     modal.classList.add("hidden");
   }
 
+  // The link just shown, if any — so generating a new one can invalidate it
+  // first (see below). SHARE_LINK_TTL_SECONDS is hours-long, so without
+  // this a re-share (e.g. the first link went to the wrong person, or the
+  // owner just wants a fresh one) would leave the old link sitting around
+  // valid for hours instead of expiring with the modal.
+  let lastGeneratedId = null;
+
   openBtn.addEventListener("click", async () => {
     urlInput.value = "";
     statusEl.textContent = "リンクを発行しています…";
     modal.classList.remove("hidden");
+    const apiBase = getApiBase();
+    if (lastGeneratedId) {
+      invalidateShareLink(apiBase, lastGeneratedId).catch((err) =>
+        console.error("[feeda] previous share link invalidation failed", err)
+      );
+      lastGeneratedId = null;
+    }
     try {
-      const { url, expiresAt } = await createShareLink(getApiBase(), getSeed());
+      const { id, url, expiresAt } = await createShareLink(apiBase, getSeed());
+      lastGeneratedId = id;
       urlInput.value = url;
       statusEl.textContent = `このリンクを開くと一回だけアクセスできます（${formatExpiry(expiresAt)}まで有効）。相手がタブを閉じるとアクセスできなくなります。`;
     } catch (err) {

@@ -76,6 +76,28 @@ def put_share_link(id):
     return jsonify(expiresAt=expires_at.isoformat())
 
 
+@share_link_bp.delete("/api/share-link/<id>")
+@limiter.limit(lambda: Config.RATE_LIMIT_SHARE_LINK_WRITE)
+def delete_share_link(id):
+    # Lets the sharing device invalidate a link it just generated (see
+    # setupShareLinkUI in shareLinkModal.js — called right before PUTting a
+    # replacement, so only the most recently generated link is ever valid)
+    # without waiting out its own TTL. Same "no ownership check beyond
+    # knowing the id" reasoning as every other route here, and same
+    # "already gone is still a success" idempotency as pair.py's own delete
+    # route — the caller's goal ("this link no longer works") already holds
+    # either way.
+    if not ID_RE.match(id):
+        return jsonify(error="invalid id"), 400
+
+    ensure_schema()
+    pool = get_pool()
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM share_link_rows WHERE id = %s", (id,))
+
+    return "", 204
+
+
 @share_link_bp.get("/api/share-link/<id>")
 @limiter.limit(lambda: Config.RATE_LIMIT_SHARE_LINK_READ)
 def get_share_link(id):

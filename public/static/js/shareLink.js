@@ -48,7 +48,20 @@ export async function createShareLink(apiBase, seed) {
   url.searchParams.set("share", id);
   if (apiBase) url.searchParams.set("api", apiBase);
   url.hash = `k=${token}`;
-  return { url: url.toString(), expiresAt: body.expiresAt };
+  // id is also handed back (not just embedded in url) so a caller generating
+  // a replacement link later can invalidate this one first — see
+  // invalidateShareLink below and setupShareLinkUI in shareLinkModal.js.
+  return { id, url: url.toString(), expiresAt: body.expiresAt };
+}
+
+// Invalidates a link this device generated earlier — see setupShareLinkUI
+// in shareLinkModal.js, which calls this right before generating a
+// replacement so only the most recently generated link is ever valid.
+// Best-effort: a network failure here just means the old link keeps
+// working until its own (multi-hour, see SHARE_LINK_TTL_SECONDS) expiry,
+// not a reason to block generating the new one.
+export async function invalidateShareLink(apiBase, id) {
+  await fetch(apiUrl(apiBase, `/api/share-link/${id}`), { method: "DELETE" });
 }
 
 // Fetches and decrypts the seed for (id, token) — this is the single "use"
