@@ -1621,10 +1621,16 @@ async function advanceProgress(entry) {
 // merely passing over an item on its way elsewhere must never mark it (or
 // a feed's newest article) read — that was the "だるま落とし" bug, where
 // sweeping the cursor down the list read everything it crossed.
+//
+// Picks the top entry the same way the article list itself does — NG-word
+// filtered (see filterByNgWords) — so the preview pane never shows an entry
+// the list is hiding. selectFeed still advances read state past the feed's
+// true newest entry (NG-matched or not; see its own comment), just without
+// ever previewing it.
 function previewFeed(feedId) {
   state.selectedFeedId = feedId;
   state.selectedFeedGroupIds = null;
-  state.selectedEntry = sortedEntriesForFeed(feedId)[0] || null;
+  state.selectedEntry = filterByNgWords(sortedEntriesForFeed(feedId))[0] || null;
   setFocusedPane("feed");
   render();
 }
@@ -1742,8 +1748,12 @@ async function markAllVisibleEntriesRead(entries, containerEl) {
 // Deliberate action (click, keyboard nav) — previews AND advances read
 // state right away.
 async function selectFeed(feedId) {
+  // The entry read state advances past is the feed's actual newest entry,
+  // not previewFeed's (now NG-filtered) state.selectedEntry — an NG-matched
+  // newest entry still gets read past (see previewFeed's own comment), it
+  // just never becomes the preview.
+  const topEntry = sortedEntriesForFeed(feedId)[0] || null;
   previewFeed(feedId);
-  const topEntry = state.selectedEntry;
   if (topEntry) await advanceProgress(topEntry);
 }
 
