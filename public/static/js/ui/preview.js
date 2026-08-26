@@ -28,15 +28,41 @@ function youtubeVideoId(link) {
   return null;
 }
 
+function buildVideoWrap(videoId, title) {
+  const wrap = document.createElement("div");
+  wrap.className = "preview-video";
+  const iframe = document.createElement("iframe");
+  iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`;
+  iframe.title = title || "YouTube video";
+  iframe.frameBorder = "0";
+  iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+  iframe.allowFullscreen = true;
+  wrap.appendChild(iframe);
+  return wrap;
+}
+
 export function renderPreview(
   container,
   entry,
   query,
   { onLinkClick, logEntry, onSetColor, onAddComment, onAddTag, onRemoveTag } = {}
 ) {
+  // Coloring/commenting an entry from the preview pane's own annotate
+  // section re-renders the whole preview (see main.js's setEntryLogColor/
+  // addEntryLogComment → render() → renderPreview) even though the entry
+  // being previewed hasn't changed. A plain rebuild would tear down and
+  // recreate the YouTube <iframe> below, which reloads the embed and blows
+  // away playback position/state for no reason — so when the same video is
+  // still showing, the existing iframe wrapper is pulled out before the
+  // container is cleared and reused as-is instead of rebuilt.
+  const videoId = entry ? youtubeVideoId(entry.link) : null;
+  const reusableVideoWrap =
+    videoId && container.dataset.previewVideoId === videoId ? container.querySelector(".preview-video") : null;
+
   container.innerHTML = "";
 
   if (!entry) {
+    delete container.dataset.previewVideoId;
     const hint = document.createElement("p");
     hint.className = "empty-hint";
     hint.textContent = "記事を選択してください。";
@@ -57,18 +83,11 @@ export function renderPreview(
   meta.textContent = parts.join(" ・ ");
   container.appendChild(meta);
 
-  const videoId = youtubeVideoId(entry.link);
   if (videoId) {
-    const wrap = document.createElement("div");
-    wrap.className = "preview-video";
-    const iframe = document.createElement("iframe");
-    iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`;
-    iframe.title = entry.title || "YouTube video";
-    iframe.frameBorder = "0";
-    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
-    iframe.allowFullscreen = true;
-    wrap.appendChild(iframe);
-    container.appendChild(wrap);
+    container.appendChild(reusableVideoWrap || buildVideoWrap(videoId, entry.title));
+    container.dataset.previewVideoId = videoId;
+  } else {
+    delete container.dataset.previewVideoId;
   }
 
   if (entry.link) {
