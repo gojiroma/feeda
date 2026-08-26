@@ -1999,14 +1999,24 @@ async function refreshAll() {
   // history yet can use it) breaks ties within each of those two groups,
   // most-frequent-first, same as before this split existed.
   const now = Date.now();
+  // A share-link recipient's ephemeral tab (see session.js) shares the same
+  // IndexedDB as the owner's own device, so most feeds already have a fresh
+  // nextCheckAt from the owner's regular visits and would otherwise look
+  // "not due" here — leaving the person being shown around staring at
+  // whatever was already cached instead of a live crawl. Ephemeral sessions
+  // are short-lived and single-tab by construction, so skipping the
+  // due-schedule gate for the one round on open doesn't create the
+  // every-visit-refetches-everything problem MAX_FETCHES_PER_SESSION and the
+  // schedule normally guard against.
+  const isEphemeral = Boolean(getSession().ephemeral);
   let dueFeeds = [...state.feedsById.values()]
     .filter((feed) => !feed.paused)
-    .filter((feed) => !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
+    .filter((feed) => isEphemeral || !feed.nextCheckAt || new Date(feed.nextCheckAt).getTime() <= now)
     // Low-frequency feeds only get checked on their own assigned weekday
     // (see isCheckDayForFeed) — a large tail of monthly/rare/unknown feeds
     // shouldn't compete for fetch time every single day just because their
     // own nextCheckAt has lapsed.
-    .filter((feed) => isCheckDayForFeed(feed))
+    .filter((feed) => isEphemeral || isCheckDayForFeed(feed))
     .sort((a, b) => {
       const unreadDiff = Number(hasUnread(b)) - Number(hasUnread(a));
       if (unreadDiff !== 0) return unreadDiff;
