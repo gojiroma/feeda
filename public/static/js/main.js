@@ -56,6 +56,7 @@ const feedListEl = document.getElementById("feed-list");
 const feedColorFilterEl = document.getElementById("feed-color-filter");
 const searchInputEl = document.getElementById("search-input");
 const articleListEl = document.getElementById("article-list");
+const articlePaneEl = document.getElementById("article-pane");
 const articleListActionsEl = document.getElementById("article-list-actions");
 const showReadToggleWrapEl = document.getElementById("show-read-toggle-wrap");
 const showReadToggleInputEl = document.getElementById("show-read-toggle");
@@ -1039,6 +1040,18 @@ function renderDesktop() {
   // one of the three grouped by feed (see groupByFeed) — a single feed or
   // group's own list has nothing to group by, and search results are
   // ranked by relevance, not by feed.
+  // Scroll-to-read for the 3-pane layout's own article pane (articlePaneEl) —
+  // same IntersectionObserver-per-row technique as renderMobile's own
+  // mobileReadObserver, just rooted at the desktop pane instead. Rebuilt on
+  // every render since the rows themselves get torn down and recreated
+  // below regardless (renderArticleList replaces #article-list's innerHTML).
+  desktopReadObserver?.disconnect();
+  desktopReadObserver = new IntersectionObserver(handleDesktopScrollIntersections, {
+    root: articlePaneEl,
+    threshold: 0,
+  });
+  desktopScrollEntries = new Map(entries.map((e) => [e.id, e]));
+
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
@@ -1048,6 +1061,7 @@ function renderDesktop() {
     onSelect: openEntry,
     onHover: isAllUnreadView ? previewEntryAndMarkRead : previewEntry,
     onAnnotate: openAnnotateForEntry,
+    onRowMounted: (li) => desktopReadObserver.observe(li),
     logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
@@ -1521,15 +1535,19 @@ function renderMobile() {
 
 let mobileReadObserver = null;
 let mobileScrollEntries = new Map();
-let mobileSyncDebounceTimer = null;
-
 function handleMobileScrollIntersections(observerEntries) {
   for (const oe of observerEntries) {
     // Only care about rows that scrolled *past* (exited above the visible
     // area) — not ones below the fold that haven't been seen yet, and not
     // the initial "not intersecting yet" report some browsers fire on
-    // observe() for elements already off-screen below.
-    if (oe.isIntersecting || !oe.rootBounds) continue;
+    // observe() for elements already off-screen below. rootBounds.height
+    // being 0 is a *different* spurious initial report some browsers fire
+    // for a row observed before the very first layout pass has actually
+    // run: every field on it (including boundingClientRect) is still zeroed
+    // out, so 0 > 0 is false and would otherwise slip straight past the
+    // check above it and get treated as "already scrolled past the top" —
+    // instantly marking the entire freshly-loaded list read on mount.
+    if (oe.isIntersecting || !oe.rootBounds || oe.rootBounds.height === 0) continue;
     if (oe.boundingClientRect.bottom > oe.rootBounds.top) continue;
 
     const entry = mobileScrollEntries.get(oe.target.dataset.entryId);
@@ -1541,10 +1559,18 @@ async function markReadOnScroll(entry, liEl) {
   const updated = await advanceReadState(entry);
   if (!updated) return;
   liEl.classList.remove("unread");
-  // Debounce the actual network sync: flicking past a long run of unread
-  // items would otherwise fire one push+pull per item in quick succession.
-  clearTimeout(mobileSyncDebounceTimer);
-  mobileSyncDebounceTimer = setTimeout(() => {
+  scheduleScrollSync();
+}
+
+// Shared by markReadOnScroll (mobile and desktop's own per-row scroll
+// marking) and markAllVisibleEntriesRead (desktop's reached-the-bottom
+// batch) below — debounces the actual network sync so flicking past a long
+// run of unread items fires one push+pull once things settle, not one per
+// item/batch in quick succession.
+let scrollSyncDebounceTimer = null;
+function scheduleScrollSync() {
+  clearTimeout(scrollSyncDebounceTimer);
+  scrollSyncDebounceTimer = setTimeout(() => {
     syncNow().catch((err) => console.error("sync failed", err));
   }, 1000);
 }
@@ -1655,6 +1681,62 @@ async function previewEntryAndMarkRead(entry) {
   const updated = await advanceReadState(entry);
   render();
   if (updated) syncNow().catch((err) => console.error("sync failed", err));
+}
+
+// Desktop 3-pane counterpart to renderMobile's own mobileReadObserver below
+// — same IntersectionObserver-per-row technique, just rooted at articlePaneEl
+// instead of mobileListEl. Set up fresh in renderDesktop() on every render
+// (old observed rows are gone once #article-list's innerHTML is replaced
+// anyway), never in renderWideGrid() — wide-grid's columns scroll
+// independently of articlePaneEl, and this is deliberately just the plain
+// 3-pane layout's own behavior.
+let desktopReadObserver = null;
+let desktopScrollEntries = new Map();
+
+function handleDesktopScrollIntersections(observerEntries) {
+  for (const oe of observerEntries) {
+    // See handleMobileScrollIntersections' own comment on the
+    // rootBounds.height === 0 guard — same spurious pre-layout initial
+    // report, same fix.
+    if (oe.isIntersecting || !oe.rootBounds || oe.rootBounds.height === 0) continue;
+    if (oe.boundingClientRect.bottom > oe.rootBounds.top) continue;
+    const entry = desktopScrollEntries.get(oe.target.dataset.entryId);
+    if (entry) markReadOnScroll(entry, oe.target);
+  }
+}
+
+// The IntersectionObserver above only ever catches a row once it's fully
+// scrolled past the *top* of the pane — the last handful of rows at the very
+// end of a list can sit at rest against the pane's bottom edge forever
+// without ever doing that, even once there's nothing left to scroll to. This
+// covers that case: once the pane's scroll position bottoms out, whatever's
+// still marked unread and currently in the list is right there on screen
+// and has been seen, so it all catches up at once, same as the per-row path
+// just does it in a single batch instead of one row at a time.
+function handleArticlePaneScrollBottom() {
+  if (isMobileLayout() || isTabletTwoPaneLayout() || isWideGridLayout()) return;
+  if (desktopScrollEntries.size === 0) return;
+  // A pane that hasn't actually been laid out yet reads 0 for both
+  // clientHeight and scrollHeight, which would trivially satisfy "at
+  // bottom" below — same class of pre-layout false positive as the
+  // IntersectionObserver's own rootBounds.height guard above.
+  if (articlePaneEl.clientHeight === 0) return;
+  const atBottom = articlePaneEl.scrollTop + articlePaneEl.clientHeight >= articlePaneEl.scrollHeight - 4;
+  if (!atBottom) return;
+  markAllVisibleEntriesRead(desktopScrollEntries.values(), articleListEl);
+}
+
+async function markAllVisibleEntriesRead(entries, containerEl) {
+  let changedAny = false;
+  for (const entry of entries) {
+    const updated = await advanceReadState(entry);
+    if (updated) changedAny = true;
+  }
+  if (!changedAny) return;
+  for (const li of containerEl.querySelectorAll(".article-item.unread")) {
+    li.classList.remove("unread");
+  }
+  scheduleScrollSync();
 }
 
 // Deliberate action (click, keyboard nav) — previews AND advances read
@@ -2452,6 +2534,7 @@ function wireApp() {
   setupPaneResizing();
   setupWideGridRowResizing();
   wireKeyboardNav();
+  articlePaneEl.addEventListener("scroll", handleArticlePaneScrollBottom, { passive: true });
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
   // A share-link session (see session.js's initEphemeralSession) never gets
   // the シード button or its own re-sharing options wired up at all: the

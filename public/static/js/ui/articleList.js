@@ -84,13 +84,14 @@ export function renderAnnotatePopup(container, { logEntry, onSetColor, onAddComm
   if (autoFocus) input.focus();
 }
 
-function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, logByEntryId, showFeedName }) {
+function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, onRowMounted, logByEntryId, showFeedName }) {
   const logEntry = logByEntryId ? logByEntryId.get(entry.id) : null;
   const comments = logEntry ? logEntry.comments || [] : [];
   const tags = logEntry ? logEntry.tags || [] : [];
   const rgb = logEntry && logEntry.color && COLOR_BY_KEY.get(logEntry.color);
 
   const li = document.createElement("li");
+  li.dataset.entryId = entry.id;
   li.className =
     "article-item" +
     (entry.id === selectedEntryId ? " selected" : "") +
@@ -172,6 +173,11 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
       onOpenRequest: (x, y) => onAnnotate(entry, x, y),
     });
   }
+
+  // Lets a caller hook each row as it's built — see main.js's
+  // desktopReadObserver, which observes every row for its own
+  // scroll-to-read handling (mirroring renderMobileList's identical hook).
+  onRowMounted?.(li, entry);
 
   return li;
 }
@@ -299,6 +305,7 @@ export function renderArticleList(
     onSelect,
     onHover,
     onAnnotate,
+    onRowMounted,
     logByEntryId,
     showFeedName,
     emptyHint,
@@ -343,7 +350,7 @@ export function renderArticleList(
     return;
   }
 
-  const itemProps = { feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, logByEntryId };
+  const itemProps = { feedTitleById, selectedEntryId, query, isUnread, onSelect, onHover, onAnnotate, onRowMounted, logByEntryId };
 
   if (groupByFeed) {
     // Each feed gets its own header (name + pause button) and its own <ul>,
