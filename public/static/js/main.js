@@ -1772,9 +1772,20 @@ function renderArticleListActions() {
 // means clicking through moments after selecting the same article won't
 // double-log it, but clicking through later (or on an article that was only
 // ever glanced at in the preview, not actually followed) still will.
+//
+// Caches whatever recordOpen actually wrote into state.logByEntryId — without
+// this, right-clicking the same entry moments later (e.g. to color/comment it
+// right after opening it — common in the all-unread view, where a read entry
+// stays put in the frozen timeline instead of disappearing) found nothing in
+// the cache, called recordOpen a second time, and got back null from its
+// chatter guard instead of the entry this call just created — silently
+// failing to open the annotate popup at all.
 function logOpen(entry) {
   recordOpen(entry, state.feedsById.get(entry.feedId))
-    .then(() => scheduleLogSync())
+    .then((logEntry) => {
+      if (logEntry) state.logByEntryId.set(entry.id, logEntry);
+      scheduleLogSync();
+    })
     .catch((err) => console.error("log record failed", err));
 }
 
