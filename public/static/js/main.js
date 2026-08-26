@@ -237,9 +237,13 @@ function isUnread(entry, feed) {
   return pub > readUntil;
 }
 
+// NG-word filtered the same way the article list itself is (see
+// filterByNgWords) — otherwise a feed whose only unread entries are all
+// NG-matched still shows an unread dot/badge and gets fetch priority even
+// though opening it renders an empty "未読の記事はありません" list.
 function hasUnread(feed) {
   const entries = state.entriesByFeed.get(feed.feedId) || [];
-  return entries.some((e) => isUnread(e, feed));
+  return entries.some((e) => isUnread(e, feed) && !matchesAnyNgWord(e.title, state.ngWords));
 }
 
 function countUnreadSources() {

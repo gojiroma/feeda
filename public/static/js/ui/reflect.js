@@ -113,6 +113,7 @@ function attachColorPicker(li, logEntry, onSetColor, onAddTag, onRemoveTag) {
 function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag) {
   const li = document.createElement("li");
   li.className = "reflect-log-item";
+  li.dataset.logId = logEntry.id;
   const rgb = logEntry.color && COLOR_BY_KEY.get(logEntry.color);
   if (rgb) {
     li.classList.add("reflect-log-item--colored");
@@ -224,6 +225,26 @@ export function renderLogColorFilter(container, { entries, activeColors, onToggl
 }
 
 export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onAddTag, onRemoveTag, emptyHint }) {
+  // Same rebuild-wipes-live-state problem the picker comment below already
+  // works around, but for a comment mid-typed into one entry's (normally
+  // hover/focus-revealed — see .reflect-comment-form in style.css) comment
+  // box: this whole timeline redraws on the REFLECT_LIVE_REFRESH_MS timer
+  // and on regaining tab focus (see main.js), neither of which reflects the
+  // user actually doing anything. Only restore it onto the same log entry's
+  // box (never leak a draft onto a different entry after the list reorders)
+  // and only when that input still has focus.
+  const focusedCommentLi = document.activeElement?.closest?.(".reflect-log-item");
+  const focusedCommentInput = focusedCommentLi?.querySelector(".reflect-comment-input");
+  const preservedComment =
+    focusedCommentInput && document.activeElement === focusedCommentInput
+      ? {
+          logId: focusedCommentLi.dataset.logId,
+          value: focusedCommentInput.value,
+          selectionStart: focusedCommentInput.selectionStart,
+          selectionEnd: focusedCommentInput.selectionEnd,
+        }
+      : null;
+
   container.innerHTML = "";
   // The picker lives in document.body (see openColorPicker), so rebuilding
   // this list doesn't touch it — closing it unconditionally on every redraw
@@ -247,6 +268,16 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
   ul.className = "reflect-timeline-list";
   for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag));
   container.appendChild(ul);
+
+  if (preservedComment) {
+    const restoredLi = ul.querySelector(`.reflect-log-item[data-log-id="${CSS.escape(preservedComment.logId)}"]`);
+    const restoredInput = restoredLi?.querySelector(".reflect-comment-input");
+    if (restoredInput) {
+      restoredInput.value = preservedComment.value;
+      restoredInput.focus();
+      restoredInput.setSelectionRange(preservedComment.selectionStart, preservedComment.selectionEnd);
+    }
+  }
 }
 
 // The trend strip inside the day-nav header (see main.js's renderReflect

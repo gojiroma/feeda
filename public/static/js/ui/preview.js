@@ -59,16 +59,40 @@ export function renderPreview(
   const reusableVideoWrap =
     videoId && container.dataset.previewVideoId === videoId ? container.querySelector(".preview-video") : null;
 
+  // Same rebuild-wipes-live-state problem as the video iframe above, but for
+  // the annotate section's "add a comment" input: renderPreview reruns on
+  // every app render, including a mere mouseenter over another article-list
+  // row or a background sync completing (see main.js's previewFeed/
+  // previewEntry and periodic refreshAll/scheduleLogSync) — none of which
+  // change what's being previewed. Without this, a comment mid-typed here
+  // gets silently wiped by the rebuild below. Only restore it when it's
+  // still the same entry being previewed (a real navigation to a different
+  // entry must not leak one entry's unsent draft into another's box) and the
+  // input still had focus (nothing to preserve otherwise).
+  const sameEntry = entry && container.dataset.previewEntryId === entry.id;
+  const previousCommentInput = sameEntry ? container.querySelector(".preview-annotate .reflect-comment-input") : null;
+  const preservedComment =
+    previousCommentInput && document.activeElement === previousCommentInput
+      ? {
+          value: previousCommentInput.value,
+          selectionStart: previousCommentInput.selectionStart,
+          selectionEnd: previousCommentInput.selectionEnd,
+        }
+      : null;
+
   container.innerHTML = "";
 
   if (!entry) {
     delete container.dataset.previewVideoId;
+    delete container.dataset.previewEntryId;
     const hint = document.createElement("p");
     hint.className = "empty-hint";
     hint.textContent = "記事を選択してください。";
     container.appendChild(hint);
     return;
   }
+
+  container.dataset.previewEntryId = entry.id;
 
   const h2 = document.createElement("h2");
   h2.className = "preview-title";
@@ -120,5 +144,14 @@ export function renderPreview(
     annotateWrap.className = "preview-annotate";
     renderAnnotatePopup(annotateWrap, { logEntry, onSetColor, onAddComment, onAddTag, onRemoveTag, autoFocus: false });
     container.appendChild(annotateWrap);
+
+    if (preservedComment) {
+      const newCommentInput = annotateWrap.querySelector(".reflect-comment-input");
+      if (newCommentInput) {
+        newCommentInput.value = preservedComment.value;
+        newCommentInput.focus();
+        newCommentInput.setSelectionRange(preservedComment.selectionStart, preservedComment.selectionEnd);
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 import { encryptJson, decryptJson } from "./crypto.js";
 import { getAllSearchHistoryEntries, getSearchHistoryEntry, putSearchHistoryEntry, getMeta, setMeta } from "./db.js";
 import { getSession } from "./session.js";
+import { serialized } from "./syncGuard.js";
 
 // Same push/pull-by-cursor protocol as sync.js/logSync.js, against a
 // separate search-sync endpoint/table — see backend/routes/search_sync.py.
@@ -44,7 +45,12 @@ export async function pushDirtySearchHistory() {
 
   for (const entry of dirtyEntries) {
     if (result.applied.includes(entry.searchId)) {
-      await putSearchHistoryEntry({ ...entry, dirty: false });
+      // See sync.js's pushDirtyFeeds for why this re-reads the current row
+      // instead of trusting the pre-fetch `entry` snapshot.
+      const current = await getSearchHistoryEntry(entry.query);
+      if (current && current.clientUpdatedAt === entry.clientUpdatedAt) {
+        await putSearchHistoryEntry({ ...current, dirty: false });
+      }
     }
     // skipped rows mean the server already had a newer version (e.g. the
     // same query searched again on another device); the next pull
@@ -81,7 +87,9 @@ export async function pullSearchHistoryUpdates() {
   await setMeta(CURSOR_KEY, serverTime);
 }
 
-export async function syncSearchHistoryNow() {
+// Wrapped in serialized() so overlapping callers (see syncGuard.js) never
+// run two push+pull cycles at once.
+export const syncSearchHistoryNow = serialized(async function syncSearchHistoryNow() {
   await pushDirtySearchHistory();
   await pullSearchHistoryUpdates();
-}
+});

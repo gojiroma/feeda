@@ -1,6 +1,7 @@
 import { encryptJson, decryptJson } from "./crypto.js";
 import { getAllNgWords, getNgWord, putNgWord, getMeta, setMeta } from "./db.js";
 import { getSession } from "./session.js";
+import { serialized } from "./syncGuard.js";
 
 // Same push/pull-by-cursor protocol as sync.js/searchSync.js, against a
 // separate ng-word-sync endpoint/table — see backend/routes/ng_word_sync.py.
@@ -44,7 +45,12 @@ export async function pushDirtyNgWords() {
 
   for (const entry of dirtyEntries) {
     if (result.applied.includes(entry.ngWordId)) {
-      await putNgWord({ ...entry, dirty: false });
+      // See sync.js's pushDirtyFeeds for why this re-reads the current row
+      // instead of trusting the pre-fetch `entry` snapshot.
+      const current = await getNgWord(entry.word);
+      if (current && current.clientUpdatedAt === entry.clientUpdatedAt) {
+        await putNgWord({ ...current, dirty: false });
+      }
     }
     // skipped rows mean the server already had a newer version; the next
     // pull reconciles it.
@@ -81,7 +87,9 @@ export async function pullNgWordUpdates() {
   await setMeta(CURSOR_KEY, serverTime);
 }
 
-export async function syncNgWordsNow() {
+// Wrapped in serialized() so overlapping callers (see syncGuard.js) never
+// run two push+pull cycles at once.
+export const syncNgWordsNow = serialized(async function syncNgWordsNow() {
   await pushDirtyNgWords();
   await pullNgWordUpdates();
-}
+});

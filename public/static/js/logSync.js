@@ -1,6 +1,7 @@
 import { encryptJson, decryptJson } from "./crypto.js";
-import { getAllLogEntries, putLogEntry, getMeta, setMeta } from "./db.js";
+import { getAllLogEntries, getLogEntry, putLogEntry, getMeta, setMeta } from "./db.js";
 import { getSession } from "./session.js";
+import { serialized } from "./syncGuard.js";
 
 // Same push/pull-by-cursor protocol as sync.js, against a separate
 // log-sync endpoint/table — see backend/routes/log_sync.py for why a log
@@ -55,7 +56,14 @@ export async function pushDirtyLogEntries() {
 
   for (const entry of dirtyEntries) {
     if (result.applied.includes(entry.id)) {
-      await putLogEntry({ ...entry, dirty: false });
+      // See sync.js's pushDirtyFeeds for why this re-reads the current row
+      // instead of trusting the pre-fetch `entry` snapshot — a comment or
+      // color added to this same log entry while the push was in flight
+      // must not get clobbered back to dirty:false by the stale snapshot.
+      const current = await getLogEntry(entry.id);
+      if (current && current.clientUpdatedAt === entry.clientUpdatedAt) {
+        await putLogEntry({ ...current, dirty: false });
+      }
     }
     // skipped rows mean the server already had a newer version (e.g. a
     // comment added on another device); the next pull reconciles it.
@@ -103,7 +111,9 @@ async function getExistingLogEntry(logId) {
   return entries.find((e) => e.id === logId) || null;
 }
 
-export async function syncLogNow() {
+// Wrapped in serialized() so overlapping callers (see syncGuard.js) never
+// run two push+pull cycles at once.
+export const syncLogNow = serialized(async function syncLogNow() {
   await pushDirtyLogEntries();
   await pullLogUpdates();
-}
+});

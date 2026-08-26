@@ -1,6 +1,7 @@
 import { encryptJson, decryptJson } from "./crypto.js";
-import { getAllFeeds, putFeed, getMeta, setMeta } from "./db.js";
+import { getAllFeeds, getFeed, putFeed, getMeta, setMeta } from "./db.js";
 import { getSession } from "./session.js";
+import { serialized } from "./syncGuard.js";
 
 const CURSOR_KEY = "syncCursor";
 
@@ -63,7 +64,17 @@ export async function pushDirtyFeeds() {
 
   for (const feed of dirtyFeeds) {
     if (result.applied.includes(feed.feedId)) {
-      await putFeed({ ...feed, dirty: false });
+      // Re-read the current row rather than trusting the pre-fetch `feed`
+      // snapshot: if the user edited this feed again while the push was in
+      // flight, that edit has a newer clientUpdatedAt and dirty:true, and
+      // blindly writing back the stale snapshot with dirty:false would
+      // silently discard it (it would look already-synced and never get
+      // pushed). Only clear dirty if nothing changed since this row's
+      // snapshot was taken.
+      const current = await getFeed(feed.feedId);
+      if (current && current.clientUpdatedAt === feed.clientUpdatedAt) {
+        await putFeed({ ...current, dirty: false });
+      }
     }
     // skipped rows mean the server already had a newer version; the next
     // pull will reconcile local state with it.
@@ -133,10 +144,12 @@ async function getExistingFeed(feedId) {
 // more-advanced readUntil another device already pushed *before* this
 // device's own dirty row goes out, instead of overwriting it. See
 // pullUpdates' readUntil merge above for the other half of this.
-export async function syncNow() {
+// Wrapped in serialized() so overlapping callers (see syncGuard.js) never
+// run two pull+push cycles at once.
+export const syncNow = serialized(async function syncNow() {
   await pullUpdates();
   await pushDirtyFeeds();
-}
+});
 
 export async function markFeedDirty(feed) {
   await putFeed({ ...feed, clientUpdatedAt: new Date().toISOString(), dirty: true });
