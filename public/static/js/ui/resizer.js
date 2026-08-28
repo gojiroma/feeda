@@ -31,21 +31,38 @@ function saveRowHeight(height) {
 export function setupPaneResizing() {
   const feedPane = document.getElementById("feed-pane");
   const articlePane = document.getElementById("article-pane");
+  // 振り返る screen's own feed tree (see reflect.js/main.js) reuses the
+  // .feed-pane look but is a separate element from #feed-pane, since the two
+  // screens never show at once — kept at the same width as it regardless of
+  // which one was actually dragged, so "the feed list's width" reads as one
+  // shared preference rather than two independent ones to fuss with.
+  const reflectFeedPane = document.getElementById("reflect-feed-pane");
 
   const stored = loadWidths();
   if (stored) {
-    if (stored.feed) feedPane.style.width = `${stored.feed}px`;
+    if (stored.feed) {
+      feedPane.style.width = `${stored.feed}px`;
+      if (reflectFeedPane) reflectFeedPane.style.width = `${stored.feed}px`;
+    }
     if (stored.article) articlePane.style.width = `${stored.article}px`;
   }
 
+  function paneForResizer(resizer) {
+    if (resizer.dataset.resizer === "0") return feedPane;
+    if (resizer.dataset.resizer === "1") return articlePane;
+    if (resizer.dataset.resizer === "2") return reflectFeedPane;
+    return null;
+  }
+
   for (const resizer of document.querySelectorAll(".pane-resizer")) {
+    const targetPane = paneForResizer(resizer);
+    if (!targetPane) continue;
     // Pointer Events cover mouse, touch, and pen with one code path — using
     // setPointerCapture means move/up events keep reaching this element
     // even once the finger/cursor leaves it, so no document-level listeners
     // are needed.
     resizer.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
-      const targetPane = resizer.dataset.resizer === "0" ? feedPane : articlePane;
       const startX = ev.clientX;
       const startWidth = targetPane.getBoundingClientRect().width;
       resizer.classList.add("dragging");
@@ -55,6 +72,11 @@ export function setupPaneResizing() {
       function onPointerMove(moveEv) {
         const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (moveEv.clientX - startX)));
         targetPane.style.width = `${width}px`;
+        // Keep whichever of feed-pane/reflect-feed-pane wasn't just dragged
+        // in sync live, not only once the drag ends (see saveWidths below) —
+        // switching screens mid-drag should never show the old width.
+        if (targetPane === feedPane && reflectFeedPane) reflectFeedPane.style.width = `${width}px`;
+        else if (targetPane === reflectFeedPane) feedPane.style.width = `${width}px`;
       }
       function onPointerUp() {
         resizer.classList.remove("dragging");

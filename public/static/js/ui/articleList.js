@@ -294,6 +294,70 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
   return header;
 }
 
+// Bottom of a feed's own column/block in the grouped-by-feed rendering (see
+// buildFeedHeader's own header at the top) — reachable without scrolling
+// back up past however many articles a busy column has stacked, which
+// multi-column (wide-grid) and the tablet 3-pane layout both need (see
+// main.js's renderWideGrid/renderTabletThreePane). Only offered where a
+// caller actually wires up onMarkFeedRead/onMarkFeedUnread — the desktop
+// 3-pane layout's own cross-feed home timeline groups by feed too (see
+// renderDesktop) but doesn't pass these, so it keeps just the header's pin
+// button and no footer at all.
+function buildFeedFooter(feedId, { feedsById, onMarkFeedRead, onMarkFeedUnread, onTogglePinFeed }) {
+  // Gated on onMarkFeedRead/onMarkFeedUnread specifically, not just any of
+  // the three — onTogglePinFeed alone is also wired into the plain desktop
+  // 3-pane layout's own groupByFeed view (see renderDesktop), which never
+  // asked for a footer, just the header's existing pin button.
+  if (!onMarkFeedRead && !onMarkFeedUnread) return null;
+
+  const footer = document.createElement("div");
+  footer.className = "article-feed-footer";
+  const feed = feedsById ? feedsById.get(feedId) : null;
+
+  if (onMarkFeedRead) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "article-feed-footer-btn";
+    btn.textContent = "既読";
+    btn.title = "このフィードをすべて既読にします";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onMarkFeedRead(feedId);
+    });
+    footer.appendChild(btn);
+  }
+
+  if (onMarkFeedUnread) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "article-feed-footer-btn";
+    btn.textContent = "解除";
+    btn.title = "既読状態を解除し、未読に戻します";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onMarkFeedUnread(feedId);
+    });
+    footer.appendChild(btn);
+  }
+
+  // Duplicates the header's own pin button (see buildFeedHeader) — a tall
+  // column scrolled well past its header still gets one within reach.
+  if (onTogglePinFeed) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "article-feed-footer-btn" + (feed && feed.pinned ? " article-feed-footer-btn--active" : "");
+    btn.textContent = feed && feed.pinned ? "📌 解除" : "📌 ピン";
+    btn.title = feed && feed.pinned ? "ピン留めを解除" : "上部にピン留め";
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      onTogglePinFeed(feedId);
+    });
+    footer.appendChild(btn);
+  }
+
+  return footer;
+}
+
 export function renderArticleList(
   container,
   {
@@ -316,6 +380,8 @@ export function renderArticleList(
     onToggleKeepFeed,
     onTogglePinFeed,
     onSetFeedColor,
+    onMarkFeedRead,
+    onMarkFeedUnread,
   }
 ) {
   // Wide-grid mode's columns (and, in principle, the vertical grouped view
@@ -375,6 +441,8 @@ export function renderArticleList(
         ul.appendChild(buildArticleItem(entry, { ...itemProps, showFeedName: false }));
       }
       block.appendChild(ul);
+      const footer = buildFeedFooter(feedId, { feedsById, onMarkFeedRead, onMarkFeedUnread, onTogglePinFeed });
+      if (footer) block.appendChild(footer);
       wrap.appendChild(block);
     }
     container.appendChild(wrap);

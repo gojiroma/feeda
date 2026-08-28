@@ -571,6 +571,31 @@ input[type="text"], input[type="url"], input[type="search"] {
   background: rgba(var(--accent-rgb), 0.15);
   border-color: var(--accent);
 }
+/* Bottom-of-column 既読/解除/ピン bar (see buildFeedFooter in
+   ui/articleList.js) — a non-scrolling sibling after .article-list within
+   .article-feed-block, so in wide-grid mode (where that block is a flex
+   column with the list itself taking the flexible middle — see
+   .app.wide-grid-mode .article-feed-block below) it naturally pins to the
+   bottom of the column without any extra positioning; in the plain stacked
+   layout (tablet 3-pane) it just sits at the end of that feed's own section. */
+.article-feed-footer {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  flex-shrink: 0;
+  background: var(--bg-alt);
+  border-top: 1px solid var(--border);
+}
+.article-feed-footer-btn {
+  flex: 1;
+  font-size: 0.75rem;
+  padding: 4px 6px;
+}
+.article-feed-footer-btn--active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
 .preview-pane {
   flex: 1;
   min-width: 0;
@@ -1030,33 +1055,71 @@ input[type="text"], input[type="url"], input[type="search"] {
   padding: 0 1px;
 }
 
-/* Tablet portrait: only feed-list + article-list fit side by side, so there's
-   no room for a third preview column. Rather than cram preview below them,
-   drop it entirely (same reasoning as the phone layout below): articles are
-   real links to their origin site, tapped open directly, no in-app preview
-   to keep in sync. Excludes small phones (see the max-width:600px block
-   below), which get a different, single-column layout instead of a 2-up
-   grid. */
+/* Tablet portrait: a real 3-pane — feed pane on the left (same draggable
+   width as desktop, via data-resizer="0" — see setupPaneResizing in
+   ui/resizer.js), article list and preview stacked vertically on the right
+   instead of side by side (not enough width here for all three in a row).
+   Same grid shape as wide-grid mode's own .app.wide-grid-mode .panes below,
+   just active at this breakpoint on its own rather than needing that class
+   too, and reusing #wide-grid-row-resizer for the article/preview split
+   even outside wide-grid mode proper (see setupWideGridRowResizing).
+   renderTabletThreePane (main.js) always groups the article list by feed
+   here (see .article-list-grouped below), same component wide-grid uses,
+   just kept at its base flex-direction:column stacking instead of
+   wide-grid's independently-scrolling horizontal columns — there's no width
+   here for side-by-side columns, so a feed's block just stacks with the
+   next one's. Excludes small phones (see the max-width:600px block below),
+   which keep the simpler tap-opens-the-origin-site single column instead. */
 @media (orientation: portrait) and (min-width: 601px) {
   .panes {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-areas: "feed article";
+    grid-template-columns: auto 5px 1fr;
+    grid-template-rows: minmax(0, var(--wg-article-height, 3fr)) 6px minmax(0, 2fr);
+    grid-template-areas: "feed feed-resizer article" "feed feed-resizer row-resizer" "feed feed-resizer preview";
   }
   .feed-pane {
     grid-area: feed;
-    width: auto !important;
     border-right: 1px solid var(--border);
+  }
+  .pane-resizer[data-resizer="0"] {
+    grid-area: feed-resizer;
+  }
+  .pane-resizer[data-resizer="1"] {
+    display: none;
   }
   .article-pane {
     grid-area: article;
     width: auto !important;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
   }
   .preview-pane {
-    display: none;
+    grid-area: preview;
   }
-  .pane-resizer {
-    display: none;
+  /* #wide-grid-row-resizer (an id, not just .wide-grid-row-resizer) so this
+     reliably beats the unconditional ".wide-grid-row-resizer { display:
+     none; }" fallback declared later in the file (see below) regardless of
+     source order — two same-specificity class rules would otherwise let
+     whichever comes last in the stylesheet win, hiding this again. */
+  #wide-grid-row-resizer {
+    grid-area: row-resizer;
+    display: block;
+    position: relative;
+    cursor: row-resize;
+    background: transparent;
+    touch-action: none; /* let JS drive the drag instead of the browser scrolling */
+  }
+  #wide-grid-row-resizer::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -8px;
+    bottom: -8px;
+  }
+  #wide-grid-row-resizer:hover,
+  #wide-grid-row-resizer.dragging {
+    background: var(--accent);
   }
 }
 
@@ -1173,16 +1236,23 @@ input[type="text"], input[type="url"], input[type="search"] {
    self-contained column you can park your eyes on. Grid areas let this
    ignore the panes' actual DOM order (feed, resizer, article, resizer,
    preview) rather than needing it restructured for two different layouts.
-   Both resizers are drag-against-nothing here (grid areas, not flex
-   siblings) so they're hidden rather than left non-functional. */
+   data-resizer="1" (article/preview) is drag-against-nothing here (a grid
+   area, not a flex sibling) so it's hidden rather than left non-functional
+   — data-resizer="0" (feed/article) gets its own named column instead so
+   the feed pane's width stays draggable here too (see setupPaneResizing in
+   ui/resizer.js). */
 .app.wide-grid-mode .panes {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 5px 1fr;
   grid-template-rows: minmax(0, var(--wg-article-height, 3fr)) 6px minmax(0, 2fr);
-  grid-template-areas: "feed article" "feed row-resizer" "feed preview";
+  grid-template-areas: "feed feed-resizer article" "feed feed-resizer row-resizer" "feed feed-resizer preview";
 }
 .app.wide-grid-mode .feed-pane {
   grid-area: feed;
+}
+.app.wide-grid-mode .pane-resizer[data-resizer="0"] {
+  grid-area: feed-resizer;
+  display: block;
 }
 .app.wide-grid-mode .article-pane {
   grid-area: article;
@@ -1201,7 +1271,15 @@ input[type="text"], input[type="url"], input[type="search"] {
 .app.wide-grid-mode .preview-pane {
   grid-area: preview;
 }
-.app.wide-grid-mode .pane-resizer {
+/* data-resizer="1" (article/preview) has nothing to do in wide-grid mode —
+   those two stack vertically instead of sitting side by side, split by
+   .wide-grid-row-resizer below, not this one. data-resizer="0" (feed pane)
+   still applies unchanged though: the feed pane sits in the same spot
+   relative to the rest of the layout, so its own drag handle (see
+   setupPaneResizing in ui/resizer.js) stays live rather than freezing the
+   width it happened to have from the last time normal 3-pane mode was
+   showing. */
+.app.wide-grid-mode .pane-resizer[data-resizer="1"] {
   display: none !important;
 }
 /* Drag handle between the article grid and the preview pane below it (see
@@ -1275,13 +1353,14 @@ input[type="text"], input[type="url"], input[type="search"] {
 /* Reflect is a separate top-level screen, not another pane layout — hide
    every reading-mode surface with !important so it wins over their own
    display rules (media queries, .hidden toggles) regardless of viewport.
-   .filter-row (color filter + search history) and マルチカラム are reading-
-   view-only concepts — reflect has its own #reflect-color-filter and has no
-   article grid to lay out in columns, so both would just be dead controls
-   here. */
+   マルチカラム has no article grid to lay out in columns here, so it stays a
+   dead control. .filter-row (the feed color filter + search-history bar)
+   is NOT hidden, unlike those — reflect now filters its own feed tree and
+   timeline through the same bar (see renderReflect/renderReflectFeedList in
+   main.js and filterLogEntriesByFeedColor), right alongside reflect's own
+   #reflect-color-filter (a log entry's own tag color, a different axis). */
 .app.reflect-mode .panes,
 .app.reflect-mode .mobile-view,
-.app.reflect-mode .filter-row,
 .app.reflect-mode #wide-grid-toggle-btn {
   display: none !important;
 }
