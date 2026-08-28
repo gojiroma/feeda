@@ -4,6 +4,7 @@
 
 構成:
 
+
 - `backend/` — Flask API（`/api/sync`, `/api/fetch-feed`）。Neon Postgresに暗号化ブロブを保存するだけで、フィード内容は保存・パースしません。
 - `public/` — 3ペイン（フィード一覧 / 記事一覧 / プレビュー）のRSSリーダー本体。素のHTML/CSS/JS、ビルド不要。Vercelの静的ファイル配信規約に合わせて`public/`という名前にしています。
 - `userscript/` — Tampermonkeyスクリプト。閲覧中のページからRSS/Atomフィードを検出し、未登録のものだけ購読リストに自動追加します。OPMLファイルからの一括インポートにも対応。
