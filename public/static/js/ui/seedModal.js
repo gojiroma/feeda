@@ -9,7 +9,7 @@ export function setupSeedModal(triggerBtn, modalEl, { getSeed, getApiBase }) {
 
   function open() {
     seedInput.value = getSeed();
-    apiBaseInput.value = getApiBase() || "\u3008\u7a7a\u6b04 = \u540c\u4e00\u30c9\u30e1\u30a4\u30f3\u3009";
+    apiBaseInput.value = getApiBase() || "〈空欄 = 同一ドメイン〉";
     modalEl.classList.remove("hidden");
   }
 

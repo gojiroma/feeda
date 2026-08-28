@@ -2,7 +2,7 @@ import { addNgWord, removeNgWord, getActiveNgWords } from "../ngWords.js";
 import { setupFormModal } from "./modalUtils.js";
 import { createRemovableListItem, renderEmptyHint } from "./listUtils.js";
 
-// "NG\u30ef\u30fc\u30c9" topbar button \u2014 add/remove blocklist keywords (see ngWords.js).
+// "NGワード" topbar button — add/remove blocklist keywords (see ngWords.js).
 // onChange fires after every add/remove so main.js can push the change to
 // the server and re-apply the filter to whatever's currently on screen.
 export function setupNgWordModal(triggerBtn, modalEl, { onChange } = {}) {
@@ -16,7 +16,7 @@ export function setupNgWordModal(triggerBtn, modalEl, { onChange } = {}) {
     words.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     
     if (words.length === 0) {
-      renderEmptyHint(listEl, "NG\u30ef\u30fc\u30c9\u306f\u307e\u3060\u767b\u9332\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002");
+      renderEmptyHint(listEl, "NGワードはまだ登録されていません。");
       return;
     }
     
@@ -32,7 +32,7 @@ export function setupNgWordModal(triggerBtn, modalEl, { onChange } = {}) {
         },
         {
           itemClass: "ng-word-item",
-          btnTitle: "\u524a\u9664"
+          btnTitle: "削除"
         }
       );
       listEl.appendChild(li);

@@ -4,7 +4,7 @@ import { renderAnnotatePopup } from "./articleList.js";
 import { createElement } from "./domUtils.js";
 
 // YouTube channel feeds (and single-video Atom/RSS feeds) link each entry
-// straight to the video's watch page \u2014 e.g. https://www.youtube.com/watch?v=ID,
+// straight to the video's watch page — e.g. https://www.youtube.com/watch?v=ID,
 // https://www.youtube.com/shorts/ID, or the youtu.be short form. Matched
 // against entry.link so a channel's video entries embed a player instead of
 // just showing a plain outbound link.
@@ -50,10 +50,10 @@ export function renderPreview(
 ) {
   // Coloring/commenting an entry from the preview pane's own annotate
   // section re-renders the whole preview (see main.js's setEntryLogColor/
-  // addEntryLogComment \u2192 render() \u2192 renderPreview) even though the entry
+  // addEntryLogComment → render() → renderPreview) even though the entry
   // being previewed hasn't changed. A plain rebuild would tear down and
   // recreate the YouTube <iframe> below, which reloads the embed and blows
-  // away playback position/state for no reason \u2014 so when the same video is
+  // away playback position/state for no reason — so when the same video is
   // still showing, the existing iframe wrapper is pulled out before the
   // container is cleared and reused as-is instead of rebuilt.
   const videoId = entry ? youtubeVideoId(entry.link) : null;
@@ -64,7 +64,7 @@ export function renderPreview(
   // the annotate section's "add a comment" input: renderPreview reruns on
   // every app render, including a mere mouseenter over another article-list
   // row or a background sync completing (see main.js's previewFeed/
-  // previewEntry and periodic refreshAll/scheduleLogSync) \u2014 none of which
+  // previewEntry and periodic refreshAll/scheduleLogSync) — none of which
   // change what's being previewed. Without this, a comment mid-typed here
   // gets silently wiped by the rebuild below. Only restore it when it's
   // still the same entry being previewed (a real navigation to a different
@@ -88,7 +88,7 @@ export function renderPreview(
     delete container.dataset.previewEntryId;
     const hint = createElement("p", {
       className: "empty-hint",
-      textContent: "\u8a18\u4e8b\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
+      textContent: "記事を選択してください。"
     });
     container.appendChild(hint);
     return;
@@ -97,14 +97,14 @@ export function renderPreview(
   container.dataset.previewEntryId = entry.id;
 
   const h2 = createElement("h2", { className: "preview-title" });
-  h2.appendChild(highlightText(entry.title || "(\u30bf\u30a4\u30c8\u30eb\u306a\u3057)", query));
+  h2.appendChild(highlightText(entry.title || "(タイトルなし)", query));
   container.appendChild(h2);
 
   const meta = createElement("div", { className: "preview-meta" });
   const parts = [];
   if (entry.author) parts.push(entry.author);
   if (entry.pubDate) parts.push(new Date(entry.pubDate).toLocaleString("ja-JP"));
-  meta.textContent = parts.join(" \u30fb ");
+  meta.textContent = parts.join(" ・ ");
   container.appendChild(meta);
 
   if (videoId) {
@@ -134,7 +134,7 @@ export function renderPreview(
 
   // Same color-swatch-plus-comment-thread UI as the article list's
   // right-click/long-press popup (see renderAnnotatePopup), just always
-  // visible here instead of opened on request \u2014 reading an entry in the
+  // visible here instead of opened on request — reading an entry in the
   // preview pane is itself a natural place to tag or comment on it without
   // having to go back and right-click its row. Only offered when the caller
   // actually wired up handlers for it (main.js's renderDesktop/renderWideGrid);

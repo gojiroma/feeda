@@ -1,4 +1,4 @@
-// Static reference card for wireKeyboardNav's shortcuts (see main.js) \u2014 the
+// Static reference card for wireKeyboardNav's shortcuts (see main.js) — the
 // content itself lives in index.html's #shortcuts-modal since it never
 // changes at runtime, unlike ng-word/seed's modals. Returns { open } so
 // main.js's own keydown handler can trigger it from "?" without this file

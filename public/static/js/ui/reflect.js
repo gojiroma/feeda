@@ -1,4 +1,4 @@
-// "\u632f\u308a\u8fd4\u308b" (reflect) mode's daily timeline: one row per logged article
+// "振り返る" (reflect) mode's daily timeline: one row per logged article
 // open, newest first, each with its own stacked comment thread. See
 // logbook.js for the data shape and main.js's renderReflect for how a day's
 // entries get here.
@@ -62,7 +62,7 @@ function openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag) {
 
         // Same combined swatches+tags row as the article list's own
         // annotate popup (see .annotate-palette-row/renderAnnotatePopup in
-        // articleList.js) \u2014 one compact palette instead of two stacked
+        // articleList.js) — one compact palette instead of two stacked
         // sections.
         const paletteRow = createElement("div", { className: "annotate-palette-row" });
         renderColorSwatches(paletteRow, {
@@ -136,7 +136,7 @@ function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag
     href: logEntry.url || "#",
     target: "_blank",
     rel: "noopener noreferrer",
-    textContent: logEntry.title || "(\u30bf\u30a4\u30c8\u30eb\u306a\u3057)"
+    textContent: logEntry.title || "(タイトルなし)"
   });
   body.appendChild(titleLink);
 
@@ -169,13 +169,13 @@ function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag
   }
 
   // The add-comment form is hidden by default (see .reflect-comment-form in
-  // style.css) \u2014 an input on every single entry was too much visual noise
+  // style.css) — an input on every single entry was too much visual noise
   // for a timeline meant to be skimmed. It shows on mouse hover/focus.
   const form = createElement("form", { className: "reflect-comment-form" });
   const input = createElement("input", {
     type: "text",
     className: "reflect-comment-input",
-    placeholder: "\u30b3\u30e1\u30f3\u30c8\u3092\u8ffd\u52a0\u2026"
+    placeholder: "コメントを追加…"
   });
   form.appendChild(input);
   form.addEventListener("submit", (ev) => {
@@ -192,10 +192,10 @@ function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag
   return li;
 }
 
-// Filter row above the timeline (see .reflect-color-filter in style.css) \u2014
+// Filter row above the timeline (see .reflect-color-filter in style.css) —
 // mirrors renderFeedColorFilter in ui/feedList.js: one swatch per color
 // actually tagged on some entry *currently loaded* (the day's entries, or
-// the current search results \u2014 see main.js's renderReflect), each toggling
+// the current search results — see main.js's renderReflect), each toggling
 // that color's membership in `activeColors`. An entry shows if it matches
 // any active color (see filterLogEntriesByColor in main.js); an empty
 // activeColors set means no filter, and the whole row disappears (via
@@ -212,7 +212,7 @@ export function renderLogColorFilter(container, { entries, activeColors, onToggl
         type: "button",
         className: "reflect-color-filter-swatch" + (activeColors.has(key) ? " selected" : ""),
         style: { "--reflect-color": rgb },
-        title: activeColors.has(key) ? "\u3053\u306e\u8272\u306e\u30d5\u30a3\u30eb\u30bf\u30fc\u3092\u89e3\u9664" : "\u3053\u306e\u8272\u306e\u8a18\u9332\u3060\u3051\u8868\u793a",
+        title: activeColors.has(key) ? "この色のフィルターを解除" : "この色の記録だけ表示",
         dataset: { color: key }
       },
       () => onToggleColor(key)
@@ -225,8 +225,8 @@ export function renderLogColorFilter(container, { entries, activeColors, onToggl
       {
         type: "button",
         className: "reflect-color-filter-clear",
-        textContent: "\u00d7",
-        title: "\u8272\u30d5\u30a3\u30eb\u30bf\u30fc\u3092\u3059\u3079\u3066\u89e3\u9664"
+        textContent: "×",
+        title: "色フィルターをすべて解除"
       },
       () => onToggleColor(null)
     );
@@ -237,7 +237,7 @@ export function renderLogColorFilter(container, { entries, activeColors, onToggl
 export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onAddTag, onRemoveTag, emptyHint }) {
   // Same rebuild-wipes-live-state problem the picker comment below already
   // works around, but for a comment mid-typed into one entry's (normally
-  // hover/focus-revealed \u2014 see .reflect-comment-form in style.css) comment
+  // hover/focus-revealed — see .reflect-comment-form in style.css) comment
   // box: this whole timeline redraws on the REFLECT_LIVE_REFRESH_MS timer
   // and on regaining tab focus (see main.js), neither of which reflects the
   // user actually doing anything. Only restore it onto the same log entry's
@@ -257,17 +257,17 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
 
   container.innerHTML = "";
   // The picker lives in document.body (see openColorPicker), so rebuilding
-  // this list doesn't touch it \u2014 closing it unconditionally on every redraw
+  // this list doesn't touch it — closing it unconditionally on every redraw
   // used to be the only thing that did. That made it slam shut mid-pick
   // whenever a background sync (new unread items logged elsewhere, the
   // REFLECT_LIVE_REFRESH_MS timer, ...) redrew the timeline underneath the
   // user. Only close it when the entry it's anchored to has actually
-  // dropped out of view (date changed, search cleared it, etc.) \u2014 a picker
+  // dropped out of view (date changed, search cleared it, etc.) — a picker
   // whose entry is still on screen stays open across an unrelated redraw.
   closeFloatingPopupIfMissing(new Set(entries.map((e) => e.id)));
 
   if (entries.length === 0) {
-    renderEmptyHint(container, emptyHint || "\u3053\u306e\u65e5\u306f\u307e\u3060\u8a18\u9332\u304c\u3042\u308a\u307e\u305b\u3093\u3002");
+    renderEmptyHint(container, emptyHint || "この日はまだ記録がありません。");
     return;
   }
 
@@ -287,14 +287,14 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
 }
 
 // The trend strip inside the day-nav header (see main.js's renderReflect
-// and .reflect-day-chart in style.css) \u2014 one bar per day of counts (from
+// and .reflect-day-chart in style.css) — one bar per day of counts (from
 // logbook.js's getDailyCounts), bar height scaled to the busiest day in the
 // window so a quiet stretch doesn't read as visually identical to a heavy
 // one. Bars double as date navigation: clicking one jumps straight there,
-// same as picking a day off a calendar, which is the "\u4e00\u4f53\u5316" (merged into
+// same as picking a day off a calendar, which is the "一体化" (merged into
 // the date display rather than a separate section) the chart was asked for.
 // Hovering one (onHoverDate) does the same jump instantly, mirroring
-// feedList's preview-on-hover/commit-on-click split \u2014 see previewReflectDate
+// feedList's preview-on-hover/commit-on-click split — see previewReflectDate
 // in main.js for why that path stays cheap instead of just calling
 // onSelectDate.
 export function renderDayChart(container, { counts, selectedDate, onSelectDate, onHoverDate }) {
@@ -312,12 +312,12 @@ export function renderDayChart(container, { counts, selectedDate, onSelectDate, 
         ),
         dataset: { date },
         style: { "--bar-fill": `${Math.round((count / max) * 100)}%` },
-        title: `${date}: ${count}\u4ef6`,
-        ariaLabel: `${date}: ${count}\u4ef6`
+        title: `${date}: ${count}件`,
+        ariaLabel: `${date}: ${count}件`
       },
       () => onSelectDate(date)
     );
-    // Touch has no hover \u2014 those devices still get the jump via the click
+    // Touch has no hover — those devices still get the jump via the click
     // listener above, this is purely an added shortcut for a mouse/trackpad.
     if (onHoverDate) bar.addEventListener("mouseenter", () => onHoverDate(date));
     container.appendChild(bar);

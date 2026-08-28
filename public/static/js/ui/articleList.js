@@ -13,7 +13,7 @@ import { createElement, createButton, setCustomProperty } from "./domUtils.js";
 const COMMENT_PREVIEW_MAX_LENGTH = 60;
 
 function truncate(text, maxLength) {
-  return text.length > maxLength ? `${text.slice(0, maxLength)}\u2026` : text;
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
 }
 
 function formatCommentTime(iso) {
@@ -22,22 +22,22 @@ function formatCommentTime(iso) {
 }
 
 // Content of the annotate popup opened from an article row (see onAnnotate
-// above and main.js's showAnnotatePopup) \u2014 a color-swatch row plus the same
+// above and main.js's showAnnotatePopup) — a color-swatch row plus the same
 // comment thread/add-form reflect's timeline shows per entry. Also reused
 // as-is for the always-visible copy under the preview pane's body (see
-// preview.js's renderPreview) \u2014 the only difference there is autoFocus:
+// preview.js's renderPreview) — the only difference there is autoFocus:
 // false, since that copy redraws on every app render (a hovered article,
 // a background refetch, ...) and stealing focus back into its comment
 // input each time would make it unusable while the popup's one-shot open
 // wants exactly that. logEntry may be null there too (previewing/hovering
-// an entry doesn't log it until the user actually acts on it \u2014 see
+// an entry doesn't log it until the user actually acts on it — see
 // ensureLogEntryForEntry in main.js), so this renders an empty/uncolored
 // state rather than assuming one already exists.
 export function renderAnnotatePopup(container, { logEntry, onSetColor, onAddComment, onAddTag, onRemoveTag, autoFocus = true }) {
   container.innerHTML = "";
 
   // Color swatches, existing tag chips, and the "add a tag" input all flow
-  // into one wrapping row instead of stacking as separate sections \u2014 a
+  // into one wrapping row instead of stacking as separate sections — a
   // color and a tag are both just "a quick mark on this article", so
   // they read as one compact palette rather than a multi-step form.
   const paletteRow = createElement("div", { className: "annotate-palette-row" });
@@ -71,7 +71,7 @@ export function renderAnnotatePopup(container, { logEntry, onSetColor, onAddComm
   const input = createElement("input", {
     type: "text",
     className: "reflect-comment-input",
-    placeholder: "\u30b3\u30e1\u30f3\u30c8\u3092\u8ffd\u52a0\u2026"
+    placeholder: "コメントを追加…"
   });
   form.appendChild(input);
   form.addEventListener("submit", (ev) => {
@@ -97,7 +97,7 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
       "article-item" +
       (entry.id === selectedEntryId ? " selected" : "") +
       (isUnread(entry) ? " unread" : "") +
-      // Colored and/or commented from reflect (or right here \u2014 see
+      // Colored and/or commented from reflect (or right here — see
       // onAnnotate below) stand out from the rest of the list: a left
       // border/background tint for the color, both alone if there's no
       // color but a comment exists.
@@ -108,7 +108,7 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
   if (rgb) setCustomProperty(li, "reflect-color", rgb);
   li.addEventListener("click", () => onSelect(entry));
   // Hovering previews too (touch has no hover, so this is mouse/stylus
-  // only) but must NOT mark the entry read \u2014 see onHover in main.js.
+  // only) but must NOT mark the entry read — see onHover in main.js.
   // Skipped when this entry is already selected: onHover triggers a full
   // re-render, which tears down and rebuilds this <li>; without the
   // guard, the pointer landing on its own replacement would re-fire
@@ -119,16 +119,16 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
   });
 
   // No thumbnail, snippet, or timestamp here (unlike ui/mobile.js's own row
-  // renderer) \u2014 this list always sits next to a preview pane (3-pane and
+  // renderer) — this list always sits next to a preview pane (3-pane and
   // wide-grid both keep one; see renderDesktop/renderWideGrid), so the
   // title alone is enough to scan and everything past it is one hover/click
   // away. feedTitleById still shows when showFeedName is set (search
   // results mixing several feeds, where there's no per-block header to
-  // supply that context another way \u2014 see groupByFeed above).
+  // supply that context another way — see groupByFeed above).
   const main = createElement("div", { className: "article-main" });
 
   const title = createElement("div", { className: "article-title" });
-  title.appendChild(highlightText(entry.title || "(\u30bf\u30a4\u30c8\u30eb\u306a\u3057)", query));
+  title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
   main.appendChild(title);
 
   if (showFeedName) {
@@ -142,7 +142,7 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
   if (comments.length > 0) {
     const preview = createElement("div", {
       className: "article-comment-preview",
-      textContent: `\ud83d\udcac ${truncate(comments[comments.length - 1].text, COMMENT_PREVIEW_MAX_LENGTH)}`
+      textContent: `💬 ${truncate(comments[comments.length - 1].text, COMMENT_PREVIEW_MAX_LENGTH)}`
     });
     main.appendChild(preview);
   }
@@ -154,13 +154,13 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
   li.appendChild(main);
 
   // Right-click (desktop) or long-press (touch) opens a combined
-  // color-tag + comment popup \u2014 same interaction reflect's own timeline
+  // color-tag + comment popup — same interaction reflect's own timeline
   // uses (see reflect.js), but reachable straight from the news list. Not
   // a hover-revealed inline form: unlike reflect's timeline, this list
   // marks read on hover-triggered re-renders (see onHover above), and a
   // form whose visibility (and thus this row's height) changed on hover
   // would reflow the rows below it under a still-stationary cursor,
-  // cascading into their mouseenter firing too \u2014 see .article-item's own
+  // cascading into their mouseenter firing too — see .article-item's own
   // comment in style.css. A floating, position-fixed popup never touches
   // this row's layout, so it sidesteps that entirely.
   if (onAnnotate) {
@@ -169,7 +169,7 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
     });
   }
 
-  // Lets a caller hook each row as it's built \u2014 see main.js's
+  // Lets a caller hook each row as it's built — see main.js's
   // desktopReadObserver, which observes every row for its own
   // scroll-to-read handling (mirroring renderMobileList's identical hook).
   onRowMounted?.(li, entry);
@@ -177,7 +177,7 @@ function buildArticleItem(entry, { feedTitleById, selectedEntryId, query, isUnre
   return li;
 }
 
-// Groups entries by feedId, ordered by `feedOrder` (front = first) \u2014 falling
+// Groups entries by feedId, ordered by `feedOrder` (front = first) — falling
 // back to first-appearance order in `entries` for any feed feedOrder doesn't
 // mention (a feed that gained entries between feedOrder being computed and
 // this render, or no feedOrder at all). Never drops an entry: every feedId
@@ -196,13 +196,13 @@ function groupEntriesByFeed(entries, feedOrder) {
 }
 
 // Feed name + one action button headlining one feed's block in the
-// grouped-by-feed rendering (see renderArticleList's groupByFeed) \u2014 reached
+// grouped-by-feed rendering (see renderArticleList's groupByFeed) — reached
 // straight from the cross-feed unread view/wide-grid columns while reading,
 // without a trip to the sidebar's context menu. Which action depends on the
 // feed's current state (see main.js's autoPauseInactiveFeeds/toggleKeepFeed):
-// an already-paused feed only offers "\u518d\u958b" (resume), since stopping itself
+// an already-paused feed only offers "再開" (resume), since stopping itself
 // is handled automatically now rather than by hand; an active feed offers
-// "\u6b8b\u3059" (keep) instead of a stop button \u2014 vouching for a feed is the rarer,
+// "残す" (keep) instead of a stop button — vouching for a feed is the rarer,
 // deliberate action worth a click, letting the rule-driven default quietly
 // handle the far more common case of a high-frequency feed nobody's
 // actually reading.
@@ -223,7 +223,7 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
   header.appendChild(title);
 
   // Right-click/long-press the feed name to tag its color right from the
-  // unread view \u2014 same swatch popup as reflect's own picker/the article
+  // unread view — same swatch popup as reflect's own picker/the article
   // annotate popup (see .annotate-palette-row), just for a whole feed
   // instead of one entry, and reachable without a trip to the sidebar's
   // context menu (see openFeedContextMenu in ui/feedList.js).
@@ -246,16 +246,16 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
     });
   }
 
-  // Independent of paused/keep (see togglePinFeed in main.js) \u2014 pins the
+  // Independent of paused/keep (see togglePinFeed in main.js) — pins the
   // feed to its own group at the top of the sidebar, so it's offered
-  // alongside whichever of \u518d\u958b/\u6b8b\u3059 applies rather than replacing either.
+  // alongside whichever of 再開/残す applies rather than replacing either.
   if (onTogglePinFeed) {
     const pinBtn = createButton(
       {
         type: "button",
         className: "article-feed-header-pin-btn" + (feed && feed.pinned ? " article-feed-header-pin-btn--active" : ""),
-        html: "\ud83d\udccc",
-        title: feed && feed.pinned ? "\u30d4\u30f3\u7559\u3081\u3092\u89e3\u9664" : "\u4e0a\u90e8\u306b\u30d4\u30f3\u7559\u3081"
+        html: "📌",
+        title: feed && feed.pinned ? "ピン留めを解除" : "上部にピン留め"
       },
       (ev) => {
         ev.stopPropagation();
@@ -270,8 +270,8 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
       {
         type: "button",
         className: "article-feed-header-pause-btn",
-        textContent: "\u518d\u958b",
-        title: "\u3053\u306e\u30d5\u30a3\u30fc\u30c9\u306e\u53d6\u5f97\u3092\u518d\u958b\u3057\u307e\u3059"
+        textContent: "再開",
+        title: "このフィードの取得を再開します"
       },
       (ev) => {
         ev.stopPropagation();
@@ -284,8 +284,8 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
       {
         type: "button",
         className: "article-feed-header-pause-btn" + (feed && feed.keep ? " article-feed-header-pause-btn--active" : ""),
-        textContent: feed && feed.keep ? "\u6b8b\u3059 \u2713" : "\u6b8b\u3059",
-        title: "\u81ea\u52d5\u505c\u6b66\u306e\u5bfe\u8c61\u304b\u3089\u5916\u3057\u307e\u3059"
+        textContent: feed && feed.keep ? "残す ✓" : "残す",
+        title: "自動停止の対象から外します"
       },
       (ev) => {
         ev.stopPropagation();
@@ -299,17 +299,17 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, onTogglePauseFeed, 
 }
 
 // Bottom of a feed's own column/block in the grouped-by-feed rendering (see
-// buildFeedHeader's own header at the top) \u2014 reachable without scrolling
+// buildFeedHeader's own header at the top) — reachable without scrolling
 // back up past however many articles a busy column has stacked, which
 // multi-column (wide-grid) and the tablet 3-pane layout both need (see
 // main.js's renderWideGrid/renderTabletThreePane). Only offered where a
-// caller actually wires up onMarkFeedRead/onMarkFeedUnread \u2014 the desktop
+// caller actually wires up onMarkFeedRead/onMarkFeedUnread — the desktop
 // 3-pane layout's own cross-feed home timeline groups by feed too (see
 // renderDesktop) but doesn't pass these, so it keeps just the header's pin
 // button and no footer at all.
 function buildFeedFooter(feedId, { feedsById, onMarkFeedRead, onMarkFeedUnread, onTogglePinFeed }) {
   // Gated on onMarkFeedRead/onMarkFeedUnread specifically, not just any of
-  // the three \u2014 onTogglePinFeed alone is also wired into the plain desktop
+  // the three — onTogglePinFeed alone is also wired into the plain desktop
   // 3-pane layout's own groupByFeed view (see renderDesktop), which never
   // asked for a footer, just the header's existing pin button.
   if (!onMarkFeedRead && !onMarkFeedUnread) return null;
@@ -322,8 +322,8 @@ function buildFeedFooter(feedId, { feedsById, onMarkFeedRead, onMarkFeedUnread, 
       {
         type: "button",
         className: "article-feed-footer-btn",
-        textContent: "\u65e2\u8aad",
-        title: "\u3053\u306e\u30d5\u30a3\u30fc\u30c9\u3092\u3059\u3079\u3066\u65e2\u8aad\u306b\u3057\u307e\u3059"
+        textContent: "既読",
+        title: "このフィードをすべて既読にします"
       },
       (ev) => {
         ev.stopPropagation();
@@ -338,8 +338,8 @@ function buildFeedFooter(feedId, { feedsById, onMarkFeedRead, onMarkFeedUnread, 
       {
         type: "button",
         className: "article-feed-footer-btn",
-        textContent: "\u89e3\u9664",
-        title: "\u65e2\u8aad\u72b6\u614b\u3092\u89e3\u9664\u3057\u3001\u672a\u8aad\u306b\u623b\u3057\u307e\u3059"
+        textContent: "解除",
+        title: "既読状態を解除し、未読に戻します"
       },
       (ev) => {
         ev.stopPropagation();
@@ -349,15 +349,15 @@ function buildFeedFooter(feedId, { feedsById, onMarkFeedRead, onMarkFeedUnread, 
     footer.appendChild(btn);
   }
 
-  // Duplicates the header's own pin button (see buildFeedHeader) \u2014 a tall
+  // Duplicates the header's own pin button (see buildFeedHeader) — a tall
   // column scrolled well past its header still gets one within reach.
   if (onTogglePinFeed) {
     const btn = createButton(
       {
         type: "button",
         className: "article-feed-footer-btn" + (feed && feed.pinned ? " article-feed-footer-btn--active" : ""),
-        html: feed && feed.pinned ? "\ud83d\udccc \u89e3\u9664" : "\ud83d\udccc \u30d4\u30f3",
-        title: feed && feed.pinned ? "\u30d4\u30f3\u7559\u3081\u3092\u89e3\u9664" : "\u4e0a\u90e8\u306b\u30d4\u30f3\u7559\u3081"
+        html: feed && feed.pinned ? "📌 解除" : "📌 ピン",
+        title: feed && feed.pinned ? "ピン留めを解除" : "上部にピン留め"
       },
       (ev) => {
         ev.stopPropagation();
@@ -397,7 +397,7 @@ export function renderArticleList(
   }
 ) {
   // Wide-grid mode's columns (and, in principle, the vertical grouped view
-  // too) scroll independently of the rest of the page \u2014 but every render
+  // too) scroll independently of the rest of the page — but every render
   // wipes and rebuilds the whole container (innerHTML = "" below), and
   // render() runs on every hover (see previewEntryAndMarkRead in main.js),
   // not just on an actual click. Without capturing and restoring these, just
@@ -415,13 +415,13 @@ export function renderArticleList(
 
   container.innerHTML = "";
   // Same "don't slam shut on an unrelated redraw" rule as reflect's own
-  // color picker (see reflect.js's renderReflectTimeline) \u2014 only close the
+  // color picker (see reflect.js's renderReflectTimeline) — only close the
   // annotate popup once the entry it's anchored to has actually dropped out
   // of the list (feed switched away, search cleared it, ...).
   closeFloatingPopupIfMissing(new Set(entries.map((e) => e.id)));
 
   if (entries.length === 0) {
-    renderEmptyHint(container, emptyHint || "\u8a18\u4e8b\u304c\u3042\u308a\u307e\u305b\u3093\u3002");
+    renderEmptyHint(container, emptyHint || "記事がありません。");
     return;
   }
 
@@ -430,7 +430,7 @@ export function renderArticleList(
   if (groupByFeed) {
     // Each feed gets its own header (name + pause button) and its own <ul>,
     // stacked or laid out side by side purely via CSS (see .article-list-
-    // grouped and its wide-grid-mode override in style.css) \u2014 a feed's block
+    // grouped and its wide-grid-mode override in style.css) — a feed's block
     // never straddles another's, so a background refetch can move a whole
     // block to the top of the pile without disturbing anything else on
     // screen (see main.js's mergeIntoUnreadTimeline).
@@ -455,7 +455,7 @@ export function renderArticleList(
     }
     container.appendChild(wrap);
     // Only meaningful once the new elements are actually laid out in the
-    // document \u2014 an unattached node's scrollHeight is always 0, which would
+    // document — an unattached node's scrollHeight is always 0, which would
     // clamp any restore attempted before this back down to nothing.
     wrap.scrollLeft = prevScrollLeft;
     for (const block of wrap.querySelectorAll(".article-feed-block")) {

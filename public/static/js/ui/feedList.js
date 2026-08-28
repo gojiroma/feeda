@@ -7,7 +7,7 @@ import { createElement, createButton, setCustomProperty } from "./domUtils.js";
 const LONG_PRESS_MS = 550;
 
 // The filter row above the feed list (see .feed-color-filter in style.css)
-// \u2014 one swatch per color that's actually tagged on some feed (no point
+// — one swatch per color that's actually tagged on some feed (no point
 // offering a filter for a color nobody's used), each toggling that color's
 // membership in `activeColors`. A feed shows if it matches any active
 // color (see currentFeedGroups in main.js); an empty activeColors set means
@@ -25,7 +25,7 @@ export function renderFeedColorFilter(container, { feeds, activeColors, onToggle
         type: "button",
         className: "feed-color-filter-swatch" + (activeColors.has(key) ? " selected" : ""),
         style: { "--feed-color": rgb },
-        title: activeColors.has(key) ? "\u3053\u306e\u8272\u306e\u30d5\u30a3\u30eb\u30bf\u30fc\u3092\u89e3\u9664" : "\u3053\u306e\u8272\u306e\u30d5\u30a3\u30eb\u30c9\u3060\u3051\u8868\u793a",
+        title: activeColors.has(key) ? "この色のフィルターを解除" : "この色のフィードだけ表示",
         dataset: { color: key }
       },
       () => onToggleColor(key)
@@ -38,8 +38,8 @@ export function renderFeedColorFilter(container, { feeds, activeColors, onToggle
       {
         type: "button",
         className: "feed-color-filter-clear",
-        textContent: "\u00d7",
-        title: "\u8272\u30d5\u30a3\u30eb\u30bf\u30fc\u3092\u3059\u3079\u3066\u89e3\u9664"
+        textContent: "×",
+        title: "色フィルターをすべて解除"
       },
       () => onToggleColor(null)
     );
@@ -47,8 +47,8 @@ export function renderFeedColorFilter(container, { feeds, activeColors, onToggle
   }
 }
 
-// `groups` is a two-level tree: outer entries are read-status buckets (\u672a\u8aad
-// / \u65e2\u8aad / \u66f4\u65b0\u306a\u3057 / \u66f4\u65b0\u505c\u6b66, see frequency.js's groupFeedsByFrequency), each holding
+// `groups` is a two-level tree: outer entries are read-status buckets (未読
+// / 既読 / 更新なし / 更新停止, see frequency.js's groupFeedsByFrequency), each holding
 // its own posting-frequency breakdown as `subgroups`. Rendered as nested
 // <details> so either level can be collapsed independently; collapsedGroups
 // keys the status level by its own key and the frequency level by
@@ -76,32 +76,32 @@ export function renderFeedList(
 ) {
   container.innerHTML = "";
   // The menu lives in document.body (see openFeedContextMenu), so rebuilding
-  // this list doesn't touch it \u2014 closing it unconditionally on every redraw
+  // this list doesn't touch it — closing it unconditionally on every redraw
   // used to be the only thing that did. That made it slam shut mid-pick
   // during a feed crawl: refreshAll() calls render() after every feed it
   // fetches, so an open menu never survived past the next feed finishing.
   // Only close it when the feed it's anchored to has actually dropped out
-  // of the list (e.g. filtered out by a search) \u2014 a menu whose feed is
+  // of the list (e.g. filtered out by a search) — a menu whose feed is
   // still present stays open across an unrelated redraw.
   if (activeMenuFeedId !== null && !groups.some((g) => g.subgroups.some((sg) => sg.feeds.some((f) => f.feedId === activeMenuFeedId)))) {
     closeFeedContextMenu();
   }
 
-  // The single highest-priority entry in the whole tree \u2014 go back to the
+  // The single highest-priority entry in the whole tree — go back to the
   // cross-feed unread timeline (see currentArticles in main.js), the one
   // thing every other row here is subordinate to. Pinned to the very top
-  // rather than tucked in front of the \u672a\u8aad bucket further down (its
+  // rather than tucked in front of the 未読 bucket further down (its
   // previous spot): that placement made it read as just one more line in
   // the tree instead of the primary way back once a feed or search has
   // taken over the article pane. Shown regardless of whether groups is
-  // empty (a search with no feed matches, or a fresh install) \u2014 it's
+  // empty (a search with no feed matches, or a fresh install) — it's
   // still the fastest way back to "nothing selected".
   if (onShowAllUnread) {
     const allUnreadBtn = createButton(
       {
         type: "button",
         className: "feed-list-all-unread",
-        html: "\ud83d\udce5 \u3059\u3079\u3066\u306e\u672a\u8aad"
+        html: "📥 すべての未読"
       },
       () => onShowAllUnread()
     );
@@ -112,8 +112,8 @@ export function renderFeedList(
     renderEmptyHint(
       container,
       totalFeedCount > 0
-        ? "\u691c\u7d22\u6761\u4ef6\u306b\u4e00\u81f4\u3059\u308b\u30d5\u30a3\u30fc\u30c9\u304c\u3042\u308a\u307e\u305b\u3093\u3002"
-        : "\u307e\u3060\u30d5\u30a3\u30fc\u30c9\u304c\u767b\u9332\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002Tampermonkey\u30b9\u30af\u30ea\u30d7\u30c8\u3067\u81ea\u52d5\u767b\u9332\u3057\u3066\u304f\u3060\u3055\u3044\u3002"
+        ? "検索条件に一致するフィードがありません。"
+        : "まだフィードが登録されていません。Tampermonkeyスクリプトで自動登録してください。"
     );
     return;
   }
@@ -126,7 +126,7 @@ export function renderFeedList(
       className: "feed-status-group"
     });
     // The list is fully rebuilt on every render (see container.innerHTML
-    // above), so this <details> is a brand-new element each time \u2014 the
+    // above), so this <details> is a brand-new element each time — the
     // Set is what actually remembers the user's manual expand/collapse
     // across renders, not the DOM node itself.
     statusDetails.addEventListener("toggle", () => {
@@ -137,17 +137,17 @@ export function renderFeedList(
     const interactions = { onSelect, onHover, onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag, onCopyUrl };
 
     // A status with exactly one subgroup keyed the same as the status itself
-    // is a flat, single-purpose bucket (currently just \ud83d\udcca \u30d4\u30f3\u7559\u3081 \u2014 see
+    // is a flat, single-purpose bucket (currently just 📊 ピン留め — see
     // PINNED_STATUS/PINNED_GROUP in frequency.js) rather than a real
     // frequency breakdown: its feeds go straight under the status <details>,
     // skipping the nested frequency <details> so it doesn't show its own
     // group label repeating the status label right above it.
     const isFlatStatus = subgroups.length === 1 && subgroups[0].group.key === status.key;
 
-    // "\u307e\u3068\u3081\u3066\u898b\u308b" (see onSelectGroup) is offered on a frequency subgroup
-    // or the flat pinned group \u2014 a *posting-cadence or curation* grouping,
+    // "まとめて見る" (see onSelectGroup) is offered on a frequency subgroup
+    // or the flat pinned group — a *posting-cadence or curation* grouping,
     // where "show me everything in this bucket at once" is a meaningful
-    // thing to ask for. The plain status level (\u672a\u8aad/\u65e2\u8aad/\u66f4\u65b0\u306a\u3057/\u66f4\u65b0\u505c\u6b66)
+    // thing to ask for. The plain status level (未読/既読/更新なし/更新停止)
     // doesn't get it: that's just this same feed list sliced by read state,
     // not a grouping worth its own combined view.
     if (isFlatStatus) {
@@ -180,7 +180,7 @@ export function renderFeedList(
   }
 }
 
-// A group <summary> with a "\u307e\u3068\u3081\u3066\u898b\u308b" button alongside its label/count \u2014
+// A group <summary> with a "まとめて見る" button alongside its label/count —
 // clicking it should select the whole group's combined article list (see
 // onSelectGroup in main.js), not toggle the <details> the summary itself
 // belongs to, hence preventDefault (blocks the native toggle) *and*
@@ -189,7 +189,7 @@ export function renderFeedList(
 function buildGroupSummary(label, feeds, onSelectGroup) {
   const summary = createElement("summary");
   // The label/button pair is flexed via this inner wrapper rather than the
-  // <summary> element itself \u2014 <summary> defaults to display:list-item,
+  // <summary> element itself — <summary> defaults to display:list-item,
   // which is what draws its native disclosure triangle; switching *it* to
   // flex drops that marker in Chrome/Firefox, so the flex row lives one
   // level in instead.
@@ -202,8 +202,8 @@ function buildGroupSummary(label, feeds, onSelectGroup) {
       {
         type: "button",
         className: "feed-group-view-all",
-        textContent: "\u307e\u3068\u3081\u3066\u898b\u308b",
-        title: "\u3053\u306e\u30b0\u30eb\u30fc\u30d7\u306e\u8a18\u4e8b\u3092\u307e\u3068\u3081\u3066\u8868\u793a"
+        textContent: "まとめて見る",
+        title: "このグループの記事をまとめて表示"
       },
       (ev) => {
         ev.preventDefault();
@@ -226,7 +226,7 @@ function renderFeedItemsList(feeds, { selectedFeedId, query, interactions }) {
       className: "feed-item" + 
         (feed.feedId === selectedFeedId ? " selected" : "") + 
         (feed.paused ? " paused" : ""),
-      title: "\u53f3\u30af\u30ea\u30c3\u30af\u3001\u9577\u62bc\u3057: \u30e1\u30cb\u30e5\u30fc\u3008\u30d4\u30f3\u7559\u3081\u3001\u66f4\u65b0\u306e\u4e00\u6642\u505c\u6b66\u3001\u8272\u5206\u3051\u3009\u3000\u4e2d\u30af\u30ea\u30c3\u30af: URL\u3092\u30b3\u30d4\u30fc"
+      title: "右クリック、長押し: メニュー〈ピン留め、更新の一時停止、色分け〉　中クリック: URLをコピー"
     });
 
     const colorRgb = feed.color && COLOR_BY_KEY.get(feed.color);
@@ -236,13 +236,13 @@ function renderFeedItemsList(feeds, { selectedFeedId, query, interactions }) {
     }
 
     const nameSpan = createElement("span", { className: "feed-name" });
-    nameSpan.appendChild(highlightText((feed.pinned ? "\ud83d\udccc " : "") + (feed.title || feed.url), query));
+    nameSpan.appendChild(highlightText((feed.pinned ? "📌 " : "") + (feed.title || feed.url), query));
     li.appendChild(nameSpan);
 
     if (feed.hasUnread) {
       const dot = createElement("span", {
         className: "unread-dot",
-        title: "\u672a\u8aad\u3042\u308a"
+        title: "未読あり"
       });
       li.appendChild(dot);
     }
@@ -283,8 +283,8 @@ function attachFeedInteractions(
   });
 
   // Hovering previews too (touch has no hover, so this is mouse/stylus
-  // only \u2014 no need to gate on pointerType) but must NOT mark the feed's
-  // newest article read \u2014 see onHover in main.js. Skipped when this feed
+  // only — no need to gate on pointerType) but must NOT mark the feed's
+  // newest article read — see onHover in main.js. Skipped when this feed
   // is already selected: onHover triggers a full re-render, which tears
   // down and rebuilds this <li>; without the guard, the pointer landing
   // on its own replacement would re-fire mouseenter and loop.
@@ -305,7 +305,7 @@ function attachFeedInteractions(
   });
 
   // Touch has no hover, so without this there's no way to see what's in a
-  // feed before committing to a tap (select) or a long-press (menu) \u2014 you'd
+  // feed before committing to a tap (select) or a long-press (menu) — you'd
   // have to select it, look, then back out if it wasn't the one you meant.
   // Preview it (see onHover) the instant a finger touches down instead,
   // same as mouseenter does for a mouse. Skipped when this feed is already
@@ -313,7 +313,7 @@ function attachFeedInteractions(
   //
   // That preview's re-render replaces this <li> immediately though, so the
   // rest of the gesture (long-press-to-menu, tap-to-select) can't rely on
-  // events still landing on this now-detached element \u2014 it's tracked via
+  // events still landing on this now-detached element — it's tracked via
   // document-level listeners keyed by this touch's pointerId instead, torn
   // down the moment the pointer lifts, cancels, or moves at all (same
   // threshold-free "any movement isn't a tap" rule the old per-element
@@ -357,7 +357,7 @@ function attachFeedInteractions(
 }
 
 // One menu open at a time, tracked at module scope so opening a second one
-// (or clicking away) always closes whatever's currently showing \u2014 mirrors
+// (or clicking away) always closes whatever's currently showing — mirrors
 // reflect.js's color-picker singleton for the same reason. activeMenuFeedId
 // lets renderFeedList (above) tell a menu that's still relevant apart from
 // one left dangling by the feed it's anchored to disappearing.
@@ -376,7 +376,7 @@ function closeFeedContextMenu() {
 // Right-click or long-press a feed for this menu: pin/unpin it to its own
 // group at the top of the sidebar (see PINNED_STATUS in frequency.js),
 // toggle whether it gets fetched at all (paused feeds sort into their own
-// "\u66f4\u65b0\u505c\u6b66" group and are skipped entirely by refreshAll), plus a row of
+// "更新停止" group and are skipped entirely by refreshAll), plus a row of
 // color swatches to tag the feed for at-a-glance grouping in the sidebar
 // (see .feed-item--colored in style.css).
 function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColor, onAddFeedTag, onRemoveFeedTag }) {
@@ -387,7 +387,7 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
     style: { left: `${x}px`, top: `${y}px` }
   });
   
-  // Tags (unlike pin/pause/color) don't close the menu on every action \u2014
+  // Tags (unlike pin/pause/color) don't close the menu on every action —
   // adding several in a row is the common case, so the tag section below
   // redraws itself in place instead, mirroring main.js's showAnnotatePopup.
   let currentFeed = feed;
@@ -399,7 +399,7 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
         {
           type: "button",
           className: "feed-context-menu-item",
-          textContent: currentFeed.pinned ? "\u30d4\u30f3\u7559\u3081\u3092\u89e3\u9664" : "\u4e0a\u90e8\u306b\u30d4\u30f3\u7559\u3081"
+          textContent: currentFeed.pinned ? "ピン留めを解除" : "上部にピン留め"
         },
         () => {
           onTogglePin(currentFeed.feedId);
@@ -413,7 +413,7 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
       {
         type: "button",
         className: "feed-context-menu-item",
-        textContent: currentFeed.paused ? "\u66f4\u65b0\u3092\u518d\u958b" : "\u66f4\u65b0\u3092\u505c\u6b66"
+        textContent: currentFeed.paused ? "更新を再開" : "更新を停止"
       },
       () => {
         onTogglePause(currentFeed.feedId);
@@ -431,7 +431,7 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
             type: "button",
             className: "feed-color-swatch" + (currentFeed.color === key ? " selected" : ""),
             style: { "--feed-color": rgb },
-            title: `\u8272${key}`
+            title: `色${key}`
           },
           () => {
             onSetColor(currentFeed.feedId, key);
@@ -445,8 +445,8 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
         {
           type: "button",
           className: "feed-color-swatch feed-color-swatch--clear" + (!currentFeed.color ? " selected" : ""),
-          title: "\u8272\u3092\u30af\u30ea\u30a2",
-          textContent: "\u00d7"
+          title: "色をクリア",
+          textContent: "×"
         },
         () => {
           onSetColor(currentFeed.feedId, null);
@@ -488,7 +488,7 @@ function openFeedContextMenu(feed, x, y, { onTogglePause, onTogglePin, onSetColo
   activeMenu = menu;
   activeMenuFeedId = feed.feedId;
 
-  // Clamp inside the viewport now that the menu's own size is known \u2014
+  // Clamp inside the viewport now that the menu's own size is known —
   // right-clicking/long-pressing near an edge shouldn't push part of it
   // off-screen.
   const rect = menu.getBoundingClientRect();

@@ -5,9 +5,9 @@ import { renderEmptyHint } from "./listUtils.js";
 
 const POLL_INTERVAL_MS = 2500;
 
-// PAIR_TTL_SECONDS is hours-long now (see config.py), not a few minutes \u2014
+// PAIR_TTL_SECONDS is hours-long now (see config.py), not a few minutes —
 // includes the hour digit whenever there's at least one, so this reads as
-// "\u6b8b\u308i 2:59:42" instead of an unbroken minute count like "179:42".
+// "残り 2:59:42" instead of an unbroken minute count like "179:42".
 function formatRemaining(expiresAtIso) {
   const ms = new Date(expiresAtIso).getTime() - Date.now();
   if (ms <= 0) return null;
@@ -16,7 +16,7 @@ function formatRemaining(expiresAtIso) {
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   const time = h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
-  return `\u6b8b\u308i ${time}`;
+  return `残り ${time}`;
 }
 
 // Wires the two "share this device's seed" flows (QR + 6-digit code), both
@@ -39,7 +39,7 @@ export function setupPairingShareUI({ getSeed, getApiBase }) {
   }
 
   function openQr() {
-    qrBox.textContent = "\u751f\u6210\u4e2d\u2026";
+    qrBox.textContent = "生成中…";
     qrModal.classList.remove("hidden");
     generateQrCode();
   }
@@ -50,7 +50,7 @@ export function setupPairingShareUI({ getSeed, getApiBase }) {
       await renderQrCode(qrBox, payload);
     } catch (err) {
       console.error("[feeda] QR generation failed", err);
-      qrBox.textContent = "QR\u30b3\u30fc\u30c9\u306e\u751f\u6210\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002";
+      qrBox.textContent = "QRコードの生成に失敗しました。";
     }
   }
 
@@ -74,12 +74,12 @@ export function setupPairingShareUI({ getSeed, getApiBase }) {
 
   function openCode() {
     codeValueEl.textContent = "------";
-    codeStatusEl.textContent = "\u30b3\u30fc\u30c9\u3092\u767a\u884c\u3057\u3066\u3044\u307e\u3059\u2026";
+    codeStatusEl.textContent = "コードを発行しています…";
     codeModal.classList.remove("hidden");
     startPolling();
   }
 
-  // The code just shown, if any \u2014 so generating a new one can invalidate it
+  // The code just shown, if any — so generating a new one can invalidate it
   // first (see below). PAIR_TTL_SECONDS is now hours-long rather than a few
   // minutes, so without this a re-share (e.g. the first code went to the
   // wrong device, or was just misread) would leave the old code sitting
@@ -104,26 +104,26 @@ export function setupPairingShareUI({ getSeed, getApiBase }) {
       pollTimer = setInterval(async () => {
         const remaining = formatRemaining(expiresAt);
         if (remaining === null) {
-          codeStatusEl.textContent = "\u30b3\u30fc\u30c9\u306e\u6709\u52b9\u671f\u9650\u304c\u5207\u308c\u307e\u3057\u305f\u3002\u3082\u3046\u4e00\u5ea6\u767a\u884c\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+          codeStatusEl.textContent = "コードの有効期限が切れました。もう一度発行してください。";
           stopPolling();
           return;
         }
         try {
           const status = await pollPairingStatus(apiBase, code);
           if (status.found && status.consumed) {
-            codeStatusEl.textContent = "\u2713 \u5225\u306e\u7aef\u672b\u3067\u53d7\u3051\u53d6\u3089\u308c\u307e\u3057\u305f\u3002";
+            codeStatusEl.textContent = "✓ 別の端末で受け取られました。";
             stopPolling();
             return;
           }
         } catch {
-          // transient poll failure \u2014 just try again next tick
+          // transient poll failure — just try again next tick
         }
-        codeStatusEl.textContent = `\u5225\u306e\u7aef\u672b\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u0028${remaining}\u0029`;
+        codeStatusEl.textContent = `別の端末で入力してください。(${remaining})`;
       }, POLL_INTERVAL_MS);
-      codeStatusEl.textContent = `\u5225\u306e\u7aef\u672b\u3067\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u0028${formatRemaining(expiresAt)}\u0029`;
+      codeStatusEl.textContent = `別の端末で入力してください。(${formatRemaining(expiresAt)})`;
     } catch (err) {
       console.error("[feeda] pairing code creation failed", err);
-      codeStatusEl.textContent = `\u30b3\u30fc\u30c9\u306e\u767a\u884c\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ${err.message}`;
+      codeStatusEl.textContent = `コードの発行に失敗しました: ${err.message}`;
     }
   }
 
@@ -173,7 +173,7 @@ export function setupPairingReceiveUI({ onReceived, getApiBase }) {
       stopScanner = await startQrScanner(qrVideo, handleDecoded);
     } catch (err) {
       console.error("[feeda] camera start failed", err);
-      qrStatus.textContent = "\u30ab\u30e1\u30e9\u3092\u8d77\u52d5\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f\u3002\u6a29\u9650\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+      qrStatus.textContent = "カメラを起動できませんでした。権限を確認してください。";
     }
   }
 
@@ -185,7 +185,7 @@ export function setupPairingReceiveUI({ onReceived, getApiBase }) {
       data = null;
     }
     if (!data || typeof data.seed !== "string") {
-      qrStatus.textContent = "feeda\u306eQR\u30b3\u30fc\u30c9\u3067\u306f\u306a\u3044\u3088\u3046\u3067\u3059\u3002\u3082\u3046\u4e00\u5ea6\u304a\u8a66\u3057\u304f\u3060\u3055\u3044\u3002";
+      qrStatus.textContent = "feedaのQRコードではないようです。もう一度お試しください。";
       return;
     }
     closeQrScan();
@@ -227,10 +227,10 @@ export function setupPairingReceiveUI({ onReceived, getApiBase }) {
 
   codeSubmitBtn.addEventListener("click", async () => {
     const code = codeInput.value.trim();
-    codeStatus.textContent = "\u53d7\u3051\u53d6\u3083\u3066\u3044\u307e\u3059\u2026";
+    codeStatus.textContent = "受け取ゃています…";
     try {
       const data = await consumePairingCode(getApiBase(), code);
-      if (!data || typeof data.seed !== "string") throw new Error("\u30c7\u30fc\u30bf\u306e\u5f62\u5f0f\u304c\u4e0d\u6b63\u3067\u3059\u3002");
+      if (!data || typeof data.seed !== "string") throw new Error("データの形式が不正です。");
       closeCodeReceive();
       onReceived(data.seed, data.apiBase || "");
     } catch (err) {

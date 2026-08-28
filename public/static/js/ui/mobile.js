@@ -3,7 +3,7 @@ import { extractArticlePreview } from "../sanitize.js";
 import { createElement } from "./domUtils.js";
 import { renderEmptyHint } from "./listUtils.js";
 
-// Small-phone layout: a single flat, cross-feed unread list \u2014 no per-feed
+// Small-phone layout: a single flat, cross-feed unread list — no per-feed
 // navigation at all. Articles are read on their origin site: each row is a
 // real link that opens in a new tab; there's no in-app preview to keep in
 // sync with a separate pane.
@@ -12,7 +12,7 @@ export function renderMobileList(container, { entries, feedTitleById, query, isU
   container.innerHTML = "";
 
   if (entries.length === 0) {
-    renderEmptyHint(container, emptyHint || "\u8a18\u4e8b\u304c\u3042\u308a\u307e\u305b\u3093\u3002");
+    renderEmptyHint(container, emptyHint || "記事がありません。");
     return;
   }
 
@@ -46,14 +46,14 @@ export function renderMobileList(container, { entries, feedTitleById, query, isU
     const main = createElement("div", { className: "article-main" });
 
     const title = createElement("div", { className: "article-title" });
-    title.appendChild(highlightText(entry.title || "(\u30bf\u30a4\u30c8\u30eb\u306a\u3057)", query));
+    title.appendChild(highlightText(entry.title || "(タイトルなし)", query));
     main.appendChild(title);
 
     const meta = createElement("div", { className: "article-meta" });
     const parts = [];
     if (showFeedName) parts.push(feedTitleById.get(entry.feedId) || "");
     if (entry.pubDate) parts.push(new Date(entry.pubDate).toLocaleString("ja-JP"));
-    meta.textContent = parts.join(" \u30fb ");
+    meta.textContent = parts.join(" ・ ");
     main.appendChild(meta);
 
     if (snippet) {
