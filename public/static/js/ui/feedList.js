@@ -72,6 +72,7 @@ export function renderFeedList(
     onCopyUrl,
     onSelectGroup,
     onShowAllUnread,
+    emptyHint,
   }
 ) {
   container.innerHTML = "";
@@ -112,7 +113,7 @@ export function renderFeedList(
     renderEmptyHint(
       container,
       totalFeedCount > 0
-        ? "検索条件に一致するフィードがありません。"
+        ? emptyHint || "検索条件に一致するフィードがありません。"
         : "まだフィードが登録されていません。Tampermonkeyスクリプトで自動登録してください。"
     );
     return;

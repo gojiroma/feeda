@@ -25,7 +25,6 @@ import {
   getFeedAddedCounts,
   getLatestLogEntriesByEntryId,
   getFeedEngagementScores,
-  getFeedLogCounts,
   searchLogEntries,
   dateStrOf,
   shiftDateStr,
@@ -81,7 +80,6 @@ const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
 const reflectFeedChartEl = document.getElementById("reflect-feed-chart");
 const reflectColorFilterEl = document.getElementById("reflect-color-filter");
-const reflectFeedListEl = document.getElementById("reflect-feed-list");
 
 // Width of the trend strip in the day-nav header — see renderDayChart.
 const REFLECT_DAY_CHART_DAYS = 21;
@@ -190,11 +188,6 @@ const state = {
   // own top-level screen rather than sharing render().
   mode: "view",
   reflectDate: dateStrOf(),
-  // feedId selected in reflect's own feed tree (see renderReflectFeedList),
-  // or null for no filter. Unlike the main view's selectedFeedId this never
-  // changes what's fetched or previewed — it only narrows which of the
-  // day's (or search's) log entries renderReflect shows.
-  reflectFeedFilter: null,
   // Snapshot of the cross-feed "unread timeline" shown when no feed is
   // selected. Frozen at capture time so opening an entry (which marks it,
   // and possibly its whole feed, as read) doesn't yank it out of the list
@@ -438,6 +431,15 @@ function currentFeedGroups() {
       if (searchEntries(query, entries, state.feedTitleById).length > 0) matchingFeedIds.add(feedId);
     }
     feeds = feeds.filter((f) => matchingFeedIds.has(f.feedId));
+  } else {
+    // Skip building/rendering a <li> for every already-read, stale, or
+    // paused feed — with a large subscription list that's most of the tree,
+    // and render() redraws it after every single feed refreshAll() fetches
+    // (see render()'s own comment), so this is the difference between a
+    // crawl that stays snappy and one that visibly stutters. Only applies
+    // to the plain unfiltered browse view: an active search still needs the
+    // full pool above to find any feed, read or not, by title/content.
+    feeds = feeds.filter((f) => f.pinned || hasUnread(f));
   }
   if (state.feedColorFilter.size > 0) {
     feeds = feeds.filter((f) => f.color && state.feedColorFilter.has(f.color));
@@ -449,6 +451,17 @@ function currentFeedGroups() {
   return groupFeedsByFrequency(feedsWithEntries);
 }
 
+// currentFeedGroups' pinned/unread-only default (see its own comment) turns
+// "every feed is read, none pinned" into an everyday empty tree, not a rare
+// one — that needs its own message instead of falling back to renderFeedList's
+// generic "検索条件に一致するフィードがありません。", which only actually fits
+// while a search or color filter is narrowing things. undefined here lets
+// that generic wording stand for those two cases.
+function feedListEmptyHint(query) {
+  if (query.trim() || state.feedColorFilter.size > 0) return undefined;
+  return "未読・ピン留めのフィードはありません。";
+}
+
 // Which sidebar groups (status-level and frequency-level, see feedList.js's
 // nested keys) render collapsed. Computed once, lazily, the first time the
 // sidebar renders after load: groups with no unread feed start collapsed,
@@ -458,13 +471,6 @@ function currentFeedGroups() {
 // (e.g. triggered by hovering an article) must not snap a group the user
 // opened back shut, so this is never recomputed after its first use.
 let collapsedGroups = null;
-
-// Reflect's own feed tree (see renderReflectFeedList) is always a single
-// flat group, so there's nothing meaningful to start collapsed the way
-// collapsedGroupsFor's unread-based heuristic does for the main tree — a
-// plain persistent Set is enough to remember the one status-level toggle
-// across redraws.
-const reflectCollapsedGroups = new Set();
 
 function collapsedGroupsFor(tree) {
   // While a color filter or search query is active, `tree` already only
@@ -762,7 +768,6 @@ async function renderReflect() {
   // rules), so it needs refreshing here the same way, since render() itself
   // no-ops in reflect mode.
   renderFeedColorFilterBar();
-  await renderReflectFeedList();
   const query = state.searchQuery.trim();
   if (query) {
     reflectDateLabelEl.textContent = `「${query}」の検索結果`;
@@ -775,7 +780,7 @@ async function renderReflect() {
       onToggleColor: toggleLogColorFilter,
     });
     renderReflectTimeline(reflectTimelineEl, {
-      entries: filterLogEntriesByColor(filterLogEntriesByFeed(filterLogEntriesByFeedColor(rawEntries))),
+      entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
       onAddComment: handleAddComment,
       onSetColor: handleSetLogColor,
       onAddTag: handleAddLogTag,
@@ -808,7 +813,7 @@ async function renderReflect() {
     onToggleColor: toggleLogColorFilter,
   });
   renderReflectTimeline(reflectTimelineEl, {
-    entries: filterLogEntriesByColor(filterLogEntriesByFeed(filterLogEntriesByFeedColor(rawEntries))),
+    entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
     onAddComment: handleAddComment,
     onSetColor: handleSetLogColor,
     onAddTag: handleAddLogTag,
@@ -824,17 +829,7 @@ function filterLogEntriesByColor(entries) {
   return entries.filter((e) => e.color && state.logColorFilter.has(e.color));
 }
 
-// Companion to filterLogEntriesByColor for reflect's own feed tree (see
-// renderReflectFeedList/toggleReflectFeedFilter) — narrows to one feed
-// instead of a set of colors, and composes with the color filter rather
-// than replacing it: both can be active on the same view.
-function filterLogEntriesByFeed(entries) {
-  if (!state.reflectFeedFilter) return entries;
-  return entries.filter((e) => e.feedId === state.reflectFeedFilter);
-}
-
-// Third filter reflect composes on top of the two above — the same
-// feedColorFilter the main screen's #feed-color-filter bar drives (see
+// The feedColorFilter the main screen's #feed-color-filter bar drives (see
 // currentFeedGroups/toggleFeedColorFilter), now shown in reflect mode too
 // (see renderReflect). Narrows to entries whose *feed* carries one of the
 // active colors, distinct from filterLogEntriesByColor's own logColorFilter
@@ -845,63 +840,6 @@ function filterLogEntriesByFeedColor(entries) {
     const feed = state.feedsById.get(e.feedId);
     return Boolean(feed && feed.color && state.feedColorFilter.has(feed.color));
   });
-}
-
-// Reflect's own feed tree — same renderFeedList component as the main
-// sidebar (feed-item styling, color tags, the pause/pin/color context menu),
-// but a single flat group (see the isFlatStatus check in ui/feedList.js)
-// ranked by getFeedLogCounts instead of the status/frequency breakdown: a
-// day's-worth-of-reading timeline isn't "catch up on what's unread", it's
-// "which of my feeds turn up here most". Selecting a feed filters the
-// timeline to it via reflectFeedFilter/filterLogEntriesByFeed rather than
-// navigating anywhere — reflect has no per-feed screen of its own.
-async function renderReflectFeedList() {
-  const counts = await getFeedLogCounts();
-  // Same feedColorFilter the main sidebar's own #feed-color-filter bar
-  // drives (see currentFeedGroups) — now shown here too (see renderReflect),
-  // so it narrows this tree exactly the same way.
-  let feedsToShow = [...state.feedsById.values()];
-  if (state.feedColorFilter.size > 0) {
-    feedsToShow = feedsToShow.filter((f) => f.color && state.feedColorFilter.has(f.color));
-  }
-  const feeds = feedsToShow
-    .map((feed) => ({ feed, count: counts.get(feed.feedId) || 0 }))
-    .sort((a, b) => b.count - a.count || (a.feed.title || a.feed.url).localeCompare(b.feed.title || b.feed.url))
-    .map(({ feed }) => feed);
-
-  renderFeedList(reflectFeedListEl, {
-    groups: [
-      {
-        status: { key: "reflect-feeds", label: "フィード" },
-        subgroups: [{ group: { key: "reflect-feeds", label: "フィード" }, feeds }],
-      },
-    ],
-    totalFeedCount: state.feedsById.size,
-    selectedFeedId: state.reflectFeedFilter,
-    query: "",
-    collapsedGroups: reflectCollapsedGroups,
-    onSelect: toggleReflectFeedFilter,
-    onHover: () => {},
-    onTogglePause: togglePauseFeed,
-    onTogglePin: togglePinFeed,
-    onSetColor: setFeedColor,
-    onAddFeedTag: addFeedTag,
-    onRemoveFeedTag: removeFeedTag,
-    onCopyUrl: copyFeedUrl,
-    // No onSelectGroup here — reflect's tree is already one flat group (see
-    // renderReflectFeedList's own comment), and "まとめて見る" would call
-    // into the normal view's selectedFeedGroupIds/render(), which no-ops
-    // entirely while in reflect mode (see render()'s own early return).
-  });
-}
-
-// Clicking a feed already selected in reflect's tree clears the filter
-// (toggle, same as clicking an active color swatch elsewhere) rather than
-// being a no-op — otherwise there'd be no way back to "every feed" short of
-// reloading.
-function toggleReflectFeedFilter(feedId) {
-  state.reflectFeedFilter = state.reflectFeedFilter === feedId ? null : feedId;
-  renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
 async function handleAddComment(logId, text) {
@@ -1030,7 +968,7 @@ function previewReflectDate(dateStr) {
         onToggleColor: toggleLogColorFilter,
       });
       renderReflectTimeline(reflectTimelineEl, {
-        entries: filterLogEntriesByColor(filterLogEntriesByFeed(filterLogEntriesByFeedColor(rawEntries))),
+        entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
         onAddComment: handleAddComment,
         onSetColor: handleSetLogColor,
         onAddTag: handleAddLogTag,
@@ -1089,6 +1027,7 @@ function renderDesktop() {
     selectedFeedId: state.selectedFeedId,
     query,
     collapsedGroups: collapsedGroupsFor(feedGroups),
+    emptyHint: feedListEmptyHint(query),
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
@@ -1184,6 +1123,7 @@ function renderTabletThreePane() {
     selectedFeedId: state.selectedFeedId,
     query,
     collapsedGroups: collapsedGroupsFor(feedGroups),
+    emptyHint: feedListEmptyHint(query),
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
@@ -1249,6 +1189,7 @@ function renderWideGrid() {
     selectedFeedId: state.selectedFeedId,
     query,
     collapsedGroups: collapsedGroupsFor(feedGroups),
+    emptyHint: feedListEmptyHint(query),
     onSelect: selectFeed,
     onHover: previewFeed,
     onTogglePause: togglePauseFeed,
@@ -1304,18 +1245,11 @@ function renderWideGrid() {
   renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
 }
 
-// render() no-ops entirely in reflect mode (see its own comment) — but the
-// feed context menu (pause/pin/color) is now reachable from reflect's own
-// feed tree too (see renderReflectFeedList), so a change made there still
-// needs *something* redrawn. Only the tree itself can have changed — the
-// timeline doesn't depend on a feed's pause/pin/color — so that's all this
-// redraws in reflect mode, instead of the fuller renderReflect().
+// Feed pause/pin/color/tag changes only ever come from the normal view's
+// own feed tree or article list — reflect has no feed context menu of its
+// own — so this is just render(), which itself no-ops in reflect mode.
 function refreshAfterFeedChange() {
-  if (state.mode === "reflect") {
-    renderReflectFeedList();
-  } else {
-    render();
-  }
+  render();
 }
 
 // Shared by togglePauseFeed and pauseFeedGroup (the article list's own

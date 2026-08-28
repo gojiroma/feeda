@@ -38,7 +38,11 @@ export function createElement(tagName, {
   });
   
   Object.entries(style).forEach(([key, value]) => {
-    el.style[key] = value;
+    if (key.startsWith("--")) {
+      el.style.setProperty(key, value);
+    } else {
+      el.style[key] = value;
+    }
   });
   
   children.forEach(child => {
@@ -186,7 +190,13 @@ export function emptyElement(el) {
  * @param {Object} styles - スタイルオブジェクト
  */
 export function setStyle(el, styles) {
-  Object.assign(el.style, styles);
+  Object.entries(styles).forEach(([key, value]) => {
+    if (key.startsWith("--")) {
+      el.style.setProperty(key, value);
+    } else {
+      el.style[key] = value;
+    }
+  });
 }
 
 /**

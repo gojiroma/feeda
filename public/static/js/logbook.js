@@ -262,21 +262,6 @@ export async function getFeedEngagementScores() {
   return scores;
 }
 
-// Plain count of log entries (reads) per feedId — simpler than
-// getFeedEngagementScores' weighted score above, and used for a different
-// purpose: ranking reflect's own feed tree (see renderReflectFeedList in
-// main.js) by how many reading records a feed has racked up, not by how
-// deliberately you engaged with any one of them.
-export async function getFeedLogCounts() {
-  const all = await getAllLogEntries();
-  const counts = new Map();
-  for (const row of all) {
-    if (!row.feedId) continue;
-    counts.set(row.feedId, (counts.get(row.feedId) || 0) + 1);
-  }
-  return counts;
-}
-
 const SEARCH_RESULT_LIMIT = 200;
 
 function normalizeQuery(query) {
