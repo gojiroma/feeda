@@ -1,6 +1,8 @@
 import { addNgWord, removeNgWord, getActiveNgWords } from "../ngWords.js";
+import { setupFormModal } from "./modalUtils.js";
+import { createRemovableListItem, renderEmptyHint } from "./listUtils.js";
 
-// "NGワード" topbar button — add/remove blocklist keywords (see ngWords.js).
+// "NG\u30ef\u30fc\u30c9" topbar button \u2014 add/remove blocklist keywords (see ngWords.js).
 // onChange fires after every add/remove so main.js can push the change to
 // the server and re-apply the filter to whatever's currently on screen.
 export function setupNgWordModal(triggerBtn, modalEl, { onChange } = {}) {
@@ -12,31 +14,27 @@ export function setupNgWordModal(triggerBtn, modalEl, { onChange } = {}) {
   async function renderList() {
     const words = await getActiveNgWords();
     words.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-    listEl.innerHTML = "";
+    
     if (words.length === 0) {
-      const hint = document.createElement("li");
-      hint.className = "empty-hint";
-      hint.textContent = "NGワードはまだ登録されていません。";
-      listEl.appendChild(hint);
+      renderEmptyHint(listEl, "NG\u30ef\u30fc\u30c9\u306f\u307e\u3060\u767b\u9332\u3055\u308c\u3066\u3044\u307e\u305b\u3093\u3002");
       return;
     }
+    
+    listEl.innerHTML = "";
     for (const entry of words) {
-      const li = document.createElement("li");
-      li.className = "ng-word-item";
-      const span = document.createElement("span");
-      span.textContent = entry.word;
-      li.appendChild(span);
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.textContent = "×";
-      removeBtn.title = "削除";
-      removeBtn.addEventListener("click", () => {
-        removeNgWord(entry.word)
-          .then(() => renderList())
-          .then(() => onChange?.())
-          .catch((err) => console.error("ng word remove failed", err));
-      });
-      li.appendChild(removeBtn);
+      const li = createRemovableListItem(
+        entry.word,
+        () => {
+          removeNgWord(entry.word)
+            .then(() => renderList())
+            .then(() => onChange?.())
+            .catch((err) => console.error("ng word remove failed", err));
+        },
+        {
+          itemClass: "ng-word-item",
+          btnTitle: "\u524a\u9664"
+        }
+      );
       listEl.appendChild(li);
     }
   }
@@ -50,23 +48,23 @@ export function setupNgWordModal(triggerBtn, modalEl, { onChange } = {}) {
     modalEl.classList.add("hidden");
   }
 
-  triggerBtn.addEventListener("click", open);
-  closeBtn.addEventListener("click", close);
-  modalEl.addEventListener("click", (ev) => {
-    if (ev.target === modalEl) close();
-  });
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && !modalEl.classList.contains("hidden")) close();
+  // 共通モーダルセットアップ
+  setupFormModal(triggerBtn, modalEl, "ng-word-form", {
+    onSubmit: (ev) => {
+      ev.preventDefault();
+      const text = inputEl.value;
+      if (!text.trim()) return;
+      inputEl.value = "";
+      addNgWord(text)
+        .then(() => renderList())
+        .then(() => onChange?.())
+        .catch((err) => console.error("ng word add failed", err));
+    },
+    onClose: close,
+    closeOnBackgroundClick: true,
+    closeOnEscape: true
   });
 
-  formEl.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const text = inputEl.value;
-    if (!text.trim()) return;
-    inputEl.value = "";
-    addNgWord(text)
-      .then(() => renderList())
-      .then(() => onChange?.())
-      .catch((err) => console.error("ng word add failed", err));
-  });
+  // 閉じるボタン
+  closeBtn.addEventListener("click", close);
 }

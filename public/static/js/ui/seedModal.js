@@ -1,3 +1,6 @@
+import { setupModalWithCloseBtn, setupCopyModal } from "./modalUtils.js";
+
+// 共通モーダル機能を使用したシードモーダルのセットアップ
 export function setupSeedModal(triggerBtn, modalEl, { getSeed, getApiBase }) {
   const seedInput = document.getElementById("seed-display");
   const apiBaseInput = document.getElementById("seed-modal-api-base");
@@ -6,7 +9,7 @@ export function setupSeedModal(triggerBtn, modalEl, { getSeed, getApiBase }) {
 
   function open() {
     seedInput.value = getSeed();
-    apiBaseInput.value = getApiBase() || "（空欄 = 同一ドメイン）";
+    apiBaseInput.value = getApiBase() || "\u3008\u7a7a\u6b04 = \u540c\u4e00\u30c9\u30e1\u30a4\u30f3\u3009";
     modalEl.classList.remove("hidden");
   }
 
@@ -14,23 +17,14 @@ export function setupSeedModal(triggerBtn, modalEl, { getSeed, getApiBase }) {
     modalEl.classList.add("hidden");
   }
 
-  triggerBtn.addEventListener("click", open);
-  closeBtn.addEventListener("click", close);
-  modalEl.addEventListener("click", (ev) => {
-    if (ev.target === modalEl) close();
-  });
-  document.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape" && !modalEl.classList.contains("hidden")) close();
+  // 基本モーダルセットアップ
+  setupModalWithCloseBtn(triggerBtn, modalEl, "seed-modal-close-btn", {
+    onOpen: open,
+    onClose: close,
+    closeOnBackgroundClick: true,
+    closeOnEscape: true
   });
 
-  copyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(seedInput.value);
-      const original = copyBtn.textContent;
-      copyBtn.textContent = "コピーしました";
-      setTimeout(() => { copyBtn.textContent = original; }, 1200);
-    } catch (err) {
-      console.error("clipboard copy failed", err);
-    }
-  });
+  // コピーボタンのセットアップ
+  setupCopyModal(null, modalEl, "seed-copy-btn", () => seedInput.value, {});
 }
