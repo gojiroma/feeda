@@ -1250,15 +1250,21 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
     y,
     className: "article-annotate-popup",
     build: (popup) => {
-      const draw = () => {
+      // Only the popup's very first draw autofocuses the comment input —
+      // a redraw triggered by picking a color is not the user asking to
+      // type, and focusing the input anyway pops the on-screen keyboard on
+      // mobile for no reason. A redraw after actually submitting a comment
+      // keeps the focus/keyboard that was already there.
+      const draw = (autoFocus) => {
         renderAnnotatePopup(popup, {
           logEntry,
+          autoFocus,
           onSetColor: (color) => {
             setEntryLogColor(entry, logEntry.id, color)
               .then((updated) => {
                 if (updated) {
                   logEntry = updated;
-                  draw();
+                  draw(false);
                 }
               })
               .catch((err) => console.error("set color failed", err));
@@ -1268,14 +1274,14 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
               .then((updated) => {
                 if (updated) {
                   logEntry = updated;
-                  draw();
+                  draw(true);
                 }
               })
               .catch((err) => console.error("add comment failed", err));
           },
         });
       };
-      draw();
+      draw(true);
     },
   });
 }
