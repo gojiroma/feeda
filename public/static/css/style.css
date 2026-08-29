@@ -408,31 +408,10 @@ input[type="text"], input[type="url"], input[type="search"] {
   cursor: pointer;
 }
 
-.panes {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-}
-.mobile-view {
-  display: none;
-}
-.pane {
-  overflow-y: auto;
-  padding: 8px;
-  box-shadow: inset 0 0 0 2px transparent;
-}
-.pane.focused {
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-.feed-pane {
-  width: 260px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-}
 /* Left half of .filter-row, ahead of the search-history bar (see
-   renderFeedColorFilter in ui/feedList.js) — only holds swatches for colors
-   actually in use on some feed, so it's empty (and hidden via :empty) until
-   at least one feed is color-tagged. */
+   renderColorFilter in ui/commonComponents.js) — only holds swatches for
+   colors actually in use on some feed, so it's empty (and hidden via
+   :empty) until at least one feed is color-tagged. */
 .feed-color-filter {
   display: flex;
   flex-wrap: wrap;
@@ -473,39 +452,11 @@ input[type="text"], input[type="url"], input[type="search"] {
 .feed-color-filter-clear:hover {
   color: var(--text);
 }
-.article-pane {
-  width: 380px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-}
-/* Bottom action bar under a single feed's or a "まとめて見る" group's own
-   article list (see renderArticleListActions in main.js) — sticky to the
-   bottom of .article-pane's own scroll (not the viewport) so it's reachable
-   without scrolling all the way past every article first, same idea as
-   .feed-color-filter's sticky-top treatment above. Hidden (see the global
-   .hidden rule) for the cross-feed unread timeline and search results,
-   where there's no single feed/group for these buttons to act on. */
-.article-list-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-  padding-top: 8px;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-}
-.article-list-action-btn {
-  flex: 1;
-}
 
-/* Grouped-by-feed rendering of the cross-feed unread timeline (see
-   groupByFeed in articleList.js) — one block per feed, each headlined by its
-   own name + pause button instead of a per-row feed name. Plain vertical
-   stacking here; wide-grid mode overrides this into horizontal, independently
-   scrollable columns instead (see .app.wide-grid-mode .article-list-grouped
-   below), reusing the exact same markup. */
+/* Grouped-by-feed rendering of the article list (see groupByFeed in
+   articleList.js) — one block per feed, each headlined by its own name
+   (right-click/long-press for the per-feed context menu) instead of a
+   per-row feed name. */
 .article-list-grouped {
   display: flex;
   flex-direction: column;
@@ -525,11 +476,19 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-bottom: 1px solid var(--border);
   font-size: 0.8rem;
   font-weight: 600;
+  cursor: context-menu;
 }
-/* --feed-color set inline per feed (see buildFeedHeader) — same quiet-tag
-   convention as the sidebar's .feed-item--colored: a left border plus a
-   low-alpha tint, so a feed's color shows up here too instead of only in
-   the sidebar. */
+/* Copy-URL feedback (see copyFeedUrl in main.js) — flashed on the header
+   the menu item was triggered from. */
+.article-feed-header.copy-flash {
+  background: var(--accent);
+  color: var(--accent-fg);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+/* --feed-color set inline per feed (see buildFeedHeader in
+   ui/articleList.js) — a quiet-tag convention shared with reflect's own
+   --reflect-color: a left border plus a low-alpha tint, so a feed's color
+   shows up on its block header. */
 .article-feed-header--colored {
   border-left: 3px solid rgb(var(--feed-color));
   background: rgba(var(--feed-color), 0.12);
@@ -540,217 +499,20 @@ input[type="text"], input[type="url"], input[type="search"] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: context-menu;
 }
-.article-feed-header-pause-btn {
-  flex-shrink: 0;
-  font-size: 0.72rem;
-  font-weight: 400;
-  padding: 2px 8px;
-}
-/* "残す" already applied (see toggleKeepFeed in main.js) — same accent
-   treatment as #wide-grid-toggle-btn.active, so it's clear at a glance
-   which feeds are exempt from autoPauseInactiveFeeds. */
-.article-feed-header-pause-btn--active {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-}
-.article-feed-header-pin-btn {
+.article-feed-header-pin {
   flex-shrink: 0;
   font-size: 0.78rem;
   line-height: 1;
-  padding: 2px 6px;
-  opacity: 0.4;
-}
-.article-feed-header-pin-btn:hover {
   opacity: 0.75;
-}
-.article-feed-header-pin-btn--active {
-  opacity: 1;
-  background: rgba(var(--accent-rgb), 0.15);
-  border-color: var(--accent);
-}
-/* Bottom-of-column 既読/解除/ピン bar (see buildFeedFooter in
-   ui/articleList.js) — a non-scrolling sibling after .article-list within
-   .article-feed-block, so in wide-grid mode (where that block is a flex
-   column with the list itself taking the flexible middle — see
-   .app.wide-grid-mode .article-feed-block below) it naturally pins to the
-   bottom of the column without any extra positioning; in the plain stacked
-   layout (tablet 3-pane) it just sits at the end of that feed's own section. */
-.article-feed-footer {
-  display: flex;
-  gap: 6px;
-  padding: 6px 8px;
-  flex-shrink: 0;
-  background: var(--bg-alt);
-  border-top: 1px solid var(--border);
-}
-.article-feed-footer-btn {
-  flex: 1;
-  font-size: 0.75rem;
-  padding: 4px 6px;
-}
-.article-feed-footer-btn--active {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-}
-.preview-pane {
-  flex: 1;
-  min-width: 0;
-}
-.pane-resizer {
-  position: relative;
-  width: 5px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: transparent;
-  touch-action: none; /* let JS drive the drag instead of the browser scrolling/zooming */
-}
-.pane-resizer::after {
-  /* Widen the touch/click target well past the thin visible line without
-     changing its appearance. */
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -8px;
-  right: -8px;
-}
-.pane-resizer:hover,
-.pane-resizer.dragging {
-  background: var(--accent);
 }
 
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
 
-/* Feed list — see renderFeedList in ui/feedList.js for the tree this
-   styles. Information priority top to bottom: 📥 すべての未読 (the one
-   escape hatch back to the cross-feed timeline) stands apart from the tree
-   as its own filled pill; the tree itself de-emphasizes structure (status/
-   frequency headers go quieter and smaller the deeper they nest) so a
-   feed's own name — the thing actually being scanned — stays the loudest
-   text in the pane. */
-.feed-list-all-unread {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  text-align: left;
-  background: rgba(var(--accent-rgb), 0.12);
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--accent);
-  padding: 8px 10px;
-  margin: 0 0 10px;
-}
-.feed-list-all-unread:hover { background: rgba(var(--accent-rgb), 0.2); }
-.feed-status-group summary {
-  cursor: pointer;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  padding: 6px 4px;
-}
-.feed-status-group + .feed-status-group { margin-top: 10px; }
-.feed-group {
-  margin-left: 8px;
-  padding-left: 8px;
-  border-left: 1px solid var(--border);
-}
-.feed-group summary {
-  cursor: pointer;
-  font-size: 0.74rem;
-  color: var(--text-muted);
-  opacity: 0.75;
-  padding: 5px 4px;
-}
-/* Label + "まとめて見る" button, side by side inside a group's <summary> —
-   see buildGroupSummary in feedList.js for why this flex row lives on an
-   inner wrapper instead of the <summary> element itself. */
-.feed-group-summary-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.feed-group-view-all {
-  flex-shrink: 0;
-  font-size: 0.7rem;
-  padding: 2px 8px;
-  border: none;
-  border-radius: 10px;
-  background: var(--bg-alt);
-  color: var(--text-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.feed-group-summary-row:hover .feed-group-view-all,
-.feed-group-view-all:focus-visible {
-  opacity: 1;
-}
-.feed-group-view-all:hover {
-  color: var(--text);
-  background: var(--border);
-}
-.feed-list-group { list-style: none; margin: 0; padding: 0; }
-.feed-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  user-select: none; /* avoid text selection flashing during long-press */
-}
-.feed-item:hover { background: var(--bg-alt); }
-.feed-item.selected { background: var(--accent); color: var(--accent-fg); }
-.feed-item.paused { opacity: 0.5; }
-.feed-item.copy-flash { background: var(--accent); color: var(--accent-fg); transition: background 0.15s ease, color 0.15s ease; }
-/* --feed-color is an "R,G,B" triplet set inline per feed (see feedList.js,
-   colorPalette.js) — same quiet-tag convention as reflect's
-   --reflect-color: a solid left border plus a low-alpha background tint.
-   The tint is skipped while selected so it doesn't fight the accent
-   background; the border stays so the tag is still visible either way. */
-.feed-item--colored { border-left: 3px solid rgb(var(--feed-color)); padding-left: 5px; }
-.feed-item--colored:not(.selected) { background: rgba(var(--feed-color), 0.12); }
-.feed-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.88rem;
-}
-/* An unread feed's name itself carries the weight now (rather than relying
-   only on the dot) — easier to scan a long list for "what's actually new"
-   at a glance instead of hunting for a small circle. */
-.feed-item:has(.unread-dot) .feed-name {
-  font-weight: 600;
-  color: var(--unread);
-}
-.feed-item.selected .feed-name {
-  color: inherit;
-}
-.unread-dot {
-  width: 7px;
-  height: 7px;
-  min-width: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.feed-item.selected .unread-dot {
-  background: var(--accent-fg);
-}
-
-/* Feed context menu — right-click/long-press a feed (see ui/feedList.js).
-   Same floating-popup mechanics as .reflect-color-picker (fixed position,
-   clamped to viewport, closed on outside click/Escape), plus a pause/resume
-   action item above the color row. */
+/* Feed context menu — right-click/long-press a feed's header in the
+   article list (see openFeedContextMenu in ui/articleList.js). Same
+   floating-popup mechanics as .reflect-color-picker (fixed position,
+   clamped to viewport, closed on outside click/Escape). */
 .feed-context-menu {
   position: fixed;
   z-index: 30;
@@ -801,94 +563,13 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.85rem;
   line-height: 1;
 }
-.feed-item {
-  flex-wrap: wrap;
-}
-
-/* Free-text tags (see ui/colorPicker.js's renderTagEditor) — a second,
-   unbounded way to mark a feed or article alongside its single color.
-   Shared by the feed context menu, the article annotate popup/inline
-   preview, and reflect's per-entry popup; --display variants are the
-   read-only chips shown inline on a feed/article row (no remove button). */
-.tag-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.tag-chip-row--display {
-  flex-basis: 100%;
-  margin-top: 2px;
-}
-.tag-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 0.72rem;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--bg-alt);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-}
-.tag-chip button {
-  border: none;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-  line-height: 1;
-  padding: 0;
-}
-.tag-chip--display {
-  padding: 1px 7px;
-}
-.tag-add-form {
-  display: flex;
-  gap: 6px;
-}
-/* Quiet by default (see .reflect-comment-input's own rule for the other
-   half of this pair) — full opacity only while actually being used
-   (hovered or focused), so an empty "add a tag/comment" field doesn't
-   visually compete with the swatches/chips/comments that are the point of
-   the popup. */
-.tag-add-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.85rem;
-  padding: 4px 6px;
-  opacity: 0.55;
-  transition: opacity 0.12s ease;
-}
-.tag-add-input:hover,
-.tag-add-input:focus {
-  opacity: 1;
-}
 
 /* Article list */
-.show-read-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  padding: 4px;
-  cursor: pointer;
-}
-.article-list { list-style: none; margin: 0; padding: 0; }
-.article-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  color: var(--text-muted);
-}
 /* Article's own lead image (see extractArticlePreview in sanitize.js) —
    fixed size so a mix of thumbnailed and thumbnail-less rows still lines up. */
 .article-thumb {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   object-fit: cover;
   border-radius: 4px;
   flex-shrink: 0;
@@ -904,35 +585,13 @@ input[type="text"], input[type="url"], input[type="search"] {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.article-item:hover { background: var(--bg-alt); }
-/* Selected used to be background: var(--bg-alt) — identical to plain
-   :hover — which made keyboard nav (arrow keys move .selected between
-   rows) genuinely hard to track: the highlighted row looked the same
-   whether it was "selected" or just "the mouse happens to be here". An
-   inset box-shadow reads as clearly distinct from hover, in any theme, and
-   — like the color-tag border below — never changes this row's height. */
-.article-item.selected {
-  background: var(--bg-alt);
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-/* No font-weight change here: bolding/unbolding the title can change its
-   line-wrap count, which changes this row's height. With hover marking
-   entries read (see articleList.js), that reflow shifts the *next* row up
-   under the still-stationary cursor, firing mouseenter on it too — a
-   cascading "read the whole list" chain reaction. Color alone (against
-   --text-muted on .article-item) gives enough contrast without touching
-   layout. */
-.article-item.unread { color: var(--unread); }
-.article-title { font-size: 0.9rem; margin-bottom: 3px; }
-.article-meta { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
-/* Colored and/or commented from reflect (or the article list's own
-   right-click/long-press popup — see articleList.js) stand out from a plain
-   row: a left border plus a low-alpha background tint, same muted treatment
-   as .reflect-log-item--colored. left padding shrinks by exactly the
-   border's width so content doesn't shift — deliberately not a font-weight
-   change (see .article-item's own comment above): only properties that
-   can't change this row's *height* are safe here, since a height change
-   would reflow the rows below it under a still-stationary cursor. */
+.article-title { font-size: 0.95rem; margin-bottom: 4px; }
+.article-meta { font-size: 0.78rem; color: var(--text-muted); font-weight: 400; }
+/* Colored and/or commented (right-click/long-press an article row — see
+   articleList.js) stand out from a plain row: a left border plus a
+   low-alpha background tint, same muted treatment as
+   .reflect-log-item--colored. left padding shrinks by exactly the border's
+   width so content doesn't shift. */
 .article-item--annotated {
   border-left: 3px solid var(--border);
   padding-left: 5px;
@@ -969,68 +628,18 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
-/* Color swatches + existing tag chips + the "add a tag" input, all in one
-   wrapping row (see renderAnnotatePopup in articleList.js and
-   openColorPicker in reflect.js — both build this the same way) instead of
-   stacked as separate sections: a color and a tag are both just a quick
-   mark on the thing, so they read as one compact palette rather than a
-   multi-step form. */
+/* Color swatch row (see renderAnnotatePopup in articleList.js and
+   openColorPicker in reflect.js — both build this the same way), wrapping
+   alongside the comment thread/add-form below it. */
 .annotate-palette-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
-.annotate-palette-row .tag-add-form {
-  flex: 1 1 90px;
-}
 .article-annotate-form {
   display: flex;
   gap: 6px;
-}
-
-/* Preview */
-.preview-title { margin-top: 4px; }
-.preview-meta { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; }
-.preview-link {
-  display: inline-block;
-  font-size: 0.8rem;
-  color: var(--accent);
-  margin-bottom: 16px;
-  word-break: break-all;
-}
-.preview-video {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  margin-bottom: 16px;
-  background: #000;
-}
-.preview-video iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-.preview-body { line-height: 1.7; font-size: 0.95rem; }
-.preview-body img { max-width: 100%; height: auto; }
-
-/* Always-visible copy of the article list's right-click annotate popup
-   (see renderAnnotatePopup), stacked under the preview body instead of
-   floating — .annotate-palette-row/.article-annotate-form are the same
-   layout rules the popup uses, just no longer inside a fixed-position
-   .article-annotate-popup wrapper. */
-.preview-annotate {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.preview-annotate .annotate-palette-row {
-  max-width: 320px;
 }
 
 .search-highlight {
@@ -1055,97 +664,18 @@ input[type="text"], input[type="url"], input[type="search"] {
   padding: 0 1px;
 }
 
-/* Tablet portrait: a real 3-pane — feed pane on the left (same draggable
-   width as desktop, via data-resizer="0" — see setupPaneResizing in
-   ui/resizer.js), article list and preview stacked vertically on the right
-   instead of side by side (not enough width here for all three in a row).
-   Same grid shape as wide-grid mode's own .app.wide-grid-mode .panes below,
-   just active at this breakpoint on its own rather than needing that class
-   too, and reusing #wide-grid-row-resizer for the article/preview split
-   even outside wide-grid mode proper (see setupWideGridRowResizing).
-   renderTabletThreePane (main.js) always groups the article list by feed
-   here (see .article-list-grouped below), same component wide-grid uses,
-   just kept at its base flex-direction:column stacking instead of
-   wide-grid's independently-scrolling horizontal columns — there's no width
-   here for side-by-side columns, so a feed's block just stacks with the
-   next one's. Excludes small phones (see the max-width:600px block below),
-   which keep the simpler tap-opens-the-origin-site single column instead. */
-@media (orientation: portrait) and (min-width: 601px) {
-  .panes {
-    display: grid;
-    grid-template-columns: auto 5px 1fr;
-    grid-template-rows: minmax(0, var(--wg-article-height, 3fr)) 6px minmax(0, 2fr);
-    grid-template-areas: "feed feed-resizer article" "feed feed-resizer row-resizer" "feed feed-resizer preview";
-  }
-  .feed-pane {
-    grid-area: feed;
-    border-right: 1px solid var(--border);
-  }
-  .pane-resizer[data-resizer="0"] {
-    grid-area: feed-resizer;
-  }
-  .pane-resizer[data-resizer="1"] {
-    display: none;
-  }
-  .article-pane {
-    grid-area: article;
-    width: auto !important;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-  .preview-pane {
-    grid-area: preview;
-  }
-  /* #wide-grid-row-resizer (an id, not just .wide-grid-row-resizer) so this
-     reliably beats the unconditional ".wide-grid-row-resizer { display:
-     none; }" fallback declared later in the file (see below) regardless of
-     source order — two same-specificity class rules would otherwise let
-     whichever comes last in the stylesheet win, hiding this again. */
-  #wide-grid-row-resizer {
-    grid-area: row-resizer;
-    display: block;
-    position: relative;
-    cursor: row-resize;
-    background: transparent;
-    touch-action: none; /* let JS drive the drag instead of the browser scrolling */
-  }
-  #wide-grid-row-resizer::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: -8px;
-    bottom: -8px;
-  }
-  #wide-grid-row-resizer:hover,
-  #wide-grid-row-resizer.dragging {
-    background: var(--accent);
-  }
-}
-
-/* Small phones: not 3-pane at all — a single flat, cross-feed unread list.
-   Rows are real links to the article's origin site (reading happens there,
-   not in-app), and scrolling a row past the top marks it read the same as
-   tapping it (see the IntersectionObserver wiring in main.js). main.js
-   picks this branch via matchMedia at the same max-width:600px breakpoint
-   used here. */
 @media (max-width: 600px) {
-  .panes {
-    display: none;
-  }
-  .mobile-view {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-  }
   .search-input {
     font-size: 16px; /* prevents iOS Safari's zoom-on-focus for inputs under 16px */
   }
 }
 
-.mobile-article-list {
+/* The whole app's only content view (see #article-list in index.html) —
+   always the single scrolling column of article cards, at every viewport
+   width. */
+.article-list-view {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .mobile-article-list-inner {
@@ -1165,11 +695,15 @@ input[type="text"], input[type="url"], input[type="search"] {
   text-decoration: none;
 }
 .mobile-article-item.unread .mobile-article-row { color: var(--unread); font-weight: 600; }
-.mobile-article-row .article-main { flex: 1; min-width: 0; }
-.mobile-article-row .article-title { font-size: 0.95rem; margin-bottom: 4px; }
-.mobile-article-row .article-meta { font-size: 0.78rem; color: var(--text-muted); font-weight: 400; }
 .mobile-article-row .article-snippet { font-weight: 400; }
-.mobile-article-row .article-thumb { width: 64px; height: 64px; }
+/* j/k (or Arrow Up/Down — see moveArticleFocus in main.js) move this
+   keyboard-only outline across rows; Enter/o (openFocusedArticleLink) opens
+   whichever row currently carries it. Distinct from :hover/:focus so mouse
+   and keyboard navigation never fight over the same visual cue. */
+.mobile-article-row.keyboard-focused {
+  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--bg-alt);
+}
 
 /* Status bar */
 .status-bar {
@@ -1205,163 +739,17 @@ input[type="text"], input[type="url"], input[type="search"] {
   flex-shrink: 0;
 }
 
-/* "マルチカラム" button (see toggleWideGridMode in main.js) — only worth
-   offering once there's enough width for a multi-column article grid to be
-   more useful than the normal 3-pane layout; hidden outside that range
-   entirely rather than just disabled, since it'd otherwise do nothing at a
-   narrower width the moment it's clicked. */
-#wide-grid-toggle-btn {
-  display: none;
-}
-@media (min-width: 1920px) {
-  #wide-grid-toggle-btn {
-    display: inline-block;
-  }
-}
-#wide-grid-toggle-btn.active {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-}
-
-/* Wide-grid mode itself (see isWideGridLayout/renderWideGrid in main.js) —
-   same three panes as desktop (feed/article/preview — same components too,
-   so annotate/keyboard-nav/.selected all keep working unchanged), just
-   reflowed: feed pane still on the left, article and preview stack on top of
-   each other in the remaining space instead of sitting side by side, and the
-   article list itself becomes one independently vertically-scrolling column
-   per feed, laid out left to right with the whole row scrolling horizontally
-   (see .article-list-grouped's override below) — not a single reflowed
-   masonry grid mixing every feed's articles together, so a feed is always a
-   self-contained column you can park your eyes on. Grid areas let this
-   ignore the panes' actual DOM order (feed, resizer, article, resizer,
-   preview) rather than needing it restructured for two different layouts.
-   data-resizer="1" (article/preview) is drag-against-nothing here (a grid
-   area, not a flex sibling) so it's hidden rather than left non-functional
-   — data-resizer="0" (feed/article) gets its own named column instead so
-   the feed pane's width stays draggable here too (see setupPaneResizing in
-   ui/resizer.js). */
-.app.wide-grid-mode .panes {
-  display: grid;
-  grid-template-columns: auto 5px 1fr;
-  grid-template-rows: minmax(0, var(--wg-article-height, 3fr)) 6px minmax(0, 2fr);
-  grid-template-areas: "feed feed-resizer article" "feed feed-resizer row-resizer" "feed feed-resizer preview";
-}
-.app.wide-grid-mode .feed-pane {
-  grid-area: feed;
-}
-.app.wide-grid-mode .pane-resizer[data-resizer="0"] {
-  grid-area: feed-resizer;
-  display: block;
-}
-.app.wide-grid-mode .article-pane {
-  grid-area: article;
-  width: auto !important;
-  border-right: none;
-  border-bottom: 1px solid var(--border);
-  /* The pane itself no longer scrolls (base .pane sets overflow-y: auto) —
-     each column scrolls independently instead (see .article-feed-block
-     below), and the pane just stacks the column row above the sticky
-     mark-read/pause action bar. */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-}
-.app.wide-grid-mode .preview-pane {
-  grid-area: preview;
-}
-/* data-resizer="1" (article/preview) has nothing to do in wide-grid mode —
-   those two stack vertically instead of sitting side by side, split by
-   .wide-grid-row-resizer below, not this one. data-resizer="0" (feed pane)
-   still applies unchanged though: the feed pane sits in the same spot
-   relative to the rest of the layout, so its own drag handle (see
-   setupPaneResizing in ui/resizer.js) stays live rather than freezing the
-   width it happened to have from the last time normal 3-pane mode was
-   showing. */
-.app.wide-grid-mode .pane-resizer[data-resizer="1"] {
-  display: none !important;
-}
-/* Drag handle between the article grid and the preview pane below it (see
-   setupWideGridRowResizing in ui/resizer.js) — only meaningful in wide-grid
-   mode's stacked layout, so it's collapsed to nothing otherwise rather than
-   left as a dead sliver in the normal side-by-side panes. */
-.wide-grid-row-resizer {
-  display: none;
-}
-.app.wide-grid-mode .wide-grid-row-resizer {
-  grid-area: row-resizer;
-  display: block;
-  position: relative;
-  cursor: row-resize;
-  background: transparent;
-  touch-action: none; /* let JS drive the drag instead of the browser scrolling */
-}
-.app.wide-grid-mode .wide-grid-row-resizer::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -8px;
-  bottom: -8px;
-}
-.app.wide-grid-mode .wide-grid-row-resizer:hover,
-.app.wide-grid-mode .wide-grid-row-resizer.dragging {
-  background: var(--accent);
-}
-/* #article-list is renderArticleList's own container — always holds exactly
-   one .article-list-grouped wrapper in wide-grid mode (see groupByFeed in
-   renderWideGrid), which does the actual horizontal-scrolling flex row; this
-   just lets that row fill the available height without also becoming a
-   second, redundant scroll container itself. */
-#article-list {
-  min-height: 0;
-}
-.app.wide-grid-mode #article-list {
-  flex: 1;
-  overflow: hidden;
-}
-.app.wide-grid-mode .article-list-grouped {
-  flex-direction: row;
-  align-items: stretch;
-  height: 100%;
-  overflow-x: auto;
-}
-.app.wide-grid-mode .article-feed-block {
-  flex: 0 0 340px;
-  width: 340px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: 1px solid var(--border);
-}
-.app.wide-grid-mode .article-feed-block + .article-feed-block {
-  margin-top: 0;
-}
-.app.wide-grid-mode .article-feed-block .article-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-.app.wide-grid-mode .article-list-actions {
-  flex-shrink: 0;
-}
-
 .reflect-view {
   display: none;
 }
-/* Reflect is a separate top-level screen, not another pane layout — hide
-   every reading-mode surface with !important so it wins over their own
-   display rules (media queries, .hidden toggles) regardless of viewport.
-   マルチカラム has no article grid to lay out in columns here, so it stays a
-   dead control. .filter-row (the feed color filter + search-history bar)
-   is NOT hidden, unlike those — reflect filters its timeline through the
-   same bar (see renderReflect/filterLogEntriesByFeedColor in main.js),
+/* Reflect is a separate top-level screen, not the article list — hide
+   #article-list with !important so it wins over its own display rule
+   regardless of viewport. .filter-row (the feed color filter +
+   search-history bar) is NOT hidden — reflect filters its timeline through
+   the same bar (see renderReflect/filterLogEntriesByFeedColor in main.js),
    right alongside reflect's own #reflect-color-filter (a log entry's own
    tag color, a different axis). */
-.app.reflect-mode .panes,
-.app.reflect-mode .mobile-view,
-.app.reflect-mode #wide-grid-toggle-btn {
+.app.reflect-mode #article-list {
   display: none !important;
 }
 .app.reflect-mode .reflect-view {
@@ -1674,11 +1062,9 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.85rem;
   padding: 4px 8px;
 }
-/* Same quiet-until-used treatment as .tag-add-input, scoped to the article
-   annotate popup/preview-pane copy specifically — reflect's own timeline
-   row already hides this input entirely until the row itself is hovered
-   (see .reflect-comment-form above), so it doesn't need a second layer of
-   dimming on top of that. */
+/* Quiet by default, full opacity only while actually being used (hovered
+   or focused) — same idea as .reflect-comment-form's own hover reveal,
+   just for the article annotate popup's copy of this input. */
 .article-annotate-form .reflect-comment-input {
   opacity: 0.55;
   transition: opacity 0.12s ease;

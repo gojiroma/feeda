@@ -30,11 +30,12 @@ function feedToPayload(feed) {
     userManagedPause: feed.userManagedPause || false,
     // Context-menu color tag (see colorPalette.js) — a palette key or null.
     color: feed.color || null,
-    // Pinned to its own top-of-sidebar group (see frequency.js's
-    // PINNED_STATUS) regardless of read state, staleness, or pause.
+    // Pulled to the top of the article list's unread timeline regardless of
+    // read state, staleness, or pause (see main.js's togglePinFeed).
     pinned: feed.pinned || false,
-    // Free-text tags (see ui/colorPicker.js's renderTagEditor), a second,
-    // unbounded way to mark a feed alongside its single color.
+    // Free-text tags — no UI writes these any more (removed along with the
+    // sidebar's tag editor), but the field stays synced so a device that
+    // still has some from before keeps seeing them round-trip correctly.
     tags: feed.tags || [],
     deletedAt: feed.deletedAt || null,
   };

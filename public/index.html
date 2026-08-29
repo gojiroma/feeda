@@ -51,7 +51,6 @@
       <div class="search-wrap">
         <input id="search-input" type="search" class="search-input" placeholder="検索・URLを貼り付けて登録" autocomplete="off">
       </div>
-      <button type="button" id="wide-grid-toggle-btn" class="mode-toggle-btn icon-btn" title="マルチカラム">📊</button>
       <button type="button" id="mode-toggle-btn" class="mode-toggle-btn icon-btn" title="振り返る">📖</button>
       <div class="menu-wrap">
         <button type="button" id="more-menu-btn" class="icon-btn" title="その他" aria-haspopup="true" aria-expanded="false">⋯</button>
@@ -71,27 +70,7 @@
       <div id="feed-color-filter" class="feed-color-filter"></div>
       <div id="search-history-bar" class="search-history-bar"></div>
     </div>
-    <div class="panes">
-      <aside class="pane feed-pane" id="feed-pane">
-        <div id="feed-list"></div>
-      </aside>
-      <div class="pane-resizer" data-resizer="0"></div>
-      <section class="pane article-pane" id="article-pane">
-        <label id="show-read-toggle-wrap" class="show-read-toggle hidden">
-          <input type="checkbox" id="show-read-toggle"> 既読も表示
-        </label>
-        <div id="article-list"></div>
-        <div id="article-list-actions" class="article-list-actions hidden"></div>
-      </section>
-      <div class="pane-resizer" data-resizer="1"></div>
-      <div class="wide-grid-row-resizer" id="wide-grid-row-resizer"></div>
-      <section class="pane preview-pane" id="preview-pane">
-        <div id="preview"></div>
-      </section>
-    </div>
-    <div class="mobile-view" id="mobile-view">
-      <div id="mobile-article-list" class="mobile-article-list"></div>
-    </div>
+    <div id="article-list" class="article-list-view"></div>
     <div class="reflect-view" id="reflect-view">
       <div class="reflect-main">
         <div class="reflect-day-nav">
@@ -142,12 +121,9 @@
     <div class="modal-card">
       <h1>キーボードショートカット</h1>
       <ul class="shortcuts-list">
-        <li><kbd>j</kbd> / <kbd>k</kbd><span>次 / 前の記事</span></li>
-        <li><kbd>Enter</kbd> / <kbd>o</kbd><span>記事を新しいタブで開く</span></li>
-        <li><kbd>↑</kbd> <kbd>↓</kbd><span>フォーカス中のペインで選択移動（プレビューはスクロール）</span></li>
-        <li><kbd>←</kbd> <kbd>→</kbd><span>フィード・記事一覧・プレビュー間でフォーカス移動</span></li>
-        <li><kbd>m</kbd><span>選択中のフィード／グループをすべて既読に</span></li>
-        <li><kbd>u</kbd><span>すべての未読へ戻る</span></li>
+        <li><kbd>j</kbd> / <kbd>k</kbd> <kbd>↓</kbd> / <kbd>↑</kbd><span>次 / 前の記事にフォーカス</span></li>
+        <li><kbd>Enter</kbd> / <kbd>o</kbd><span>フォーカス中の記事を新しいタブで開く</span></li>
+        <li><kbd>u</kbd><span>検索をクリアして未読一覧に戻る</span></li>
         <li><kbd>/</kbd><span>検索にフォーカス</span></li>
         <li><kbd>r</kbd><span>見る／振り返るを切り替え</span></li>
         <li><kbd>?</kbd><span>このヘルプを表示</span></li>

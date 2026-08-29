@@ -9,7 +9,6 @@ import {
   closeFloatingPopup,
   closeFloatingPopupIfMissing,
   renderColorSwatches,
-  renderTagEditor,
   attachContextTrigger,
 } from "./colorPicker.js";
 import { renderEmptyHint } from "./listUtils.js";
@@ -18,8 +17,7 @@ import { createElement, createButton, setCustomProperty } from "./domUtils.js";
 // Right-click (desktop) or long-press (touch) an entry to tag it with one
 // of COLOR_PALETTE's colors, shown as a left border + low-alpha background
 // tint via --reflect-color (see .reflect-log-item--colored /
-// .reflect-color-swatch in style.css), plus free-text tags (see
-// renderTagEditor) shown as chips on the row itself.
+// .reflect-color-swatch in style.css).
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -49,70 +47,37 @@ function renderComment(comment) {
   return li;
 }
 
-function openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag) {
-  let current = logEntry;
+function openColorPicker(logEntry, x, y, onSetColor) {
   openFloatingPopup({
     id: logEntry.id,
     x,
     y,
     className: "reflect-color-picker",
     build: (picker) => {
-      const draw = () => {
-        picker.innerHTML = "";
-
-        // Same combined swatches+tags row as the article list's own
-        // annotate popup (see .annotate-palette-row/renderAnnotatePopup in
-        // articleList.js) — one compact palette instead of two stacked
-        // sections.
-        const paletteRow = createElement("div", { className: "annotate-palette-row" });
-        renderColorSwatches(paletteRow, {
-          currentColor: current.color,
-          onSetColor: (color) => {
-            onSetColor(logEntry.id, color);
-            closeFloatingPopup();
-          },
-        });
-        if (onAddTag && onRemoveTag) {
-          renderTagEditor(paletteRow, {
-            tags: current.tags || [],
-            onAddTag: (tag) => {
-              Promise.resolve(onAddTag(logEntry.id, tag)).then((updated) => {
-                if (updated) {
-                  current = updated;
-                  draw();
-                }
-              });
-            },
-            onRemoveTag: (tag) => {
-              Promise.resolve(onRemoveTag(logEntry.id, tag)).then((updated) => {
-                if (updated) {
-                  current = updated;
-                  draw();
-                }
-              });
-            },
-          });
-        }
-        picker.appendChild(paletteRow);
-      };
-      draw();
+      renderColorSwatches(picker, {
+        currentColor: logEntry.color,
+        onSetColor: (color) => {
+          onSetColor(logEntry.id, color);
+          closeFloatingPopup();
+        },
+      });
     },
   });
 }
 
-// Mirrors feedList.js's own long-press-as-touch-equivalent-of-right-click
-// pattern. Skips the comment form/input specifically so right-clicking (to
-// paste, say) or a long press while selecting text there doesn't get
+// Mirrors the article list's own long-press-as-touch-equivalent-of-right-
+// click pattern. Skips the comment form/input specifically so right-clicking
+// (to paste, say) or a long press while selecting text there doesn't get
 // hijacked into opening the color picker instead.
-function attachColorPicker(li, logEntry, onSetColor, onAddTag, onRemoveTag) {
+function attachColorPicker(li, logEntry, onSetColor) {
   if (!onSetColor) return;
   attachContextTrigger(li, {
-    onOpenRequest: (x, y) => openColorPicker(logEntry, x, y, onSetColor, onAddTag, onRemoveTag),
+    onOpenRequest: (x, y) => openColorPicker(logEntry, x, y, onSetColor),
     isExcluded: (ev) => Boolean(ev.target.closest(".reflect-comment-form")),
   });
 }
 
-function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag) {
+function renderLogItem(logEntry, onAddComment, onSetColor) {
   const li = createElement("li", {
     className: "reflect-log-item",
     dataset: { logId: logEntry.id }
@@ -148,19 +113,6 @@ function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag
     body.appendChild(meta);
   }
 
-  const tags = logEntry.tags || [];
-  if (tags.length > 0) {
-    const tagRow = createElement("div", { className: "tag-chip-row tag-chip-row--display" });
-    for (const tag of tags) {
-      const chip = createElement("span", {
-        className: "tag-chip tag-chip--display",
-        textContent: tag
-      });
-      tagRow.appendChild(chip);
-    }
-    body.appendChild(tagRow);
-  }
-
   const comments = logEntry.comments || [];
   if (comments.length > 0) {
     const commentList = createElement("ul", { className: "reflect-comment-list" });
@@ -188,12 +140,12 @@ function renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag
   body.appendChild(form);
 
   li.appendChild(body);
-  attachColorPicker(li, logEntry, onSetColor, onAddTag, onRemoveTag);
+  attachColorPicker(li, logEntry, onSetColor);
   return li;
 }
 
 // Filter row above the timeline (see .reflect-color-filter in style.css) —
-// mirrors renderFeedColorFilter in ui/feedList.js: one swatch per color
+// mirrors renderColorFilter in ui/commonComponents.js: one swatch per color
 // actually tagged on some entry *currently loaded* (the day's entries, or
 // the current search results — see main.js's renderReflect), each toggling
 // that color's membership in `activeColors`. An entry shows if it matches
@@ -234,7 +186,7 @@ export function renderLogColorFilter(container, { entries, activeColors, onToggl
   }
 }
 
-export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onAddTag, onRemoveTag, emptyHint }) {
+export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, emptyHint }) {
   // Same rebuild-wipes-live-state problem the picker comment below already
   // works around, but for a comment mid-typed into one entry's (normally
   // hover/focus-revealed — see .reflect-comment-form in style.css) comment
@@ -272,7 +224,7 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
   }
 
   const ul = createElement("ul", { className: "reflect-timeline-list" });
-  for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor, onAddTag, onRemoveTag));
+  for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor));
   container.appendChild(ul);
 
   if (preservedComment) {
@@ -293,10 +245,9 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
 // one. Bars double as date navigation: clicking one jumps straight there,
 // same as picking a day off a calendar, which is the "一体化" (merged into
 // the date display rather than a separate section) the chart was asked for.
-// Hovering one (onHoverDate) does the same jump instantly, mirroring
-// feedList's preview-on-hover/commit-on-click split — see previewReflectDate
-// in main.js for why that path stays cheap instead of just calling
-// onSelectDate.
+// Hovering one (onHoverDate) does the same jump instantly — see
+// previewReflectDate in main.js for why that path stays cheap instead of
+// just calling onSelectDate.
 export function renderDayChart(container, { counts, selectedDate, onSelectDate, onHoverDate }) {
   container.innerHTML = "";
   const max = Math.max(1, ...counts.map((c) => c.count));

@@ -1,6 +1,16 @@
 // DOM Utilities - 共通DOM操作機能
 // DOMの作成、操作、スタイル設定を共通化
 
+// Keys createElement gives special handling below — everything else in
+// `options` is a plain DOM property (href, target, rel, src, alt, loading,
+// type, value, placeholder, required, ariaLabel, ...) and gets assigned
+// directly onto the element. Without this fallback, any caller passing one
+// of those (e.g. an `<a href target="_blank">` real link, an `<input
+// type placeholder>`) would have it silently dropped — every browser
+// reflects these as element properties with matching (or camelCased) names,
+// so a direct assignment is all they need.
+const CREATE_ELEMENT_SPECIAL_KEYS = new Set(["className", "textContent", "html", "dataset", "style", "id", "title", "children"]);
+
 /**
  * 要素を作成
  * @param {string} tagName - タグ名
@@ -13,30 +23,32 @@
  * @param {string} options.id - ID
  * @param {string} options.title - タイトル
  * @param {Array} options.children - 子要素配列
+ * @param {*} options.* - その他はDOMプロパティとしてそのまま設定（href, target, src など）
  * @returns {HTMLElement} - 作成された要素
  */
-export function createElement(tagName, {
-  className = "",
-  textContent = "",
-  html = "",
-  dataset = {},
-  style = {},
-  id = "",
-  title = "",
-  children = []
-} = {}) {
+export function createElement(tagName, options = {}) {
+  const {
+    className = "",
+    textContent = "",
+    html = "",
+    dataset = {},
+    style = {},
+    id = "",
+    title = "",
+    children = []
+  } = options;
   const el = document.createElement(tagName);
-  
+
   if (className) el.className = className;
   if (textContent) el.textContent = textContent;
   if (html) el.innerHTML = html;
   if (id) el.id = id;
   if (title) el.title = title;
-  
+
   Object.entries(dataset).forEach(([key, value]) => {
     el.dataset[key] = value;
   });
-  
+
   Object.entries(style).forEach(([key, value]) => {
     if (key.startsWith("--")) {
       el.style.setProperty(key, value);
@@ -44,7 +56,7 @@ export function createElement(tagName, {
       el.style[key] = value;
     }
   });
-  
+
   children.forEach(child => {
     if (typeof child === 'string') {
       el.appendChild(document.createTextNode(child));
@@ -52,7 +64,12 @@ export function createElement(tagName, {
       el.appendChild(child);
     }
   });
-  
+
+  for (const [key, value] of Object.entries(options)) {
+    if (CREATE_ELEMENT_SPECIAL_KEYS.has(key) || value === undefined) continue;
+    el[key] = value;
+  }
+
   return el;
 }
 

@@ -92,43 +92,6 @@ export async function setLogEntryColor(logId, color) {
   return updated;
 }
 
-// Free-text tags on a log entry — a second, unbounded way to mark an entry
-// alongside its single color (see colorPalette.js) and comment thread.
-// Add/remove rather than a single setter, matching how the tag editor UI
-// (renderTagEditor in ui/colorPicker.js) actually interacts with them: one
-// chip removed or one word typed and submitted at a time.
-export async function addLogEntryTag(logId, tag) {
-  const trimmed = tag.trim();
-  if (!trimmed) return null;
-  const logEntry = await getLogEntry(logId);
-  if (!logEntry) return null;
-  const existing = logEntry.tags || [];
-  if (existing.includes(trimmed)) return logEntry;
-  const updated = {
-    ...logEntry,
-    tags: [...existing, trimmed],
-    clientUpdatedAt: new Date().toISOString(),
-    dirty: true,
-  };
-  await putLogEntry(updated);
-  return updated;
-}
-
-export async function removeLogEntryTag(logId, tag) {
-  const logEntry = await getLogEntry(logId);
-  if (!logEntry) return null;
-  const existing = logEntry.tags || [];
-  if (!existing.includes(tag)) return logEntry;
-  const updated = {
-    ...logEntry,
-    tags: existing.filter((t) => t !== tag),
-    clientUpdatedAt: new Date().toISOString(),
-    dirty: true,
-  };
-  await putLogEntry(updated);
-  return updated;
-}
-
 // Display-time merge for duplicate rows logged before the chatter guard
 // above existed (or from any other source of near-simultaneous re-opens):
 // collapses runs of same-article rows within CHATTER_WINDOW_MS of each
@@ -246,9 +209,9 @@ export async function getLatestLogEntriesByEntryId() {
 const ENGAGEMENT_WEIGHT = { open: 1, comment: 4, color: 6 };
 
 // Cumulative engagement score per feedId, from every log entry ever
-// recorded for it — used by frequency.js's groupFeedsByFrequency to sort a
-// feed you've actually read into, commented on, or color-tagged ahead of
-// one that's merely posted recently (see main.js's currentFeedGroups).
+// recorded for it — used to sort a feed you've actually read into,
+// commented on, or color-tagged ahead of one that's merely posted recently
+// (see main.js's currentArticles/unreadFeedOrder).
 export async function getFeedEngagementScores() {
   const all = await getAllLogEntries();
   const scores = new Map();

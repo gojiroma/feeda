@@ -97,57 +97,10 @@ export function renderColorSwatches(container, { currentColor, onSetColor }) {
   container.appendChild(clearBtn);
 }
 
-// Row of removable tag chips plus an "add a tag" input — shared by the feed
-// context menu (feedList.js) and the article-list/reflect annotate popups.
-// Free-text and unbounded, unlike color's fixed palette: typing a tag and
-// hitting Enter (or "追加") adds it via onAddTag; a chip's own "×" removes
-// it via onRemoveTag. Appends into `container` rather than clearing it
-// first, same convention as renderColorSwatches, so callers control what
-// else shares the popup.
-export function renderTagEditor(container, { tags, onAddTag, onRemoveTag }) {
-  if (tags.length > 0) {
-    const chipRow = document.createElement("div");
-    chipRow.className = "tag-chip-row";
-    for (const tag of tags) {
-      const chip = document.createElement("span");
-      chip.className = "tag-chip";
-      const label = document.createElement("span");
-      label.textContent = tag;
-      chip.appendChild(label);
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.textContent = "×";
-      removeBtn.title = "タグを削除";
-      removeBtn.addEventListener("click", () => onRemoveTag(tag));
-      chip.appendChild(removeBtn);
-      chipRow.appendChild(chip);
-    }
-    container.appendChild(chipRow);
-  }
-
-  const form = document.createElement("form");
-  form.className = "tag-add-form";
-  const input = document.createElement("input");
-  input.type = "text";
-  input.placeholder = "タグを追加…";
-  input.className = "tag-add-input";
-  form.appendChild(input);
-  // No visible submit button — a lone text input already submits its form
-  // on Enter, and a form this small doesn't need a second, redundant way to
-  // trigger the exact same thing right next to it.
-  form.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const text = input.value;
-    if (!text.trim()) return;
-    input.value = "";
-    onAddTag(text.trim());
-  });
-  container.appendChild(form);
-}
-
 // Wires an element's right-click (desktop) and long-press (touch) to
-// onOpenRequest(clientX, clientY) — mirrors feedList.js's own
-// long-press-as-touch-equivalent-of-right-click pattern. isExcluded lets a
+// onOpenRequest(clientX, clientY) — same long-press-as-touch-equivalent-of-
+// right-click pattern used throughout (see openFeedContextMenu in
+// articleList.js). isExcluded lets a
 // caller skip elements where right-click/long-press should behave normally
 // (e.g. an already-open comment form's input, so pasting into it isn't
 // hijacked into reopening the popup).

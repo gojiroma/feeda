@@ -18,8 +18,6 @@ import {
   recordOpen,
   addComment,
   setLogEntryColor,
-  addLogEntryTag,
-  removeLogEntryTag,
   getEntriesForDay,
   getDailyCounts,
   getFeedAddedCounts,
@@ -30,17 +28,14 @@ import {
   shiftDateStr,
 } from "./logbook.js";
 import { fetchFeed } from "./feedFetch.js";
-import { groupFeedsByFrequency, computeFrequencyGroup, FREQUENCY_ORDER, isCheckDayForFeed } from "./frequency.js";
-import { searchEntries, searchFeeds } from "./search.js";
-import { renderFeedList, renderFeedColorFilter } from "./ui/feedList.js";
+import { FREQUENCY_ORDER, isCheckDayForFeed } from "./frequency.js";
+import { searchEntries } from "./search.js";
+import { renderColorFilter } from "./ui/commonComponents.js";
 import { colorForWord } from "./colorPalette.js";
 import { renderArticleList, renderAnnotatePopup } from "./ui/articleList.js";
-import { renderPreview } from "./ui/preview.js";
-import { renderMobileList } from "./ui/mobile.js";
 import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
 import { openFloatingPopup } from "./ui/colorPicker.js";
 import { setupSearchBar } from "./ui/searchBar.js";
-import { setupPaneResizing, setupWideGridRowResizing } from "./ui/resizer.js";
 import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
 import { setupShortcutsModal } from "./ui/shortcutsModal.js";
@@ -51,22 +46,14 @@ import { extractArticlePreview } from "./sanitize.js";
 
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
-const feedListEl = document.getElementById("feed-list");
 const feedColorFilterEl = document.getElementById("feed-color-filter");
 const searchInputEl = document.getElementById("search-input");
 const articleListEl = document.getElementById("article-list");
-const articlePaneEl = document.getElementById("article-pane");
-const articleListActionsEl = document.getElementById("article-list-actions");
-const showReadToggleWrapEl = document.getElementById("show-read-toggle-wrap");
-const showReadToggleInputEl = document.getElementById("show-read-toggle");
-const previewEl = document.getElementById("preview");
 const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
-const mobileListEl = document.getElementById("mobile-article-list");
 const clockWatermarkEl = document.getElementById("clock-watermark");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
-const wideGridToggleBtn = document.getElementById("wide-grid-toggle-btn");
 const moreMenuBtn = document.getElementById("more-menu-btn");
 const moreMenuEl = document.getElementById("more-menu");
 // Set by setupShortcutsModal (see wireApp) — read here so wireKeyboardNav's
@@ -84,43 +71,6 @@ const reflectColorFilterEl = document.getElementById("reflect-color-filter");
 // Width of the trend strip in the day-nav header — see renderDayChart.
 const REFLECT_DAY_CHART_DAYS = 21;
 
-// Kept in sync with the max-width:600px breakpoint in style.css that
-// switches to the single-column phone layout.
-const mobileQuery = window.matchMedia("(max-width: 600px)");
-function isMobileLayout() {
-  return mobileQuery.matches;
-}
-
-// Kept in sync with the "orientation: portrait, min-width: 601px" breakpoint
-// in style.css — narrow-but-not-phone screens get feed+article side by side
-// with no preview pane at all; tapping an article opens its link directly,
-// same as the phone layout.
-const tabletQuery = window.matchMedia("(orientation: portrait) and (min-width: 601px)");
-function isTabletLayout() {
-  return tabletQuery.matches;
-}
-
-// Opt-in via the "マルチカラム" button (see toggleWideGridMode), only ever
-// offered once there's enough width to make it worthwhile — kept in sync
-// with the min-width:1920px breakpoint in style.css that shows that button
-// and lays this mode out. Below that width the toggle button itself is
-// hidden, but state.wideGridMode is left alone rather than reset, so
-// resizing back up resumes it without the user having to turn it on again.
-const wideGridQuery = window.matchMedia("(min-width: 1920px)");
-function isWideGridLayout() {
-  return state.wideGridMode && wideGridQuery.matches;
-}
-
-const PANE_ORDER = ["feed", "article", "preview"];
-
-// Reverse of FREQUENCY_ORDER (which is most-frequent-first, used to decide
-// fetch order) — least-frequent-first, used to decide mobile's unread
-// reading order instead. "paused" is pinned to the end either way: a
-// feed the user stopped fetching shouldn't jump to the front just because
-// reversing put "infrequent" first — its backlog is the least urgent thing
-// to surface, not the most.
-const MOBILE_FREQUENCY_ORDER = [...FREQUENCY_ORDER.filter((key) => key !== "paused")].reverse().concat("paused");
-
 const state = {
   feedsById: new Map(),
   feedTitleById: new Map(),
@@ -132,17 +82,10 @@ const state = {
   logByEntryId: new Map(),
   // feedId -> cumulative engagement score (see getFeedEngagementScores in
   // logbook.js) — clicking into, commenting on, or color-tagging a feed's
-  // articles raises its score, sorting it higher within its sidebar group
-  // (see currentFeedGroups/groupFeedsByFrequency) than one that's merely
-  // posted recently but gone unengaged.
+  // articles raises its score, sorting its block higher in the unread
+  // timeline's grouped view (see currentArticles' own unreadFeedOrder) than
+  // one that's merely posted recently but gone unengaged.
   feedScoreById: new Map(),
-  selectedFeedId: null,
-  // Set of feedIds when viewing a frequency group's or the pinned group's
-  // articles combined (see selectFeedGroup/currentArticles) — mutually
-  // exclusive with selectedFeedId; picking a single feed clears this and
-  // vice versa.
-  selectedFeedGroupIds: null,
-  selectedEntry: null,
   searchQuery: "",
   // The most recent non-empty search query, kept around after searchQuery
   // itself goes back to "" (search cleared, or the box auto-clearing on
@@ -150,21 +93,11 @@ const state = {
   // article titles/body text keep showing what you were just looking for
   // even once you're back to browsing the full unread list.
   lastSearchQuery: "",
-  // Color-tag keys (see colorPalette.js) currently toggled on in the feed
-  // list's filter row — see renderFeedColorFilter in ui/feedList.js and
+  // Color-tag keys (see colorPalette.js) currently toggled on in the top
+  // filter bar — see renderColorFilter in ui/commonComponents.js and
   // toggleFeedColorFilter below. A feed matches if it has any color in
   // this set; empty means no filter, show every feed.
   feedColorFilter: new Set(),
-  // "既読も表示" toggle above the article list (see wireApp) — folds
-  // already-read entries into the no-feed-selected home timeline instead of
-  // hiding them, so there's somewhere to color-tag/comment an entry after
-  // it's been read. Purely a local view preference, not synced.
-  showReadInTimeline: false,
-  // "マルチカラム" button (see toggleWideGridMode/isWideGridLayout) — only
-  // takes effect at wideGridQuery's width, but the flag itself persists
-  // below it too so crossing back over the breakpoint resumes it. Purely a
-  // local view preference, not synced.
-  wideGridMode: false,
   // Lowercased NG words (see ngWords.js/setupNgWordModal) — an entry whose
   // title contains one is filtered out of the article list (see
   // filterByNgWords). Lowercased once here rather than per-entry at filter
@@ -180,18 +113,16 @@ const state = {
   // (see renderLogColorFilter in ui/reflect.js and toggleLogColorFilter
   // below) — a log entry matches if it has any color in this set.
   logColorFilter: new Set(),
-  focusedPane: "article",
-  keyboardNavActive: false,
   // "view" is the normal reading UI; "reflect" swaps in the activity-log
-  // timeline (see renderReflect) — the two are different enough (no feed
-  // selection, date-scoped instead of unread-scoped) that they get their
-  // own top-level screen rather than sharing render().
+  // timeline (see renderReflect) — the two are different enough (date-
+  // scoped instead of unread-scoped) that they get their own top-level
+  // screen rather than sharing render().
   mode: "view",
   reflectDate: dateStrOf(),
-  // Snapshot of the cross-feed "unread timeline" shown when no feed is
-  // selected. Frozen at capture time so opening an entry (which marks it,
-  // and possibly its whole feed, as read) doesn't yank it out of the list
-  // the user is currently looking at — see currentArticles(). Cleared
+  // Snapshot of the cross-feed unread timeline (the article list's only
+  // view now — see currentArticles). Frozen at capture time so opening an
+  // entry (which marks it, and possibly its whole feed, as read) doesn't
+  // yank it out of the list the user is currently looking at. Cleared
   // whenever fresh data is loaded from IndexedDB (loadAppData).
   unreadTimelineSnapshot: null,
   // Block order (front = top) for the grouped-by-feed rendering of the
@@ -200,17 +131,6 @@ const state = {
   // got new unread entries can jump its whole block to the top without
   // having to re-sort — or re-render the position of — anything else.
   unreadFeedOrder: [],
-  // Same "frozen at capture time" idea as unreadTimelineSnapshot above, but
-  // for a single selected feed's own article list (see currentArticles) —
-  // marking an entry (or a whole feed, via markAllRead/the multi-column
-  // 既読 button) read must not yank it back out of the list the moment its
-  // isUnread() styling flips, only the frozen entries a feed was showing
-  // when it was selected should. Rebuilt from scratch whenever
-  // selectedFeedId changes to a different feed; reset on loadAppData.
-  selectedFeedSnapshot: null,
-  // Same idea, for a "まとめて見る" group (state.selectedFeedGroupIds) —
-  // keyed by the group's sorted feedIds rather than a single feedId.
-  selectedGroupSnapshot: null,
 };
 
 // Used by autoPauseDuplicateFeeds's same-host feed clustering — "which site
@@ -277,12 +197,7 @@ async function loadAppData() {
   state.feedScoreById = await getFeedEngagementScores();
   state.ngWords = (await getActiveNgWords()).map((w) => w.word.toLowerCase());
   state.searchHistoryWords = (await getAllSearchHistoryEntries()).map((e) => e.query);
-  if (state.selectedFeedId && !state.feedsById.has(state.selectedFeedId)) {
-    state.selectedFeedId = null;
-  }
   state.unreadTimelineSnapshot = null;
-  state.selectedFeedSnapshot = null;
-  state.selectedGroupSnapshot = null;
 }
 
 // Lighter-weight sibling of loadAppData for refreshAll's fetch loop: pulls
@@ -296,16 +211,15 @@ async function refreshFeedInState(feedId) {
   state.feedTitleById.set(feedId, freshFeed.title || freshFeed.url);
   state.entriesByFeed.set(feedId, entries);
   mergeIntoUnreadTimeline(freshFeed, entries);
-  mergeIntoSelectedSnapshot(freshFeed, entries);
 }
 
 // Used to fold one just-fetched feed's entries into the frozen cross-feed
 // timeline (see currentArticles) instead of invalidating the whole snapshot
 // outright — invalidating used to mean the next render re-filtered *every*
 // feed by its current read state, which drops any entry the user has read
-// since the snapshot froze (including moments ago, e.g. by hovering it in
-// wide-grid mode or right-clicking it open to annotate) the same way it
-// drops genuinely stale ones. That was the bug behind an annotate popup
+// since the snapshot froze (including moments ago, e.g. by right-clicking
+// it open to annotate) the same way it drops genuinely stale ones. That was
+// the bug behind an annotate popup
 // closing itself right after opening: a background refetch landing mid-
 // popup would rebuild the timeline, the just-annotated entry (now read)
 // would no longer qualify, and renderArticleList's closeFloatingPopupIfMissing
@@ -315,8 +229,6 @@ async function refreshFeedInState(feedId) {
 function mergeIntoUnreadTimeline(feed, entries) {
   if (!state.unreadTimelineSnapshot) return;
   const existingIds = new Set(state.unreadTimelineSnapshot.map((e) => e.id));
-  // Ignores showReadInTimeline the same way currentArticles' own build of
-  // this snapshot now does — see that comment for why.
   const fresh = entries.filter((e) => !existingIds.has(e.id) && isUnread(e, feed));
   if (fresh.length === 0) return;
   const merged = [...state.unreadTimelineSnapshot, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
@@ -333,30 +245,6 @@ function mergeIntoUnreadTimeline(feed, entries) {
   state.unreadFeedOrder = [...state.unreadFeedOrder.filter((id) => id !== feed.feedId), feed.feedId];
 }
 
-// Same idea as mergeIntoUnreadTimeline, for whichever of selectedFeedSnapshot/
-// selectedGroupSnapshot (see currentArticles) the just-refetched feed
-// belongs to — folds newly-fetched entries into the frozen list instead of
-// leaving it to only ever grow when the user re-selects the feed/group from
-// scratch.
-function mergeIntoSelectedSnapshot(feed, entries) {
-  if (state.selectedFeedSnapshot && state.selectedFeedSnapshot.feedId === feed.feedId) {
-    const existingIds = new Set(state.selectedFeedSnapshot.entries.map((e) => e.id));
-    const fresh = entries.filter((e) => !existingIds.has(e.id) && (state.showReadInTimeline || isUnread(e, feed)));
-    if (fresh.length > 0) {
-      const merged = [...state.selectedFeedSnapshot.entries, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-      state.selectedFeedSnapshot = { feedId: feed.feedId, entries: merged };
-    }
-  }
-  if (state.selectedGroupSnapshot && state.selectedFeedGroupIds && state.selectedFeedGroupIds.has(feed.feedId)) {
-    const existingIds = new Set(state.selectedGroupSnapshot.entries.map((e) => e.id));
-    const fresh = entries.filter((e) => !existingIds.has(e.id) && (state.showReadInTimeline || isUnread(e, feed)));
-    if (fresh.length > 0) {
-      const merged = [...state.selectedGroupSnapshot.entries, ...fresh].sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-      state.selectedGroupSnapshot = { key: state.selectedGroupSnapshot.key, entries: merged };
-    }
-  }
-}
-
 // Same title + same first 10 characters of body text — a press release
 // picked up by multiple outlets, a blog post cross-posted elsewhere, or
 // (see dedupeByContent below) the exact same article surfacing through two
@@ -368,7 +256,7 @@ function dedupContentKey(entry) {
   const title = (entry.title || "").trim();
   if (!title) return null;
   const { snippet } = extractArticlePreview(entry.content || entry.summary || "");
-  return `${title} ${snippet.slice(0, 10)}`;
+  return `${title} ${snippet.slice(0, 10)}`;
 }
 
 // Used to also require the two entries' *feeds* to be on different hosts —
@@ -407,9 +295,7 @@ function dedupeByContent(entries) {
 // its own stable color (see colorPalette.js's colorForWord) so it also
 // matches that word's chip in the search-history bar — a standing "things
 // I've looked for before" marker that doesn't depend on the search box
-// having anything in it. Feed names deliberately keep using the live
-// searchQuery directly (see renderDesktop/renderTabletThreePane) instead of
-// this, so they only highlight while a search is actually active.
+// having anything in it.
 function highlightQuery() {
   const current = (state.searchQuery.trim() || state.lastSearchQuery).trim();
   const terms = [];
@@ -420,117 +306,6 @@ function highlightQuery() {
     }
   }
   return terms;
-}
-
-function currentFeedGroups() {
-  let feeds = [...state.feedsById.values()];
-  const query = state.searchQuery;
-  if (query) {
-    const matchingFeedIds = new Set(searchFeeds(query, feeds).map((f) => f.feedId));
-    for (const [feedId, entries] of state.entriesByFeed) {
-      if (searchEntries(query, entries, state.feedTitleById).length > 0) matchingFeedIds.add(feedId);
-    }
-    feeds = feeds.filter((f) => matchingFeedIds.has(f.feedId));
-  } else {
-    // Skip building/rendering a <li> for every already-read, stale, or
-    // paused feed — with a large subscription list that's most of the tree,
-    // and render() redraws it after every single feed refreshAll() fetches
-    // (see render()'s own comment), so this is the difference between a
-    // crawl that stays snappy and one that visibly stutters. Only applies
-    // to the plain unfiltered browse view: an active search still needs the
-    // full pool above to find any feed, read or not, by title/content.
-    feeds = feeds.filter((f) => f.pinned || hasUnread(f));
-  }
-  if (state.feedColorFilter.size > 0) {
-    feeds = feeds.filter((f) => f.color && state.feedColorFilter.has(f.color));
-  }
-  const feedsWithEntries = feeds.map((feed) => ({
-    feed: { ...feed, hasUnread: hasUnread(feed), engagementScore: state.feedScoreById.get(feed.feedId) || 0 },
-    entries: state.entriesByFeed.get(feed.feedId) || [],
-  }));
-  return groupFeedsByFrequency(feedsWithEntries);
-}
-
-// currentFeedGroups' pinned/unread-only default (see its own comment) turns
-// "every feed is read, none pinned" into an everyday empty tree, not a rare
-// one — that needs its own message instead of falling back to renderFeedList's
-// generic "検索条件に一致するフィードがありません。", which only actually fits
-// while a search or color filter is narrowing things. undefined here lets
-// that generic wording stand for those two cases.
-function feedListEmptyHint(query) {
-  if (query.trim() || state.feedColorFilter.size > 0) return undefined;
-  return "未読・ピン留めのフィードはありません。";
-}
-
-// Which sidebar groups (status-level and frequency-level, see feedList.js's
-// nested keys) render collapsed. Computed once, lazily, the first time the
-// sidebar renders after load: groups with no unread feed start collapsed,
-// groups with at least one unread feed start open. From then on this only
-// changes via the user's own expand/collapse clicks (see feedList.js's
-// toggle listener, which mutates this Set directly) — later re-renders
-// (e.g. triggered by hovering an article) must not snap a group the user
-// opened back shut, so this is never recomputed after its first use.
-let collapsedGroups = null;
-
-function collapsedGroupsFor(tree) {
-  // While a color filter or search query is active, `tree` already only
-  // contains matching feeds (see currentFeedGroups) — force every group open
-  // so they're all visible at a glance instead of making the user click into
-  // each frequency group to go check. A fresh Set each call rather than
-  // mutating/returning the persisted one below, so this is purely a
-  // rendering override: manual collapse-state from before the filter was
-  // applied comes back untouched once it's cleared.
-  if (state.feedColorFilter.size > 0 || state.searchQuery.trim()) return new Set();
-
-  if (collapsedGroups === null) {
-    collapsedGroups = new Set();
-    for (const { status, subgroups } of tree) {
-      if (!subgroups.some((sg) => sg.feeds.some((f) => f.hasUnread))) collapsedGroups.add(status.key);
-      for (const sg of subgroups) {
-        if (!sg.feeds.some((f) => f.hasUnread)) collapsedGroups.add(`${status.key}:${sg.group.key}`);
-      }
-    }
-  }
-  return collapsedGroups;
-}
-
-// Feeds actually visible in the sidebar tree right now — same status/
-// frequency nesting as renderFeedList's own <details> elements, skipping
-// anything inside a group the user currently has collapsed (see
-// collapsedGroupsFor). Used by moveFeedSelection (arrow-key nav) instead of
-// a plain flatten-everything walk of currentFeedGroups() — that used to let
-// Up/Down land on a feed tucked inside a collapsed group nobody asked to
-// see, jumping the selection to some unrelated feed with no visible cue why.
-function visibleFlatFeedList() {
-  const tree = currentFeedGroups();
-  const collapsed = collapsedGroupsFor(tree);
-  const result = [];
-  for (const { status, subgroups } of tree) {
-    if (collapsed.has(status.key)) continue;
-    const isFlatStatus = subgroups.length === 1 && subgroups[0].group.key === status.key;
-    for (const sg of subgroups) {
-      if (!isFlatStatus && collapsed.has(`${status.key}:${sg.group.key}`)) continue;
-      result.push(...sg.feeds);
-    }
-  }
-  return result;
-}
-
-// Buckets entries by their feed's (live-computed, same as the feed list's
-// own grouping) frequency, least-frequent group first, newest-first within
-// each bucket.
-function sortMobileUnreadByFrequency(entries) {
-  const priorityByFeedId = new Map();
-  for (const feed of state.feedsById.values()) {
-    const groupKey = feed.paused ? "paused" : computeFrequencyGroup(state.entriesByFeed.get(feed.feedId) || []).key;
-    priorityByFeedId.set(feed.feedId, MOBILE_FREQUENCY_ORDER.indexOf(groupKey));
-  }
-  return entries.slice().sort((a, b) => {
-    const pa = priorityByFeedId.get(a.feedId) ?? MOBILE_FREQUENCY_ORDER.length;
-    const pb = priorityByFeedId.get(b.feedId) ?? MOBILE_FREQUENCY_ORDER.length;
-    if (pa !== pb) return pa - pb;
-    return (b.pubDate || "").localeCompare(a.pubDate || "");
-  });
 }
 
 // An entry whose title contains a registered NG word (see ngWords.js/the
@@ -550,70 +325,14 @@ function currentArticles() {
     matched.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
     return { entries: filterByNgWords(matched.slice(0, 200)), showFeedName: true, emptyHint: "検索結果がありません。" };
   }
-  // Frozen the same way the cross-feed home timeline below is (see
-  // selectedFeedSnapshot's own comment) — otherwise marking an entry (or,
-  // via the multi-column 既読/解除 buttons, the whole feed) read while its
-  // own list is on screen would immediately filter it back out from under
-  // the user the instant isUnread() flips, rather than just losing its
-  // unread styling in place.
-  if (state.selectedFeedId) {
-    const feed = state.feedsById.get(state.selectedFeedId);
-    if (!state.selectedFeedSnapshot || state.selectedFeedSnapshot.feedId !== state.selectedFeedId) {
-      const entries = sortedEntriesForFeed(state.selectedFeedId).filter(
-        (e) => state.showReadInTimeline || isUnread(e, feed)
-      );
-      state.selectedFeedSnapshot = { feedId: state.selectedFeedId, entries };
-    }
-    return {
-      entries: filterByNgWords(state.selectedFeedSnapshot.entries),
-      showFeedName: false,
-      emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
-    };
-  }
-  // "まとめて見る" on a frequency group or the pinned group (see
-  // selectFeedGroup) — every entry from every feed in that group, combined
-  // and sorted like a single feed's own list would be, since there's no
-  // single feed name to head this list with. Filtered to unread, same as a
-  // single feed's own list — a group can span many feeds, so without this
-  // a couple of stale feeds full of old read entries would bury whatever's
-  // actually new. Unlike the cross-feed home timeline below, a group is a
-  // small enough slice for showReadInTimeline (the "既読も表示" toggle) to
-  // stay safe to offer here. Frozen via selectedGroupSnapshot for the same
-  // reason as the single-feed branch above.
-  if (state.selectedFeedGroupIds) {
-    const groupKey = [...state.selectedFeedGroupIds].sort().join(",");
-    if (!state.selectedGroupSnapshot || state.selectedGroupSnapshot.key !== groupKey) {
-      const combined = [];
-      for (const feedId of state.selectedFeedGroupIds) {
-        const feed = state.feedsById.get(feedId);
-        for (const entry of state.entriesByFeed.get(feedId) || []) {
-          if (state.showReadInTimeline || isUnread(entry, feed)) combined.push(entry);
-        }
-      }
-      combined.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-      state.selectedGroupSnapshot = { key: groupKey, entries: combined };
-    }
-    return {
-      entries: filterByNgWords(state.selectedGroupSnapshot.entries),
-      showFeedName: true,
-      emptyHint: state.showReadInTimeline ? "記事がありません。" : "未読の記事はありません。",
-    };
-  }
-  // Nothing selected: show unread entries across all feeds, newest first
-  // (date-less unread entries have no position to sort by, so they sink to
-  // the end — see the pubDate-less comparator behavior below). The set of
-  // entries is frozen in state.unreadTimelineSnapshot the first time it's
-  // needed and reused after that — opening an entry marks it (and possibly
-  // its whole feed) as read, and isUnread is re-evaluated live for styling,
-  // but the entry stays in place instead of vanishing out of the list.
-  //
-  // Deliberately ignores showReadInTimeline (the "既読も表示" toggle is
-  // hidden here too — see renderDesktop/renderWideGrid) even if some earlier
-  // feed/group view left it turned on: this is every feed's entire cached
-  // history at once, and folding every already-read entry from every feed
-  // into one timeline is a render of thousands of rows, not a handful —
-  // "恐ろしいレンダリング" nobody asked for. A single feed or group's own
-  // list stays bounded enough for the toggle to make sense there.
+  // The article list's only other view: unread entries across all feeds,
+  // newest first (date-less unread entries have no position to sort by, so
+  // they sink to the end — see the pubDate-less comparator behavior below).
+  // The set of entries is frozen in state.unreadTimelineSnapshot the first
+  // time it's needed and reused after that — opening an entry marks it (and
+  // possibly its whole feed) as read, and isUnread is re-evaluated live for
+  // styling, but the entry stays in place instead of vanishing out of the
+  // list.
   if (!state.unreadTimelineSnapshot) {
     const timeline = [];
     const newestByFeed = new Map();
@@ -664,22 +383,12 @@ function render() {
   // from its own actions (toggleMode, changeReflectDate, jumpReflectToToday,
   // handleAddComment) — see renderReflect callers below.
   if (state.mode === "reflect") return;
-  // Doubles as the registered-feed count display (see ui/feedList.js's own
-  // comment on why that used to be a standalone label above the feed tree)
-  // and a discoverable hint that pasting a URL here registers it as a new
-  // subscription (see the http(s):// branch in searchBar.js's onSubscribe),
-  // instead of spending a dedicated line on either.
+  // Doubles as the registered-feed count display and a discoverable hint
+  // that pasting a URL here registers it as a new subscription (see the
+  // http(s):// branch in searchBar.js's onSubscribe), instead of spending a
+  // dedicated line on either.
   searchInputEl.placeholder = `${state.feedsById.size}件を検索・URLを貼り付けて登録`;
-  appRoot.classList.toggle("wide-grid-mode", isWideGridLayout());
-  if (isMobileLayout()) {
-    renderMobile();
-  } else if (isTabletLayout()) {
-    renderTabletThreePane();
-  } else if (isWideGridLayout()) {
-    renderWideGrid();
-  } else {
-    renderDesktop();
-  }
+  renderApp();
   updateFavicon(countUnreadSources());
 }
 
@@ -722,9 +431,9 @@ function toggleMode() {
   state.mode = state.mode === "view" ? "reflect" : "view";
   appRoot.classList.toggle("reflect-mode", state.mode === "reflect");
   // Icon-only button (see .icon-btn in style.css) — the glyph itself
-  // (📖) doesn't change, .active carries which mode is current the same
-  // way #wide-grid-toggle-btn.active does, and the title covers what a
-  // click does for anyone hovering/using a screen reader.
+  // (📖) doesn't change, .active carries which mode is current, and the
+  // title covers what a click does for anyone hovering/using a screen
+  // reader.
   modeToggleBtn.classList.toggle("active", state.mode === "reflect");
   modeToggleBtn.title = state.mode === "reflect" ? "見るに戻る" : "振り返る";
   if (state.mode === "reflect") {
@@ -734,21 +443,6 @@ function toggleMode() {
     stopReflectLiveRefresh();
     render();
   }
-}
-
-// "マルチカラム" button — only ever visible/relevant at wideGridQuery's
-// width (see style.css), but the toggle click still just flips the flag and
-// re-renders regardless of current width: nothing stops it being clicked
-// right as the window crosses the breakpoint, and render() re-checks
-// isWideGridLayout() itself on every call anyway.
-function toggleWideGridMode() {
-  state.wideGridMode = !state.wideGridMode;
-  // Icon-only (see .icon-btn in style.css) — same convention as
-  // #mode-toggle-btn: the glyph stays put, .active carries the current
-  // state, and title covers the label for hover/screen readers.
-  wideGridToggleBtn.title = state.wideGridMode ? "3ペインに戻る" : "マルチカラム";
-  wideGridToggleBtn.classList.toggle("active", state.wideGridMode);
-  render();
 }
 
 function formatReflectDateLabel(dateStr) {
@@ -763,7 +457,7 @@ function formatReflectDateLabel(dateStr) {
 async function renderReflect() {
   await syncLogNow().catch((err) => console.error("log sync failed", err));
   // Same shared #feed-color-filter bar + #search-history-bar row the main
-  // screen's .filter-row shows above the feed pane (see renderDesktop) —
+  // screen's .filter-row shows above the article list (see renderApp) —
   // now visible in reflect mode too (see style.css's .app.reflect-mode
   // rules), so it needs refreshing here the same way, since render() itself
   // no-ops in reflect mode.
@@ -783,8 +477,6 @@ async function renderReflect() {
       entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
       onAddComment: handleAddComment,
       onSetColor: handleSetLogColor,
-      onAddTag: handleAddLogTag,
-      onRemoveTag: handleRemoveLogTag,
       emptyHint: "検索結果がありません。",
     });
     return;
@@ -816,22 +508,20 @@ async function renderReflect() {
     entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
     onAddComment: handleAddComment,
     onSetColor: handleSetLogColor,
-    onAddTag: handleAddLogTag,
-    onRemoveTag: handleRemoveLogTag,
   });
 }
 
 // A log entry matches if it has any color in state.logColorFilter — same
-// "any" semantics as the feed list's own color filter (see currentFeedGroups
-// above). Empty filter means no filtering at all.
+// "any" semantics as the top filter bar's own color filter (see
+// filterLogEntriesByFeedColor below). Empty filter means no filtering at all.
 function filterLogEntriesByColor(entries) {
   if (state.logColorFilter.size === 0) return entries;
   return entries.filter((e) => e.color && state.logColorFilter.has(e.color));
 }
 
 // The feedColorFilter the main screen's #feed-color-filter bar drives (see
-// currentFeedGroups/toggleFeedColorFilter), now shown in reflect mode too
-// (see renderReflect). Narrows to entries whose *feed* carries one of the
+// toggleFeedColorFilter), now shown in reflect mode too (see renderReflect).
+// Narrows to entries whose *feed* carries one of the
 // active colors, distinct from filterLogEntriesByColor's own logColorFilter
 // (a color tagged on the log entry itself, not its feed).
 function filterLogEntriesByFeedColor(entries) {
@@ -853,18 +543,6 @@ async function handleAddComment(logId, text) {
 async function handleSetLogColor(logId, color) {
   await setLogEntryColor(logId, color);
   await renderReflect();
-}
-
-async function handleAddLogTag(logId, tag) {
-  const updated = await addLogEntryTag(logId, tag);
-  await renderReflect();
-  return updated;
-}
-
-async function handleRemoveLogTag(logId, tag) {
-  const updated = await removeLogEntryTag(logId, tag);
-  await renderReflect();
-  return updated;
 }
 
 function changeReflectDate(deltaDays) {
@@ -971,8 +649,6 @@ function previewReflectDate(dateStr) {
         entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
         onAddComment: handleAddComment,
         onSetColor: handleSetLogColor,
-        onAddTag: handleAddLogTag,
-        onRemoveTag: handleRemoveLogTag,
       });
     })
     .catch((err) => console.error("reflect preview failed", err));
@@ -1002,258 +678,70 @@ function scheduleLogSync() {
   }, 1000);
 }
 
-// Shared by every layout with a feed pane — renderDesktop, renderWideGrid,
-// renderTabletThreePane, and renderReflect (mobile's renderMobile is
-// article-list-only, with no feed pane to hang this above). Uses every
-// registered feed, not currentFeedGroups()'s already-filtered result, so the
-// swatch row itself doesn't shrink away once a filter (or a search query)
-// narrows the list down to feeds of just one color.
+// Shared by renderApp and renderReflect — the top filter bar (see
+// .filter-row in style.css). Uses every registered feed, not just what's
+// currently shown, so the swatch row itself doesn't shrink away once a
+// filter (or a search query) narrows the article list down to one color.
 function renderFeedColorFilterBar() {
-  renderFeedColorFilter(feedColorFilterEl, {
+  renderColorFilter(feedColorFilterEl, {
     feeds: [...state.feedsById.values()],
     activeColors: state.feedColorFilter,
     onToggleColor: toggleFeedColorFilter,
   });
 }
 
-function renderDesktop() {
+// The only reading screen — a single scrolling column of article cards,
+// same at every viewport width. Grouped by feed (each with its own header
+// and right-click/long-press context menu — see ui/articleList.js) while
+// browsing the plain unread timeline; a flat list showing each entry's feed
+// name inline while searching, since search results are ranked by
+// relevance, not by feed.
+function renderApp() {
   const query = state.searchQuery;
-  const feedGroups = currentFeedGroups();
   renderFeedColorFilterBar();
 
-  renderFeedList(feedListEl, {
-    groups: feedGroups,
-    totalFeedCount: state.feedsById.size,
-    selectedFeedId: state.selectedFeedId,
-    query,
-    collapsedGroups: collapsedGroupsFor(feedGroups),
-    emptyHint: feedListEmptyHint(query),
-    onSelect: selectFeed,
-    onHover: previewFeed,
-    onTogglePause: togglePauseFeed,
-    onTogglePin: togglePinFeed,
-    onSetColor: setFeedColor,
-    onAddFeedTag: addFeedTag,
-    onRemoveFeedTag: removeFeedTag,
-    onCopyUrl: copyFeedUrl,
-    onSelectGroup: selectFeedGroup,
-    onShowAllUnread: showAllUnread,
-  });
-
-  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
-  // Meaningful for a single feed or a "まとめて見る" group — bounded lists a
-  // handful of already-read rows won't hurt to fold in. Hidden for search
-  // (ranked by relevance, read state doesn't apply) and for the cross-feed
-  // home timeline: that one ignores showReadInTimeline outright regardless
-  // of this toggle (see currentArticles' own comment) since folding in
-  // every already-read entry from every feed at once is a render of
-  // thousands of rows, not something a checkbox should be able to trigger.
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()) || isAllUnreadView);
-
   const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
-  // The cross-feed unread timeline (nothing selected, no search) is the one
-  // place in the 3-pane layout that also marks read on hover, same as
-  // wide-grid mode always does (see previewEntryAndMarkRead) — a specific
-  // feed's own list keeps plain hover-to-preview, since that's still a
-  // dense single-column list where a passing cursor sweep would read
-  // articles it never meant to (the "だるま落とし" bug). It's also the only
-  // one of the three grouped by feed (see groupByFeed) — a single feed or
-  // group's own list has nothing to group by, and search results are
-  // ranked by relevance, not by feed.
-  // Scroll-to-read for the 3-pane layout's own article pane (articlePaneEl) —
-  // same IntersectionObserver-per-row technique as renderMobile's own
-  // mobileReadObserver, just rooted at the desktop pane instead. Rebuilt on
-  // every render since the rows themselves get torn down and recreated
-  // below regardless (renderArticleList replaces #article-list's innerHTML).
-  desktopReadObserver?.disconnect();
-  desktopReadObserver = new IntersectionObserver(handleDesktopScrollIntersections, {
-    root: articlePaneEl,
+
+  articleReadObserver?.disconnect();
+  articleReadObserver = new IntersectionObserver(handleArticleScrollIntersections, {
+    root: null,
     threshold: 0,
   });
-  desktopScrollEntries = new Map(entries.map((e) => [e.id, e]));
+  articleScrollEntries = new Map(entries.map((e) => [e.id, e]));
 
   renderArticleList(articleListEl, {
     entries,
     feedTitleById: state.feedTitleById,
-    selectedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
     query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
-    onSelect: openEntry,
-    onHover: isAllUnreadView ? previewEntryAndMarkRead : previewEntry,
+    onOpen: openEntry,
     onAnnotate: openAnnotateForEntry,
-    onRowMounted: (li) => desktopReadObserver.observe(li),
+    onRowMounted: (li) => articleReadObserver.observe(li),
     logByEntryId: state.logByEntryId,
     showFeedName,
     emptyHint,
-    groupByFeed: isAllUnreadView,
-    feedOrder,
-    feedsById: state.feedsById,
-    onTogglePauseFeed: isAllUnreadView ? togglePauseFeed : undefined,
-    onToggleKeepFeed: isAllUnreadView ? toggleKeepFeed : undefined,
-    onTogglePinFeed: isAllUnreadView ? togglePinFeed : undefined,
-    onSetFeedColor: isAllUnreadView ? setFeedColor : undefined,
-  });
-  renderArticleListActions();
-
-  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
-}
-
-// Tablet-portrait layout (see the isTabletLayout breakpoint) — a real
-// 3-pane, not the link-tap single column the phone layout uses: feed pane
-// on the left (same component, and now the same draggable width, as
-// desktop — see setupPaneResizing), article list and preview stacked
-// vertically on the right (see style.css's own tablet media query for the
-// grid, reusing #wide-grid-row-resizer for the drag split even outside
-// wide-grid mode proper). Always grouped by feed (see groupByFeed below),
-// same as renderWideGrid and for the same reason — a single feed or group
-// still renders fine as its own one-block section, and there's no room here
-// for side-by-side columns, so a block's articles just stack instead of
-// scrolling independently. Ships with the same bottom-of-block 既読/解除/
-// ピン actions as the multi-column layout (see buildFeedFooter in
-// ui/articleList.js) for the same reason: a feed's block can grow tall
-// enough that scrolling back up to its header gets old.
-function renderTabletThreePane() {
-  const query = state.searchQuery;
-  const feedGroups = currentFeedGroups();
-  renderFeedColorFilterBar();
-
-  renderFeedList(feedListEl, {
-    groups: feedGroups,
-    totalFeedCount: state.feedsById.size,
-    selectedFeedId: state.selectedFeedId,
-    query,
-    collapsedGroups: collapsedGroupsFor(feedGroups),
-    emptyHint: feedListEmptyHint(query),
-    onSelect: selectFeed,
-    onHover: previewFeed,
-    onTogglePause: togglePauseFeed,
-    onTogglePin: togglePinFeed,
-    onSetColor: setFeedColor,
-    onAddFeedTag: addFeedTag,
-    onRemoveFeedTag: removeFeedTag,
-    onCopyUrl: copyFeedUrl,
-    onSelectGroup: selectFeedGroup,
-    onShowAllUnread: showAllUnread,
-  });
-
-  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()) || isAllUnreadView);
-
-  const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
-  renderArticleList(articleListEl, {
-    entries,
-    feedTitleById: state.feedTitleById,
-    selectedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
-    query: highlightQuery(),
-    isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
-    onSelect: openEntry,
-    onHover: isAllUnreadView ? previewEntryAndMarkRead : previewEntry,
-    onAnnotate: openAnnotateForEntry,
-    logByEntryId: state.logByEntryId,
-    showFeedName,
-    emptyHint,
-    groupByFeed: isAllUnreadView,
-    feedOrder,
-    feedsById: state.feedsById,
-    onTogglePauseFeed: isAllUnreadView ? togglePauseFeed : undefined,
-    onToggleKeepFeed: isAllUnreadView ? toggleKeepFeed : undefined,
-    onTogglePinFeed: isAllUnreadView ? togglePinFeed : undefined,
-    onSetFeedColor: isAllUnreadView ? setFeedColor : undefined,
-    onMarkFeedRead: isAllUnreadView ? markFeedReadKeepVisible : undefined,
-    onMarkFeedUnread: isAllUnreadView ? releaseFeedRead : undefined,
-  });
-  renderArticleListActions();
-
-  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
-}
-
-// Opt-in ultra-wide layout (see the "マルチカラム" button/isWideGridLayout,
-// only offered at wideGridQuery's width) — same feed pane, article list, and
-// preview pane components as desktop (so annotate, keyboard nav, and the
-// .selected/.unread styling all keep working unchanged), just laid out
-// differently: the article list is always grouped by feed (see groupByFeed
-// below), one independently-scrolling column per feed laid out left to
-// right (see .app.wide-grid-mode in style.css) — not a single reflowed grid
-// mixing every feed's articles together — with the preview pane moved below
-// it instead of beside it, so several feeds are readable side by side at
-// once. The one real behavioral difference is onHover — see
-// previewEntryAndMarkRead.
-function renderWideGrid() {
-  const query = state.searchQuery;
-  const feedGroups = currentFeedGroups();
-  renderFeedColorFilterBar();
-
-  renderFeedList(feedListEl, {
-    groups: feedGroups,
-    totalFeedCount: state.feedsById.size,
-    selectedFeedId: state.selectedFeedId,
-    query,
-    collapsedGroups: collapsedGroupsFor(feedGroups),
-    emptyHint: feedListEmptyHint(query),
-    onSelect: selectFeed,
-    onHover: previewFeed,
-    onTogglePause: togglePauseFeed,
-    onTogglePin: togglePinFeed,
-    onSetColor: setFeedColor,
-    onAddFeedTag: addFeedTag,
-    onRemoveFeedTag: removeFeedTag,
-    onCopyUrl: copyFeedUrl,
-    onSelectGroup: selectFeedGroup,
-    onShowAllUnread: showAllUnread,
-  });
-
-  // See renderDesktop's own comment on this same condition — the cross-feed
-  // home timeline always ignores showReadInTimeline regardless of the
-  // toggle, so it's hidden there too rather than left dangling.
-  const isAllUnreadView = !state.selectedFeedId && !state.selectedFeedGroupIds && !query.trim();
-  showReadToggleWrapEl.classList.toggle("hidden", Boolean(query.trim()) || isAllUnreadView);
-
-  const { entries, showFeedName, emptyHint, feedOrder } = currentArticles();
-  renderArticleList(articleListEl, {
-    entries,
-    feedTitleById: state.feedTitleById,
-    selectedEntryId: state.selectedEntry ? state.selectedEntry.id : null,
-    query: highlightQuery(),
-    isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
-    onSelect: openEntry,
-    onHover: previewEntryAndMarkRead,
-    onAnnotate: openAnnotateForEntry,
-    logByEntryId: state.logByEntryId,
-    showFeedName,
-    emptyHint,
-    // Always grouped into columns here (unlike renderDesktop, which only
-    // groups the cross-feed home timeline) — a single feed or group still
-    // renders fine as one column, and search results as one column per feed
-    // they matched in, so the layout never has to branch on selection state.
-    groupByFeed: true,
+    groupByFeed: !query.trim(),
     feedOrder,
     feedsById: state.feedsById,
     onTogglePauseFeed: togglePauseFeed,
     onToggleKeepFeed: toggleKeepFeed,
     onTogglePinFeed: togglePinFeed,
     onSetFeedColor: setFeedColor,
-    // Bottom-of-column 既読/解除 buttons (see buildFeedFooter in
-    // ui/articleList.js) — only offered here and in renderTabletThreePane,
-    // the two layouts a column can grow tall enough to make scrolling back
-    // up to the header's own pin button (still there too, duplicated at the
-    // bottom) annoying.
     onMarkFeedRead: markFeedReadKeepVisible,
     onMarkFeedUnread: releaseFeedRead,
+    onCopyFeedUrl: copyFeedUrl,
   });
-  renderArticleListActions();
-
-  renderPreview(previewEl, state.selectedEntry, highlightQuery(), { onLinkClick: logOpen, ...previewAnnotateProps() });
 }
 
-// Feed pause/pin/color/tag changes only ever come from the normal view's
-// own feed tree or article list — reflect has no feed context menu of its
-// own — so this is just render(), which itself no-ops in reflect mode.
+// Feed pause/pin/color changes only ever come from the article list's own
+// per-feed context menu — so this is just render(), which itself no-ops in
+// reflect mode.
 function refreshAfterFeedChange() {
   render();
 }
 
-// Shared by togglePauseFeed and pauseFeedGroup (the article list's own
-// "更新停止" button — see renderArticleListActions) — persists a feed's
+// Shared by togglePauseFeed (the article list's own per-feed context
+// menu's "更新停止" item) — persists a feed's
 // paused state without rendering or syncing itself, so a group of feeds
 // can be paused one at a time and still only trigger one render/sync at
 // the end. Marks the feed userManagedPause so autoPauseDuplicateFeeds
@@ -1274,11 +762,11 @@ async function setFeedPaused(feedId, paused) {
   state.feedsById.set(feedId, updated);
 }
 
-// "更新を停止/再開" in the feed context menu (see ui/feedList.js) and the
-// article list's own action bar for a single selected feed — toggles
-// whether the feed gets fetched at all. Paused feeds sort into their own
-// "更新停止" group (see frequency.js) and are skipped entirely by
-// refreshAll, even when forced.
+// "更新を停止/再開" in the article list's per-feed context menu (see
+// openFeedContextMenu in ui/articleList.js) — toggles whether the feed
+// gets fetched at all. Paused feeds sort into their own "更新停止" group
+// (see frequency.js) and are skipped entirely by refreshAll, even when
+// forced.
 async function togglePauseFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -1287,19 +775,7 @@ async function togglePauseFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// "更新停止" in the article list's action bar while viewing a "まとめて見る"
-// group (see renderArticleListActions) — pauses every feed in the group at
-// once. Unlike togglePauseFeed this is one-directional (pause only, no
-// resume-all): a group can mix already-paused and active feeds, so there's
-// no single "next state" to toggle to; resuming stays a per-feed action via
-// the feed context menu.
-async function pauseFeedGroup(feedIds) {
-  await Promise.all(feedIds.map((feedId) => setFeedPaused(feedId, true)));
-  refreshAfterFeedChange();
-  syncNow().catch((err) => console.error("sync failed", err));
-}
-
-// "上部にピン留め/ピン留めを解除" in the feed context menu (see ui/feedList.js)
+// "上部にピン留め/ピン留めを解除" in the feed context menu (see ui/articleList.js)
 // — pulls the feed out of the normal status/frequency tree into its own
 // "📌 ピン留め" group at the very top of the sidebar (see frequency.js's
 // groupFeedsByFrequency), independent of pause/color/read state.
@@ -1313,16 +789,16 @@ async function togglePinFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// The unread timeline's own per-feed block header offers this instead of a
-// pause button (see renderDesktop/renderWideGrid's groupByFeed rendering) —
-// stopping is the automatic, rule-driven default for a high-frequency feed
-// nobody's engaging with (see autoPauseInactiveFeeds), so the action worth
-// putting front and center while reading is the rarer one: explicitly
-// vouching for a feed so that rule never touches it, even if it's noisy and
-// you go a while between things it posts that are actually worth reading.
-// Independent of pinned (which is about sidebar position, not fetch
-// eligibility) and of paused/userManagedPause (an already-paused feed still
-// needs a manual resume — see togglePauseFeed — keep alone won't fetch it).
+// The article list's per-feed context menu (see openFeedContextMenu in
+// ui/articleList.js) offers this alongside 更新停止 — stopping is the
+// automatic, rule-driven default for a high-frequency feed nobody's
+// engaging with (see autoPauseInactiveFeeds), so this is the deliberate
+// opt-out: explicitly vouching for a feed so that rule never touches it,
+// even if it's noisy and you go a while between things it posts that are
+// actually worth reading. Independent of pinned (which is about being
+// pulled to the top of the timeline, not fetch eligibility) and of
+// paused/userManagedPause (an already-paused feed still needs a manual
+// resume — see togglePauseFeed — keep alone won't fetch it).
 async function toggleKeepFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -1347,44 +823,14 @@ async function setFeedColor(feedId, colorKey) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// Feed context menu's tag editor (see renderTagEditor in ui/colorPicker.js)
-// — free-text tags alongside the single palette color above, add/remove one
-// at a time rather than a single setter, matching how the chip UI actually
-// interacts with them.
-async function addFeedTag(feedId, tag) {
-  const trimmed = tag.trim();
-  if (!trimmed) return null;
-  const feed = state.feedsById.get(feedId);
-  if (!feed) return null;
-  if ((feed.tags || []).includes(trimmed)) return feed;
-  const updated = { ...feed, tags: [...(feed.tags || []), trimmed] };
-  await markFeedDirty(updated);
-  state.feedsById.set(feedId, updated);
-  refreshAfterFeedChange();
-  syncNow().catch((err) => console.error("sync failed", err));
-  return updated;
-}
-
-async function removeFeedTag(feedId, tag) {
-  const feed = state.feedsById.get(feedId);
-  if (!feed) return null;
-  if (!(feed.tags || []).includes(tag)) return feed;
-  const updated = { ...feed, tags: feed.tags.filter((t) => t !== tag) };
-  await markFeedDirty(updated);
-  state.feedsById.set(feedId, updated);
-  refreshAfterFeedChange();
-  syncNow().catch((err) => console.error("sync failed", err));
-  return updated;
-}
-
-// The feed-list color swatch row (see renderFeedColorFilter in
-// ui/feedList.js) — colorKey null means "clear filter" (its own button,
-// distinct from any color swatch), otherwise toggles that one color's
-// membership in the filter set. Multiple colors can be active at once: a
-// feed shows if it matches any of them (see currentFeedGroups). The bar
-// itself is shared between view and reflect mode (see renderReflect), so
-// this dispatches to whichever screen is actually showing — render() alone
-// would no-op while in reflect mode (see its own comment).
+// The top filter bar's color swatch row (see renderColorFilter in
+// ui/commonComponents.js) — colorKey null means "clear filter" (its own
+// button, distinct from any color swatch), otherwise toggles that one
+// color's membership in the filter set. Multiple colors can be active at
+// once: a feed shows if it matches any of them. The bar itself is shared
+// between view and reflect mode (see renderReflect), so this dispatches to
+// whichever screen is actually showing — render() alone would no-op while
+// in reflect mode (see its own comment).
 function toggleFeedColorFilter(colorKey) {
   if (colorKey === null) {
     state.feedColorFilter.clear();
@@ -1552,46 +998,15 @@ async function copyFeedUrl(feed, li) {
   }
 }
 
-// Small-phone layout: no per-feed navigation at all, just the same
-// cross-feed unread timeline as desktop's "nothing selected" view — see
-// ui/mobile.js. Rows are real links to the article's origin site; reading
-// happens there, not in-app. Scrolling an unread row out of view (past the
-// top) marks it read too, same as tapping it, via the IntersectionObserver
-// wired up below.
-function renderMobile() {
-  const query = state.searchQuery;
-  const { entries: baseEntries, showFeedName, emptyHint } = currentArticles();
-  // Unread browsing (no search query) prioritizes low-frequency feeds: a
-  // rare post from a feed that hardly ever posts is easy to lose in a flood
-  // of daily-feed articles if everything's just sorted by date. Search
-  // results keep the plain newest-first order from currentArticles().
-  const entries = query ? baseEntries : sortMobileUnreadByFrequency(baseEntries);
-
-  mobileReadObserver?.disconnect();
-  mobileReadObserver = new IntersectionObserver(handleMobileScrollIntersections, {
-    root: mobileListEl,
-    threshold: 0,
-  });
-  mobileScrollEntries = new Map(entries.map((e) => [e.id, e]));
-
-  renderMobileList(mobileListEl, {
-    entries,
-    feedTitleById: state.feedTitleById,
-    query: highlightQuery(),
-    isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
-    onOpen: openEntry,
-    onRowMounted: (li, entry) => {
-      li.dataset.entryId = entry.id;
-      mobileReadObserver.observe(li);
-    },
-    showFeedName,
-    emptyHint,
-  });
-}
-
-let mobileReadObserver = null;
-let mobileScrollEntries = new Map();
-function handleMobileScrollIntersections(observerEntries) {
+// Marks a row read once it scrolls out of view (past the top) — same
+// IntersectionObserver-per-row technique regardless of pointer type, rooted
+// at the viewport since the article list is now the only scrolling surface
+// on the page. Rebuilt fresh in renderApp() on every render, since the rows
+// themselves are torn down and rebuilt too (renderArticleList replaces
+// #article-list's innerHTML).
+let articleReadObserver = null;
+let articleScrollEntries = new Map();
+function handleArticleScrollIntersections(observerEntries) {
   for (const oe of observerEntries) {
     // Only care about rows that scrolled *past* (exited above the visible
     // area) — not ones below the fold that haven't been seen yet, and not
@@ -1606,7 +1021,7 @@ function handleMobileScrollIntersections(observerEntries) {
     if (oe.isIntersecting || !oe.rootBounds || oe.rootBounds.height === 0) continue;
     if (oe.boundingClientRect.bottom > oe.rootBounds.top) continue;
 
-    const entry = mobileScrollEntries.get(oe.target.dataset.entryId);
+    const entry = articleScrollEntries.get(oe.target.dataset.entryId);
     if (entry) markReadOnScroll(entry, oe.target);
   }
 }
@@ -1618,11 +1033,11 @@ async function markReadOnScroll(entry, liEl) {
   scheduleScrollSync();
 }
 
-// Shared by markReadOnScroll (mobile and desktop's own per-row scroll
-// marking) and markAllVisibleEntriesRead (desktop's reached-the-bottom
-// batch) below — debounces the actual network sync so flicking past a long
-// run of unread items fires one push+pull once things settle, not one per
-// item/batch in quick succession.
+// Shared by markReadOnScroll (per-row scroll marking) and
+// markAllVisibleEntriesRead (the reached-the-bottom batch) below —
+// debounces the actual network sync so flicking past a long run of unread
+// items fires one push+pull once things settle, not one per item/batch in
+// quick succession.
 let scrollSyncDebounceTimer = null;
 function scheduleScrollSync() {
   clearTimeout(scrollSyncDebounceTimer);
@@ -1672,120 +1087,26 @@ async function advanceProgress(entry) {
   }
 }
 
-// Hover-only preview: just moves the selection/preview pane, without
-// advancing anything's read state. Used for mouseenter, where the pointer
-// merely passing over an item on its way elsewhere must never mark it (or
-// a feed's newest article) read — that was the "だるま落とし" bug, where
-// sweeping the cursor down the list read everything it crossed.
-//
-// Picks the top entry the same way the article list itself does — NG-word
-// filtered (see filterByNgWords) — so the preview pane never shows an entry
-// the list is hiding. selectFeed still advances read state past the feed's
-// true newest entry (NG-matched or not; see its own comment), just without
-// ever previewing it.
-function previewFeed(feedId) {
-  state.selectedFeedId = feedId;
-  state.selectedFeedGroupIds = null;
-  state.selectedEntry = filterByNgWords(sortedEntriesForFeed(feedId))[0] || null;
-  setFocusedPane("feed");
-  render();
-}
-
-// "まとめて見る" on a frequency group or the pinned group (see
-// buildGroupSummary in ui/feedList.js) — same idea as previewFeed/selectFeed
-// but for every feed in that group combined (see currentArticles), instead
-// of a single one. Deliberate action, not hover-triggered, so — like
-// selectFeed — it also clears state.selectedFeedId, previews the top entry,
-// and moves focus to the article pane right away rather than needing a
-// separate commit step.
-function selectFeedGroup(feedIds) {
-  state.selectedFeedId = null;
-  state.selectedFeedGroupIds = new Set(feedIds);
-  state.selectedEntry = currentArticles().entries[0] || null;
-  setFocusedPane("article");
-  render();
-}
-
-function previewEntry(entry) {
-  state.selectedEntry = entry;
-  setFocusedPane("article");
-  render();
-}
-
-// Bundles the currently-previewed entry's log entry plus its color/comment
-// handlers for renderPreview's inline annotate section (see
-// renderDesktop/renderWideGrid) — spread into renderPreview's options
-// rather than passed as a separate parameter so a layout with no preview
-// pane (mobile, tablet two-pane) just never calls this instead of needing
-// its own no-op case.
-function previewAnnotateProps() {
-  const entry = state.selectedEntry;
-  if (!entry) return {};
-  return {
-    logEntry: state.logByEntryId.get(entry.id) || null,
-    onSetColor: (color) => annotatePreviewColor(entry, color),
-    onAddComment: (text) => annotatePreviewComment(entry, text),
-    onAddTag: (tag) => annotatePreviewAddTag(entry, tag),
-    onRemoveTag: (tag) => annotatePreviewRemoveTag(entry, tag),
-  };
-}
-
-// Previews *and* marks read on hover, unlike previewEntry above. Used by
-// wide-grid mode's article grid (see renderWideGrid) and by the 3-pane
-// layout's cross-feed unread timeline (see renderDesktop's isAllUnreadView)
-// — deliberately not used for a specific feed's own article list, which
-// stays a dense single-column list where a passing cursor sweep would read
-// everything it crosses (the "だるま落とし" bug, see previewFeed's
-// comment).
-async function previewEntryAndMarkRead(entry) {
-  state.selectedEntry = entry;
-  setFocusedPane("article");
-  const updated = await advanceReadState(entry);
-  render();
-  if (updated) syncNow().catch((err) => console.error("sync failed", err));
-}
-
-// Desktop 3-pane counterpart to renderMobile's own mobileReadObserver below
-// — same IntersectionObserver-per-row technique, just rooted at articlePaneEl
-// instead of mobileListEl. Set up fresh in renderDesktop() on every render
-// (old observed rows are gone once #article-list's innerHTML is replaced
-// anyway), never in renderWideGrid() — wide-grid's columns scroll
-// independently of articlePaneEl, and this is deliberately just the plain
-// 3-pane layout's own behavior.
-let desktopReadObserver = null;
-let desktopScrollEntries = new Map();
-
-function handleDesktopScrollIntersections(observerEntries) {
-  for (const oe of observerEntries) {
-    // See handleMobileScrollIntersections' own comment on the
-    // rootBounds.height === 0 guard — same spurious pre-layout initial
-    // report, same fix.
-    if (oe.isIntersecting || !oe.rootBounds || oe.rootBounds.height === 0) continue;
-    if (oe.boundingClientRect.bottom > oe.rootBounds.top) continue;
-    const entry = desktopScrollEntries.get(oe.target.dataset.entryId);
-    if (entry) markReadOnScroll(entry, oe.target);
-  }
-}
-
-// The IntersectionObserver above only ever catches a row once it's fully
-// scrolled past the *top* of the pane — the last handful of rows at the very
-// end of a list can sit at rest against the pane's bottom edge forever
-// without ever doing that, even once there's nothing left to scroll to. This
-// covers that case: once the pane's scroll position bottoms out, whatever's
-// still marked unread and currently in the list is right there on screen
-// and has been seen, so it all catches up at once, same as the per-row path
-// just does it in a single batch instead of one row at a time.
-function handleArticlePaneScrollBottom() {
-  if (isMobileLayout() || isTabletLayout() || isWideGridLayout()) return;
-  if (desktopScrollEntries.size === 0) return;
-  // A pane that hasn't actually been laid out yet reads 0 for both
-  // clientHeight and scrollHeight, which would trivially satisfy "at
-  // bottom" below — same class of pre-layout false positive as the
-  // IntersectionObserver's own rootBounds.height guard above.
-  if (articlePaneEl.clientHeight === 0) return;
-  const atBottom = articlePaneEl.scrollTop + articlePaneEl.clientHeight >= articlePaneEl.scrollHeight - 4;
+// The IntersectionObserver in handleArticleScrollIntersections only ever
+// catches a row once it's fully scrolled past the *top* of the viewport —
+// the last handful of rows at the very end of a list can sit at rest
+// against the bottom of the page forever without ever doing that, even once
+// there's nothing left to scroll to. This covers that case: once the page's
+// scroll position bottoms out, whatever's still marked unread and currently
+// in the list is right there on screen and has been seen, so it all catches
+// up at once, same as the per-row path just does it in a single batch
+// instead of one row at a time.
+function handleWindowScrollBottom() {
+  if (articleScrollEntries.size === 0) return;
+  const doc = document.documentElement;
+  // A page that hasn't actually been laid out yet reads 0 for clientHeight,
+  // which would trivially satisfy "at bottom" below — same class of
+  // pre-layout false positive as the IntersectionObserver's own
+  // rootBounds.height guard above.
+  if (doc.clientHeight === 0) return;
+  const atBottom = window.scrollY + doc.clientHeight >= doc.scrollHeight - 4;
   if (!atBottom) return;
-  markAllVisibleEntriesRead(desktopScrollEntries.values(), articleListEl);
+  markAllVisibleEntriesRead(articleScrollEntries.values(), articleListEl);
 }
 
 async function markAllVisibleEntriesRead(entries, containerEl) {
@@ -1795,46 +1116,24 @@ async function markAllVisibleEntriesRead(entries, containerEl) {
     if (updated) changedAny = true;
   }
   if (!changedAny) return;
-  for (const li of containerEl.querySelectorAll(".article-item.unread")) {
+  for (const li of containerEl.querySelectorAll(".mobile-article-item.unread")) {
     li.classList.remove("unread");
   }
   scheduleScrollSync();
 }
 
-// Deliberate action (click, keyboard nav) — just an alias for previewFeed
-// these days. Used to also advance read state straight to the feed's
-// newest entry the instant it was selected, but that raced against
-// currentArticles()'s own unread-only filter for a single feed's list (see
-// its own comment): the watermark jump made *every* entry in the feed
-// read at once, so the list the user just asked to see emptied out from
-// under them the same moment it opened — a real regression once that
-// filter started hiding already-read entries by default. Read state now
-// only ever advances by actually opening an entry (see openEntry) or
-// scrolling past it (markReadOnScroll/handleDesktopScrollIntersections),
-// same as everywhere else in the app.
-function selectFeed(feedId) {
-  previewFeed(feedId);
-}
-
-// "すべての未読" link above the feed list's 未読 group (see
-// renderFeedList in ui/feedList.js) — the only way back to the cross-feed
-// unread timeline (see currentArticles) once a feed or search has taken
-// over the article pane. Without this, getting back meant reloading the
-// page, since neither selecting a feed nor searching ever clears back to
-// nothing selected on their own.
-function showAllUnread() {
-  state.selectedFeedId = null;
-  state.selectedFeedGroupIds = null;
+// "u" (see wireKeyboardNav) — clears an active search back to the plain
+// unread timeline. The only other way back once you've typed a query, since
+// there's no feed selection to fall back to any more.
+function clearSearch() {
   state.searchQuery = "";
   searchInputEl.value = "";
   render();
 }
 
-// Shared by markAllRead/markFeedReadKeepVisible for both a single feed and
-// every member of a "まとめて見る" group — catches the feed up to now the same way
-// pausing does (see setFeedPaused), without rendering or syncing itself so
-// a group can be marked read one feed at a time and still only trigger one
-// render/sync at the end.
+// Persists a feed's readUntil watermark to now (and its content-hash
+// catch-up alongside it, same as setFeedPaused) — shared by
+// markFeedReadKeepVisible below, without rendering or syncing itself.
 async function markFeedAllRead(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -1844,45 +1143,21 @@ async function markFeedAllRead(feedId) {
   state.feedsById.set(feedId, updated);
 }
 
-// "すべて既読" in the article list's own action bar (see
-// renderArticleListActions) — marks the currently selected feed, or every
-// feed in the currently selected "まとめて見る" group, as read. Used to also
-// jump straight on to whatever was next in the sidebar tree afterwards,
-// under the assumption the just-cleared list would otherwise sit empty on
-// screen — now that a selected feed's/group's own list is frozen (see
-// selectedFeedSnapshot/selectedGroupSnapshot in currentArticles), marking it
-// read just drops its rows' unread styling in place instead of hiding them,
-// so there's no longer an empty list to navigate away from.
-async function markAllRead() {
-  if (state.selectedFeedId) {
-    await markFeedAllRead(state.selectedFeedId);
-    syncNow().catch((err) => console.error("sync failed", err));
-    render();
-    return;
-  }
-  if (state.selectedFeedGroupIds) {
-    await Promise.all([...state.selectedFeedGroupIds].map((feedId) => markFeedAllRead(feedId)));
-    syncNow().catch((err) => console.error("sync failed", err));
-    render();
-  }
-}
-
-// The multi-column/tablet-3pane per-feed footer's own "既読"/"解除" buttons
-// (see buildFeedFooter in ui/articleList.js) — same idea as markAllRead but
-// scoped to one specific feed regardless of what's currently selected (a
-// column in the cross-feed timeline is never "selected" the way a sidebar
-// feed/group is), and with an inverse action to undo it. Both rely on the
-// same frozen-snapshot treatment as markAllRead for not disappearing the
-// column's own rows out from under the user.
+// "既読" in the article list's per-feed context menu (see
+// openFeedContextMenu in ui/articleList.js) — marks every entry currently
+// shown for this feed as read in place, rather than yanking its rows out
+// of the frozen cross-feed timeline the moment they stop qualifying as
+// unread (see state.unreadTimelineSnapshot in currentArticles).
 async function markFeedReadKeepVisible(feedId) {
   await markFeedAllRead(feedId);
   render();
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// Undoes markFeedAllRead/markFeedReadKeepVisible for the whole feed — clears
-// the read watermark (and the content-hash catch-up alongside it) so every
-// entry the column is currently showing goes back to reading as unread.
+// "解除" in the same context menu — undoes markFeedAllRead/
+// markFeedReadKeepVisible for the whole feed, clearing the read watermark
+// (and the content-hash catch-up alongside it) so every entry the list is
+// currently showing goes back to reading as unread.
 async function releaseFeedRead(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -1893,60 +1168,16 @@ async function releaseFeedRead(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// Bottom action bar under a single feed's or a "まとめて見る" group's own
-// article list (see index.html's #article-list-actions and
-// renderDesktop/renderTabletThreePane/renderWideGrid) — not shown for the
-// cross-feed unread timeline or search results, where there's no single
-// feed/group for these buttons to act on.
-function renderArticleListActions() {
-  articleListActionsEl.innerHTML = "";
-  const show = Boolean(state.selectedFeedId || state.selectedFeedGroupIds) && !state.searchQuery.trim();
-  articleListActionsEl.classList.toggle("hidden", !show);
-  if (!show) return;
-
-  const markReadBtn = document.createElement("button");
-  markReadBtn.type = "button";
-  markReadBtn.className = "article-list-action-btn";
-  markReadBtn.textContent = "すべて既読";
-  markReadBtn.addEventListener("click", () => {
-    markAllRead().catch((err) => console.error("mark all read failed", err));
-  });
-  articleListActionsEl.appendChild(markReadBtn);
-
-  const pauseBtn = document.createElement("button");
-  pauseBtn.type = "button";
-  pauseBtn.className = "article-list-action-btn";
-  if (state.selectedFeedId) {
-    const feedId = state.selectedFeedId;
-    const feed = state.feedsById.get(feedId);
-    pauseBtn.textContent = feed && feed.paused ? "更新を再開" : "更新停止";
-    pauseBtn.addEventListener("click", () => {
-      togglePauseFeed(feedId).catch((err) => console.error("toggle pause failed", err));
-    });
-  } else {
-    const feedIds = [...state.selectedFeedGroupIds];
-    pauseBtn.textContent = "更新停止";
-    pauseBtn.title = "このグループのフィードをすべて更新停止にします";
-    pauseBtn.addEventListener("click", () => {
-      pauseFeedGroup(feedIds).catch((err) => console.error("pause group failed", err));
-    });
-  }
-  articleListActionsEl.appendChild(pauseBtn);
-}
-
-// Shared by openEntry (selecting an article) and the preview pane's outbound
-// link (see renderDesktop's onLinkClick) — recordOpen's own chatter guard
-// means clicking through moments after selecting the same article won't
-// double-log it, but clicking through later (or on an article that was only
-// ever glanced at in the preview, not actually followed) still will.
+// Logs the article as opened — recordOpen's own chatter guard means
+// clicking through moments after this won't double-log it.
 //
-// Caches whatever recordOpen actually wrote into state.logByEntryId — without
-// this, right-clicking the same entry moments later (e.g. to color/comment it
-// right after opening it — common in the all-unread view, where a read entry
-// stays put in the frozen timeline instead of disappearing) found nothing in
-// the cache, called recordOpen a second time, and got back null from its
-// chatter guard instead of the entry this call just created — silently
-// failing to open the annotate popup at all.
+// Caches whatever recordOpen actually wrote into state.logByEntryId —
+// without this, right-clicking the same entry moments later (e.g. to
+// color/comment it right after opening it — common in the frozen unread
+// timeline, where a read entry stays put instead of disappearing) found
+// nothing in the cache, called recordOpen a second time, and got back null
+// from its chatter guard instead of the entry this call just created —
+// silently failing to open the annotate popup at all.
 function logOpen(entry) {
   recordOpen(entry, state.feedsById.get(entry.feedId))
     .then((logEntry) => {
@@ -1957,19 +1188,16 @@ function logOpen(entry) {
 }
 
 async function openEntry(entry) {
-  previewEntry(entry);
   logOpen(entry);
   await advanceProgress(entry);
 }
 
-// Shared by the article list's right-click/long-press popup and the
-// always-visible copy under the preview pane's body (see renderPreview's
-// onSetColor/onAddComment) — both need a log entry to attach a color or
-// comment to, reusing one reflect (or an earlier annotation) already
-// created rather than logging a second "open" just for this. Tagging or
-// commenting something is itself an act of having read it, so this marks
-// the entry read the same way actually opening it would, regardless of
-// which of the two UIs triggered it.
+// Backs the article list's right-click/long-press annotate popup (see
+// openAnnotateForEntry) — needs a log entry to attach a color or comment
+// to, reusing one reflect (or an earlier annotation) already created
+// rather than logging a second "open" just for this. Commenting or
+// color-tagging something is itself an act of having read it, so this
+// marks the entry read the same way actually opening it would.
 async function ensureLogEntryForEntry(entry) {
   let logEntry = state.logByEntryId.get(entry.id) || null;
   if (!logEntry) {
@@ -1992,35 +1220,6 @@ async function openAnnotateForEntry(entry, x, y) {
   showAnnotatePopup(entry, logEntry, x, y);
 }
 
-// onSetColor/onAddComment for the preview pane's own always-visible
-// annotate section (see renderPreview) — same underlying writes as the
-// popup's (setEntryLogColor/addEntryLogComment below), just preceded by
-// ensureLogEntryForEntry since previewing/hovering an entry doesn't log it
-// the way opening or right-clicking it does.
-async function annotatePreviewColor(entry, color) {
-  const logEntry = await ensureLogEntryForEntry(entry);
-  if (!logEntry) return;
-  await setEntryLogColor(entry, logEntry.id, color);
-}
-
-async function annotatePreviewComment(entry, text) {
-  const logEntry = await ensureLogEntryForEntry(entry);
-  if (!logEntry) return;
-  await addEntryLogComment(entry, logEntry.id, text);
-}
-
-async function annotatePreviewAddTag(entry, tag) {
-  const logEntry = await ensureLogEntryForEntry(entry);
-  if (!logEntry) return;
-  await addEntryLogTag(entry, logEntry.id, tag);
-}
-
-async function annotatePreviewRemoveTag(entry, tag) {
-  const logEntry = await ensureLogEntryForEntry(entry);
-  if (!logEntry) return;
-  await removeEntryLogTag(entry, logEntry.id, tag);
-}
-
 async function setEntryLogColor(entry, logId, color) {
   const updated = await setLogEntryColor(logId, color);
   if (updated) {
@@ -2037,26 +1236,6 @@ async function addEntryLogComment(entry, logId, text) {
   if (updated) {
     state.logByEntryId.set(entry.id, updated);
     state.feedScoreById = await getFeedEngagementScores();
-    render();
-    scheduleLogSync();
-  }
-  return updated;
-}
-
-async function addEntryLogTag(entry, logId, tag) {
-  const updated = await addLogEntryTag(logId, tag);
-  if (updated) {
-    state.logByEntryId.set(entry.id, updated);
-    render();
-    scheduleLogSync();
-  }
-  return updated;
-}
-
-async function removeEntryLogTag(entry, logId, tag) {
-  const updated = await removeLogEntryTag(logId, tag);
-  if (updated) {
-    state.logByEntryId.set(entry.id, updated);
     render();
     scheduleLogSync();
   }
@@ -2093,26 +1272,6 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
                 }
               })
               .catch((err) => console.error("add comment failed", err));
-          },
-          onAddTag: (tag) => {
-            addEntryLogTag(entry, logEntry.id, tag)
-              .then((updated) => {
-                if (updated) {
-                  logEntry = updated;
-                  draw();
-                }
-              })
-              .catch((err) => console.error("add tag failed", err));
-          },
-          onRemoveTag: (tag) => {
-            removeEntryLogTag(entry, logEntry.id, tag)
-              .then((updated) => {
-                if (updated) {
-                  logEntry = updated;
-                  draw();
-                }
-              })
-              .catch((err) => console.error("remove tag failed", err));
           },
         });
       };
@@ -2295,7 +1454,6 @@ async function subscribeFeedFromUrl(rawUrl) {
 
   const existing = state.feedsById.get(feedId);
   if (existing) {
-    await selectFeed(feedId);
     showStatus(`既に購読しています: ${existing.title || url}`, 1);
     setTimeout(hideStatus, 2000);
     return;
@@ -2335,7 +1493,6 @@ async function subscribeFeedFromUrl(rawUrl) {
 
   await loadAppData();
   render();
-  await selectFeed(feedId);
   syncNow().catch((err) => console.error("sync failed", err));
 
   showStatus(`購読しました: ${state.feedsById.get(feedId)?.title || url}`, 1);
@@ -2376,24 +1533,13 @@ function startClockWatermark() {
   setInterval(updateClockWatermark, 1000);
 }
 
-// --- pane focus + keyboard navigation ---------------------------------
-
-function setFocusedPane(pane) {
-  state.focusedPane = pane;
-  // The outline exists to orient keyboard navigation; don't show it until a
-  // real key press has actually happened, so touch devices (which click
-  // panes but never fire keydown) never see it.
-  if (!state.keyboardNavActive) return;
-  for (const el of document.querySelectorAll(".pane")) el.classList.remove("focused");
-  const el = document.getElementById(`${pane}-pane`);
-  if (el) el.classList.add("focused");
-}
+// --- keyboard navigation ---------------------------------
 
 // Only reserve the arrow keys an editable field actually uses natively.
 // A single-line <input> (our search box) only uses Left/Right to move the
 // text cursor — Up/Down do nothing in it natively, so leaving focus there
 // (e.g. after typing a search query without clicking elsewhere) shouldn't
-// also block pane navigation via Up/Down. Multi-line/contentEditable
+// also block article navigation via Up/Down. Multi-line/contentEditable
 // fields use all four, so those still block everything.
 function shouldIgnoreArrowKey(key) {
   const el = document.activeElement;
@@ -2403,45 +1549,13 @@ function shouldIgnoreArrowKey(key) {
   return false;
 }
 
-// render() runs synchronously (before the first await, if any) inside
-// selectFeed/openEntry, so the newly-selected .selected element already
-// exists in the DOM by the time the call below returns — safe to scroll to
-// it immediately without waiting on openEntry's async read-state work that
-// follows.
-function scrollSelectedIntoView(containerEl, selector) {
-  containerEl.querySelector(selector)?.scrollIntoView({ block: "nearest" });
-}
-
-function moveFeedSelection(delta) {
-  const feeds = visibleFlatFeedList();
-  if (feeds.length === 0) return;
-  const idx = feeds.findIndex((f) => f.feedId === state.selectedFeedId);
-  const targetIdx = idx === -1 ? (delta > 0 ? 0 : feeds.length - 1) : Math.min(Math.max(idx + delta, 0), feeds.length - 1);
-  selectFeed(feeds[targetIdx].feedId);
-  scrollSelectedIntoView(feedListEl, ".feed-item.selected");
-}
-
-function moveArticleSelection(delta) {
-  const entries = currentArticles().entries;
-  if (entries.length === 0) return;
-  const idx = entries.findIndex((e) => state.selectedEntry && e.id === state.selectedEntry.id);
-  const targetIdx = idx === -1 ? (delta > 0 ? 0 : entries.length - 1) : Math.min(Math.max(idx + delta, 0), entries.length - 1);
-  openEntry(entries[targetIdx]);
-  scrollSelectedIntoView(articleListEl, ".article-item.selected");
-}
-
-function scrollPreview(delta) {
-  document.getElementById("preview-pane").scrollBy({ top: delta, behavior: "smooth" });
-}
-
-// Guards the single-letter shortcuts below (j/k/o/m/u, and Enter as an
-// alias for o) — unlike the arrow keys (see shouldIgnoreArrowKey), these
-// have no legitimate native meaning inside any field, so any focused
+// Guards the single-letter shortcuts below (j/k/o/u, and Enter as an alias
+// for o) — unlike the arrow keys (see shouldIgnoreArrowKey), these have no
+// legitimate native meaning inside any field, so any focused
 // input/textarea/contentEditable blocks all of them, not just some. Also
 // blocks a focused button/link/select so Enter still activates *that*
-// instead of being hijacked into "open article" — pressing Enter on the
-// "すべての未読" button, a modal's close button, etc. should do what it
-// looks like it does.
+// instead of being hijacked into "open article" — pressing Enter on a
+// modal's close button, say, should do what it looks like it does.
 function isInteractiveFocus() {
   const el = document.activeElement;
   if (!el) return false;
@@ -2449,22 +1563,29 @@ function isInteractiveFocus() {
   return ["INPUT", "TEXTAREA", "BUTTON", "SELECT", "A"].includes(el.tagName);
 }
 
-function nextArticle() {
-  setFocusedPane("article");
-  moveArticleSelection(1);
+// j/k (and ArrowUp/ArrowDown) move a keyboard-only "focused" outline (see
+// .mobile-article-row.keyboard-focused in style.css) across the article
+// rows in document order — works the same whether the list is flat
+// (search) or grouped into per-feed blocks (browsing), since a block is
+// just a nested <ul> and querySelectorAll still walks it in the order it
+// appears on screen.
+function moveArticleFocus(delta) {
+  const rows = [...articleListEl.querySelectorAll(".mobile-article-row")];
+  if (rows.length === 0) return;
+  const idx = rows.findIndex((r) => r.classList.contains("keyboard-focused"));
+  const targetIdx = idx === -1 ? (delta > 0 ? 0 : rows.length - 1) : Math.min(Math.max(idx + delta, 0), rows.length - 1);
+  for (const r of rows) r.classList.remove("keyboard-focused");
+  const target = rows[targetIdx];
+  target.classList.add("keyboard-focused");
+  target.scrollIntoView({ block: "nearest" });
 }
 
-function previousArticle() {
-  setFocusedPane("article");
-  moveArticleSelection(-1);
-}
-
-// Opens the previewed article's own link the same way actually clicking it
-// does (see renderPreview's onLinkClick in ui/preview.js) — reuses that
-// real, already-wired <a target="_blank"> instead of duplicating its
-// open/log-open logic here.
-function openPreviewedArticleLink() {
-  document.querySelector(".preview-link")?.click();
+// "o"/Enter — opens whichever row j/k (or Up/Down) last landed on, the
+// same way actually clicking it does (a real <a target="_blank">, already
+// wired to log the open and advance read state — see articleList.js's
+// buildArticleItem).
+function openFocusedArticleLink() {
+  articleListEl.querySelector(".mobile-article-row.keyboard-focused")?.click();
 }
 
 function focusSearchInput() {
@@ -2478,8 +1599,7 @@ function wireKeyboardNav() {
 
     // "?" (help), "/" (search), and "r" (switch between 見る/振り返る) are
     // useful from anywhere, reflect included — everything else below acts
-    // on the feed/article panes reflect doesn't have (see .app.reflect-mode's
-    // display:none rules).
+    // on the article list, which reflect doesn't have.
     if (ev.key === "?" && !isInteractiveFocus()) {
       ev.preventDefault();
       openShortcutsModal();
@@ -2499,27 +1619,22 @@ function wireKeyboardNav() {
     if (state.mode !== "reflect" && !isInteractiveFocus()) {
       if (ev.key === "j") {
         ev.preventDefault();
-        nextArticle();
+        moveArticleFocus(1);
         return;
       }
       if (ev.key === "k") {
         ev.preventDefault();
-        previousArticle();
+        moveArticleFocus(-1);
         return;
       }
       if (ev.key === "o" || ev.key === "Enter") {
         ev.preventDefault();
-        openPreviewedArticleLink();
-        return;
-      }
-      if (ev.key === "m") {
-        ev.preventDefault();
-        markAllRead().catch((err) => console.error("mark all read failed", err));
+        openFocusedArticleLink();
         return;
       }
       if (ev.key === "u") {
         ev.preventDefault();
-        showAllUnread();
+        clearSearch();
         return;
       }
     }
@@ -2527,10 +1642,9 @@ function wireKeyboardNav() {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(ev.key)) return;
     if (shouldIgnoreArrowKey(ev.key)) return;
 
-    // 振り返る has its own left/right day navigation instead of pane focus
-    // — there are no panes to focus there (see .app.reflect-mode's
-    // display:none rules). Up/down are left alone so the timeline still
-    // scrolls normally.
+    // 振り返る has its own left/right day navigation instead of article
+    // focus — up/down are left alone so the timeline still scrolls
+    // normally.
     if (state.mode === "reflect") {
       if (ev.key === "ArrowLeft") {
         ev.preventDefault();
@@ -2542,37 +1656,16 @@ function wireKeyboardNav() {
       return;
     }
 
-    ev.preventDefault();
-
-    if (!state.keyboardNavActive) {
-      state.keyboardNavActive = true;
-      setFocusedPane(state.focusedPane); // show the outline now that a real key press confirmed a keyboard is in use
-    }
-
-    if (ev.key === "ArrowLeft") {
-      const idx = PANE_ORDER.indexOf(state.focusedPane);
-      setFocusedPane(PANE_ORDER[Math.max(idx - 1, 0)]);
-      return;
-    }
-    if (ev.key === "ArrowRight") {
-      const idx = PANE_ORDER.indexOf(state.focusedPane);
-      setFocusedPane(PANE_ORDER[Math.min(idx + 1, PANE_ORDER.length - 1)]);
-      return;
-    }
     if (ev.key === "ArrowUp") {
-      if (state.focusedPane === "feed") moveFeedSelection(-1);
-      else if (state.focusedPane === "article") moveArticleSelection(-1);
-      else scrollPreview(-80);
-      return;
+      ev.preventDefault();
+      moveArticleFocus(-1);
+    } else if (ev.key === "ArrowDown") {
+      ev.preventDefault();
+      moveArticleFocus(1);
     }
-    if (ev.key === "ArrowDown") {
-      if (state.focusedPane === "feed") moveFeedSelection(1);
-      else if (state.focusedPane === "article") moveArticleSelection(1);
-      else scrollPreview(80);
-    }
+    // ArrowLeft/ArrowRight have no meaning in the view screen — there's no
+    // second pane to move focus to any more.
   });
-
-  document.getElementById("preview-pane").addEventListener("click", () => setFocusedPane("preview"));
 }
 
 function toggleFullscreen() {
@@ -2615,22 +1708,8 @@ function wireApp() {
       },
     }
   );
-  showReadToggleInputEl.addEventListener("change", () => {
-    state.showReadInTimeline = showReadToggleInputEl.checked;
-    // Forces currentArticles() to rebuild whichever cached list (the home
-    // timeline, or a selected feed's/group's own snapshot — see their own
-    // comments) is currently in play under the new filter, instead of
-    // reusing whichever set of entries it happened to freeze before the
-    // toggle changed.
-    state.unreadTimelineSnapshot = null;
-    state.selectedFeedSnapshot = null;
-    state.selectedGroupSnapshot = null;
-    render();
-  });
-  setupPaneResizing();
-  setupWideGridRowResizing();
   wireKeyboardNav();
-  articlePaneEl.addEventListener("scroll", handleArticlePaneScrollBottom, { passive: true });
+  window.addEventListener("scroll", handleWindowScrollBottom, { passive: true });
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
   // A share-link session (see session.js's initEphemeralSession) never gets
   // the シード button or its own re-sharing options wired up at all: the
@@ -2678,7 +1757,6 @@ function wireApp() {
     document.getElementById("shortcuts-modal")
   ).open;
   modeToggleBtn.addEventListener("click", toggleMode);
-  wideGridToggleBtn.addEventListener("click", toggleWideGridMode);
   // "⋯" overflow menu (see .menu-wrap/.more-menu in style.css) holding
   // NGワード/シード — closes itself once either item inside is actually
   // clicked (each opens its own modal via setupNgWordModal/setupSeedModal
@@ -2706,19 +1784,12 @@ function wireApp() {
     exportReflectJson().catch((err) => console.error("reflect export failed", err));
   });
   document.getElementById("opml-export-btn").addEventListener("click", exportOpml);
-  // Re-render across the mobile/tablet/desktop/wide-grid breakpoints (window
-  // resize, or a foldable/rotation crossing one) so the right layout's
-  // markup is kept up to date even if it wasn't the active one a moment ago.
-  mobileQuery.addEventListener("change", () => render());
-  tabletQuery.addEventListener("change", () => render());
-  wideGridQuery.addEventListener("change", () => render());
 }
 
 async function startApp() {
   appRoot.classList.remove("hidden");
   wireApp();
   startClockWatermark();
-  setFocusedPane("article");
   await loadAppData();
   render();
   refreshAll();

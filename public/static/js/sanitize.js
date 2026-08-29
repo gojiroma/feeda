@@ -21,10 +21,10 @@ export function sanitizeHtmlToFragment(html) {
 
 const SNIPPET_MAX_LENGTH = 80;
 
-// For the article list's thumbnail + lead-in snippet (see ui/articleList.js
-// and ui/mobile.js) — pulled from the same allowlisted fragment
-// renderPreview builds, so the <img src> and text it surfaces can't smuggle
-// in anything sanitizeHtmlToFragment wouldn't already let through.
+// For the article list's thumbnail + lead-in snippet (see ui/articleList.js)
+// — pulled from the same allowlisted fragment sanitizeHtmlToFragment
+// builds, so the <img src> and text it surfaces can't smuggle in anything
+// that wouldn't already be let through.
 export function extractArticlePreview(html) {
   if (!html) return { imageSrc: null, snippet: "" };
   const fragment = sanitizeHtmlToFragment(html);
