@@ -1088,23 +1088,24 @@ async function advanceProgress(entry) {
 }
 
 // The IntersectionObserver in handleArticleScrollIntersections only ever
-// catches a row once it's fully scrolled past the *top* of the viewport —
-// the last handful of rows at the very end of a list can sit at rest
-// against the bottom of the page forever without ever doing that, even once
-// there's nothing left to scroll to. This covers that case: once the page's
-// scroll position bottoms out, whatever's still marked unread and currently
-// in the list is right there on screen and has been seen, so it all catches
-// up at once, same as the per-row path just does it in a single batch
-// instead of one row at a time.
-function handleWindowScrollBottom() {
+// catches a row once it's fully scrolled past the *top* of #article-list
+// (the actual scrolling element — see .article-list-view in style.css; the
+// page itself never scrolls) — the last handful of rows at the very end of
+// a list can sit at rest against the bottom of that scroll area forever
+// without ever doing that, even once there's nothing left to scroll to.
+// This covers that case: once #article-list's own scroll position bottoms
+// out, whatever's still marked unread and currently in the list is right
+// there on screen and has been seen, so it all catches up at once, same as
+// the per-row path just does it in a single batch instead of one row at a
+// time.
+function handleArticleListScrollBottom() {
   if (articleScrollEntries.size === 0) return;
-  const doc = document.documentElement;
-  // A page that hasn't actually been laid out yet reads 0 for clientHeight,
+  // A pane that hasn't actually been laid out yet reads 0 for clientHeight,
   // which would trivially satisfy "at bottom" below — same class of
   // pre-layout false positive as the IntersectionObserver's own
   // rootBounds.height guard above.
-  if (doc.clientHeight === 0) return;
-  const atBottom = window.scrollY + doc.clientHeight >= doc.scrollHeight - 4;
+  if (articleListEl.clientHeight === 0) return;
+  const atBottom = articleListEl.scrollTop + articleListEl.clientHeight >= articleListEl.scrollHeight - 4;
   if (!atBottom) return;
   markAllVisibleEntriesRead(articleScrollEntries.values(), articleListEl);
 }
@@ -1715,7 +1716,7 @@ function wireApp() {
     }
   );
   wireKeyboardNav();
-  window.addEventListener("scroll", handleWindowScrollBottom, { passive: true });
+  articleListEl.addEventListener("scroll", handleArticleListScrollBottom, { passive: true });
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
   // A share-link session (see session.js's initEphemeralSession) never gets
   // the シード button or its own re-sharing options wired up at all: the
