@@ -1295,7 +1295,7 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
 // fetch for every single one on that one visit. The excess simply stays
 // due and rolls into the next visit/scheduled run instead, spreading a
 // large backlog across several sessions rather than bursting it into one.
-const MAX_FETCHES_PER_SESSION = 40;
+const MAX_FETCHES_PER_SESSION = 100;
 
 // Chance, per refreshAll round, of reviving one auto-paused feed for a
 // single extra fetch (see the dueFeeds "先祖返り" step below) — occasional
