@@ -20,9 +20,23 @@ import { createElement, createButton, setCustomProperty } from "./domUtils.js";
 // hoveredEntryId in ui/articleList.js.
 let hoveredLogId = null;
 
-function formatTime(iso) {
+// includeDate: true for search results, which can span multiple days (see
+// renderReflect in main.js) — time-only would be ambiguous about which day
+// an entry happened on, unlike the single-day timeline where the date is
+// already shown in the day-nav header above.
+function formatTime(iso, { includeDate = false } = {}) {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  const d = new Date(iso);
+  if (includeDate) {
+    return d.toLocaleString("ja-JP", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatCommentTime(iso) {
@@ -107,7 +121,7 @@ function buildLogActions(logEntry, { onSetColor, onAddComment, onDelete, onBlock
   return section;
 }
 
-function renderLogItem(logEntry, { onAddComment, onSetColor, onDelete, onBlockAndDelete, forceOpenLogId }) {
+function renderLogItem(logEntry, { onAddComment, onSetColor, onDelete, onBlockAndDelete, forceOpenLogId, showDate }) {
   const annotateOpen = logEntry.id === hoveredLogId || logEntry.id === forceOpenLogId;
 
   const li = createElement("li", {
@@ -130,8 +144,8 @@ function renderLogItem(logEntry, { onAddComment, onSetColor, onDelete, onBlockAn
   });
 
   const time = createElement("div", {
-    className: "reflect-log-time",
-    textContent: formatTime(logEntry.openedAt)
+    className: "reflect-log-time" + (showDate ? " reflect-log-time--with-date" : ""),
+    textContent: formatTime(logEntry.openedAt, { includeDate: showDate })
   });
   li.appendChild(time);
 
@@ -170,7 +184,7 @@ function renderLogItem(logEntry, { onAddComment, onSetColor, onDelete, onBlockAn
   return li;
 }
 
-export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onDelete, onBlockAndDelete, emptyHint }) {
+export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onDelete, onBlockAndDelete, emptyHint, showDate }) {
   // A comment mid-typed into one entry's (normally hover/focus-revealed —
   // see .reflect-log-actions in style.css) comment box would otherwise
   // vanish on every redraw this whole timeline goes through — the
@@ -212,6 +226,7 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
       onDelete,
       onBlockAndDelete,
       forceOpenLogId: preservedComment?.logId,
+      showDate,
     }));
   }
   container.appendChild(ul);

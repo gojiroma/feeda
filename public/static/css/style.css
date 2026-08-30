@@ -972,6 +972,13 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.85rem;
   padding-top: 2px;
 }
+/* Search results can span multiple days (see renderReflect's showDate in
+   main.js), so the time column carries a date too — wider and unwrapped so
+   it doesn't sit shorter than its own text. */
+.reflect-log-time--with-date {
+  width: auto;
+  white-space: nowrap;
+}
 .reflect-log-body {
   flex: 1;
   min-width: 0;

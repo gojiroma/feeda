@@ -498,6 +498,7 @@ async function renderReflect() {
       onDelete: handleDeleteLog,
       onBlockAndDelete: handleBlockAndDeleteLog,
       emptyHint: "検索結果がありません。",
+      showDate: true,
     });
     return;
   }
