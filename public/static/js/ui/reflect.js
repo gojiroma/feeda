@@ -48,10 +48,22 @@ function renderComment(comment) {
   return li;
 }
 
-// Color palette + comment thread/add-form + reap (delete) actions for one
-// log entry, revealed on hover/focus instead of the old right-click popup —
-// color and comment were already the most-used per-entry actions, and now
-// share the same one-hover reveal (see .reflect-log-actions in style.css).
+// Already-added comments for one log entry — always visible (not part of
+// the hover-revealed actions section below), since a comment left on a
+// past entry is content worth skimming, not a rarely-used action.
+function buildCommentList(logEntry) {
+  const comments = logEntry.comments || [];
+  if (comments.length === 0) return null;
+  const commentList = createElement("ul", { className: "reflect-comment-list" });
+  for (const comment of comments) commentList.appendChild(renderComment(comment));
+  return commentList;
+}
+
+// Color palette + comment add-form + reap (delete) actions for one log
+// entry, revealed on hover/focus instead of the old right-click popup —
+// color-tagging and deleting are rarely-used per-entry actions, so they
+// stay tucked away (see .reflect-log-actions in style.css); the comment
+// thread itself is rendered separately, always visible (see buildCommentList).
 function buildLogActions(logEntry, { onSetColor, onAddComment, onDelete, onBlockAndDelete }) {
   const section = createElement("div", { className: "reflect-log-actions" });
 
@@ -75,13 +87,6 @@ function buildLogActions(logEntry, { onSetColor, onAddComment, onDelete, onBlock
     ));
   }
   section.appendChild(paletteRow);
-
-  const comments = logEntry.comments || [];
-  if (comments.length > 0) {
-    const commentList = createElement("ul", { className: "reflect-comment-list" });
-    for (const comment of comments) commentList.appendChild(renderComment(comment));
-    section.appendChild(commentList);
-  }
 
   const form = createElement("form", { className: "reflect-comment-form" });
   const input = createElement("input", {
@@ -148,6 +153,9 @@ function renderLogItem(logEntry, { onAddComment, onSetColor, onDelete, onBlockAn
     });
     body.appendChild(meta);
   }
+
+  const commentList = buildCommentList(logEntry);
+  if (commentList) body.appendChild(commentList);
 
   body.appendChild(
     buildLogActions(logEntry, {
