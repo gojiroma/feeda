@@ -1019,17 +1019,20 @@ input[type="text"], input[type="url"], input[type="search"] {
   font-size: 0.85rem;
   padding: 4px 8px;
 }
-/* Color palette + comment thread/add-form + reap (delete) buttons for one
-   log entry (see buildLogActions in ui/reflect.js) — hidden by default, an
-   input/palette/thread on every timeline row was too much visual noise for
-   a screen meant to be skimmed. Mouse hover reveals it; :focus-within keeps
+/* Color palette + comment add-form + reap (delete) buttons for one log
+   entry (see buildLogActions in ui/reflect.js) — hidden by default, a
+   palette/input on every timeline row was too much visual noise for a
+   screen meant to be skimmed. Mouse hover reveals it; :focus-within keeps
    it visible while actually typing, even if the pointer has moved off the
    row. .reflect-log-item--open is a third way in, set by JS (see
    hoveredLogId in reflect.js): the row this section lives in gets torn down
    and rebuilt on every color/comment/delete change, and the browser doesn't
    retroactively apply :hover to the replacement sitting under an unmoved
    pointer — without it, picking a color would flash the box shut and
-   silently fail to refocus its comment input. */
+   silently fail to refocus its comment input. The already-added comment
+   thread (.reflect-comment-list) is NOT part of this section — it's
+   rendered separately in reflect.js so past comments stay visible without
+   hovering. */
 .reflect-log-actions {
   display: none;
   flex-direction: column;
