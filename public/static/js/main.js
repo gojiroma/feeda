@@ -46,6 +46,7 @@ import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js
 import { setupShareLinkUI } from "./ui/shareLinkModal.js";
 import { updateFavicon } from "./favicon.js";
 import { extractArticlePreview } from "./sanitize.js";
+import { startViewTimeTracking } from "./viewTime.js";
 
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
@@ -56,6 +57,7 @@ const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
 const clockWatermarkEl = document.getElementById("clock-watermark");
+const viewLimitOverlayEl = document.getElementById("view-limit-overlay");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const moreMenuBtn = document.getElementById("more-menu-btn");
 const moreMenuEl = document.getElementById("more-menu");
@@ -1783,6 +1785,10 @@ async function startApp() {
   appRoot.classList.remove("hidden");
   wireApp();
   startClockWatermark();
+  startViewTimeTracking({
+    onLocked: () => viewLimitOverlayEl.classList.remove("hidden"),
+    onUnlocked: () => viewLimitOverlayEl.classList.add("hidden"),
+  });
   await loadAppData();
   render();
   refreshAll();

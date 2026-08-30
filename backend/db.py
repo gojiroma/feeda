@@ -104,6 +104,22 @@ CREATE TABLE IF NOT EXISTS share_link_rows (
   consumed_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_share_link_rows_expires ON share_link_rows (expires_at);
+
+-- Daily per-account view-time budget (see routes/view_time.py /
+-- public/static/js/viewTime.js) — one row per account per calendar day
+-- (as the client's own local date, view_date), accumulating seconds spent
+-- with the app in the foreground. Kept server-side, in the clear (there's
+-- nothing here to encrypt: no article/feed content, just a per-day integer),
+-- so the daily limit survives clearing local storage or switching devices,
+-- unlike everything else in this file which is an opaque ciphertext blob.
+CREATE TABLE IF NOT EXISTS view_time_rows (
+  account_id     TEXT NOT NULL,
+  view_date      DATE NOT NULL,
+  seconds_viewed INTEGER NOT NULL DEFAULT 0,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, view_date)
+);
+CREATE INDEX IF NOT EXISTS idx_view_time_rows_account_date ON view_time_rows (account_id, view_date);
 """
 
 

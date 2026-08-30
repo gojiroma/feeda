@@ -45,6 +45,7 @@ def create_app():
     from routes.proxy import proxy_bp
     from routes.pair import pair_bp
     from routes.share_link import share_link_bp
+    from routes.view_time import view_time_bp
 
     app.register_blueprint(sync_bp)
     app.register_blueprint(log_sync_bp)
@@ -54,6 +55,7 @@ def create_app():
     app.register_blueprint(proxy_bp)
     app.register_blueprint(pair_bp)
     app.register_blueprint(share_link_bp)
+    app.register_blueprint(view_time_bp)
 
     @app.get("/api/healthz")
     def healthz():
