@@ -172,9 +172,12 @@ function groupEntriesByFeed(entries, feedOrder) {
 }
 
 // Feed name headlining one feed's block in the grouped-by-feed rendering
-// (see renderArticleList) — right-click/long-press opens the one combined
-// context menu for every per-feed action (see openFeedContextMenu below)
-// instead of a scatter of always-visible buttons.
+// (see renderArticleList) — a plain click opens the one combined context
+// menu for every per-feed action (see openFeedContextMenu below) instead of
+// a scatter of always-visible buttons. Used to be right-click/long-press
+// only, but the header isn't a link or anything else a click could collide
+// with, so requiring the right-click gesture just made the menu harder to
+// find for no benefit.
 function buildFeedHeader(feedId, { feedTitleById, feedsById, feedActions }) {
   const header = createElement("div", { className: "article-feed-header" });
 
@@ -197,9 +200,7 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, feedActions }) {
   }
 
   if (feedActions) {
-    attachContextTrigger(header, {
-      onOpenRequest: (x, y) => openFeedContextMenu(feed || { feedId }, x, y, feedActions, header),
-    });
+    header.addEventListener("click", (ev) => openFeedContextMenu(feed || { feedId }, ev.clientX, ev.clientY, feedActions, header));
   }
 
   return header;

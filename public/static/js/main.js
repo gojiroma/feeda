@@ -692,7 +692,7 @@ function renderFeedColorFilterBar() {
 
 // The only reading screen — a single scrolling column of article cards,
 // same at every viewport width. Grouped by feed (each with its own header
-// and right-click/long-press context menu — see ui/articleList.js) while
+// that opens a per-feed context menu on click — see ui/articleList.js) while
 // browsing the plain unread timeline; a flat list showing each entry's feed
 // name inline while searching, since search results are ranked by
 // relevance, not by feed.
