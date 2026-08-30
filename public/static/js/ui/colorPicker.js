@@ -1,8 +1,8 @@
 // Shared floating-popup mechanics for right-click/long-press UI (reflect's
-// color picker, and the article list's combined annotate popup — see
-// reflect.js and articleList.js). One popup open at a time, tracked here at
-// module scope so opening a second one — or a completely different kind of
-// popup from another screen — always closes whatever's currently showing.
+// own color picker — see reflect.js). One popup open at a time, tracked here
+// at module scope so opening a second one — or a completely different kind
+// of popup from another screen — always closes whatever's currently
+// showing.
 import { COLOR_PALETTE } from "../colorPalette.js";
 
 const LONG_PRESS_MS = 550;
@@ -29,9 +29,9 @@ export function closeFloatingPopupIfMissing(validIds) {
 }
 
 // className picks the popup's look (e.g. "reflect-color-picker" for a plain
-// swatch grid, "article-annotate-popup" for the combined color+comment one);
-// build(popup) fills in its content — called once, with the popup already
-// positioned near (x, y) and about to be measured/clamped to the viewport.
+// swatch grid); build(popup) fills in its content — called once, with the
+// popup already positioned near (x, y) and about to be measured/clamped to
+// the viewport.
 export function openFloatingPopup({ id, x, y, className, build }) {
   closeFloatingPopup();
 

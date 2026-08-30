@@ -32,9 +32,8 @@ import { FREQUENCY_ORDER, isCheckDayForFeed } from "./frequency.js";
 import { searchEntries } from "./search.js";
 import { renderColorFilter } from "./ui/commonComponents.js";
 import { colorForWord } from "./colorPalette.js";
-import { renderArticleList, renderAnnotatePopup } from "./ui/articleList.js";
+import { renderArticleList } from "./ui/articleList.js";
 import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
-import { openFloatingPopup } from "./ui/colorPicker.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
@@ -77,7 +76,7 @@ const state = {
   entriesByFeed: new Map(),
   // entry.id -> its latest log entry (see getLatestLogEntriesByEntryId in
   // logbook.js) — lets the article list show a color tag/comment recorded
-  // from reflect (or straight from the list — see openAnnotateForEntry)
+  // from reflect (or straight from the list — see annotateEntrySetColor)
   // without a per-row IndexedDB lookup for every visible article.
   logByEntryId: new Map(),
   // feedId -> cumulative engagement score (see getFeedEngagementScores in
@@ -715,7 +714,8 @@ function renderApp() {
     query: highlightQuery(),
     isUnread: (entry) => isUnread(entry, state.feedsById.get(entry.feedId)),
     onOpen: openEntry,
-    onAnnotate: openAnnotateForEntry,
+    onSetColor: annotateEntrySetColor,
+    onAddComment: annotateEntryAddComment,
     onRowMounted: (li) => articleReadObserver.observe(li),
     logByEntryId: state.logByEntryId,
     showFeedName,
@@ -1193,12 +1193,13 @@ async function openEntry(entry) {
   await advanceProgress(entry);
 }
 
-// Backs the article list's right-click/long-press annotate popup (see
-// openAnnotateForEntry) — needs a log entry to attach a color or comment
-// to, reusing one reflect (or an earlier annotation) already created
-// rather than logging a second "open" just for this. Commenting or
-// color-tagging something is itself an act of having read it, so this
-// marks the entry read the same way actually opening it would.
+// Backs the article list's hover-revealed color palette/comment form (see
+// annotateEntrySetColor/annotateEntryAddComment below) — needs a log entry
+// to attach a color or comment to, reusing one reflect (or an earlier
+// annotation) already created rather than logging a second "open" just for
+// this. Commenting or color-tagging something is itself an act of having
+// read it, so this marks the entry read the same way actually opening it
+// would.
 async function ensureLogEntryForEntry(entry) {
   let logEntry = state.logByEntryId.get(entry.id) || null;
   if (!logEntry) {
@@ -1210,15 +1211,6 @@ async function ensureLogEntryForEntry(entry) {
   }
   await advanceProgress(entry);
   return logEntry;
-}
-
-// Right-click/long-press on an article-list row (see articleList.js's
-// onAnnotate) opens a floating color+comment popup for that entry.
-async function openAnnotateForEntry(entry, x, y) {
-  const logEntry = await ensureLogEntryForEntry(entry);
-  if (!logEntry) return;
-  scheduleLogSync();
-  showAnnotatePopup(entry, logEntry, x, y);
 }
 
 async function setEntryLogColor(entry, logId, color) {
@@ -1243,48 +1235,21 @@ async function addEntryLogComment(entry, logId, text) {
   return updated;
 }
 
-function showAnnotatePopup(entry, initialLogEntry, x, y) {
-  let logEntry = initialLogEntry;
-  openFloatingPopup({
-    id: entry.id,
-    x,
-    y,
-    className: "article-annotate-popup",
-    build: (popup) => {
-      // Only the popup's very first draw autofocuses the comment input —
-      // a redraw triggered by picking a color is not the user asking to
-      // type, and focusing the input anyway pops the on-screen keyboard on
-      // mobile for no reason. A redraw after actually submitting a comment
-      // keeps the focus/keyboard that was already there.
-      const draw = (autoFocus) => {
-        renderAnnotatePopup(popup, {
-          logEntry,
-          autoFocus,
-          onSetColor: (color) => {
-            setEntryLogColor(entry, logEntry.id, color)
-              .then((updated) => {
-                if (updated) {
-                  logEntry = updated;
-                  draw(false);
-                }
-              })
-              .catch((err) => console.error("set color failed", err));
-          },
-          onAddComment: (text) => {
-            addEntryLogComment(entry, logEntry.id, text)
-              .then((updated) => {
-                if (updated) {
-                  logEntry = updated;
-                  draw(true);
-                }
-              })
-              .catch((err) => console.error("add comment failed", err));
-          },
-        });
-      };
-      draw(true);
-    },
-  });
+// Wired to the article list's hover-revealed color palette (see
+// ui/articleList.js's buildAnnotateSection) — ensures a log entry exists
+// before tagging it, same as the comment form below.
+async function annotateEntrySetColor(entry, color) {
+  const logEntry = await ensureLogEntryForEntry(entry);
+  if (!logEntry) return;
+  scheduleLogSync();
+  await setEntryLogColor(entry, logEntry.id, color);
+}
+
+async function annotateEntryAddComment(entry, text) {
+  const logEntry = await ensureLogEntryForEntry(entry);
+  if (!logEntry) return;
+  scheduleLogSync();
+  await addEntryLogComment(entry, logEntry.id, text);
 }
 
 // Upper bound on how many feeds a single refreshAll() round will actually
