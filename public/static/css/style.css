@@ -691,6 +691,19 @@ input[type="text"], input[type="url"], input[type="search"] {
 .mobile-article-item {
   border-bottom: 1px solid var(--border);
 }
+/* Offered only when the list is short enough to fit on screen without
+   scrolling — see ui/articleList.js's appendMarkAllReadButtonIfFits. A
+   longer list already gets everything marked read for free just by
+   scrolling to the bottom (see main.js's handleArticleListScrollBottom), so
+   this exists purely to cover the case where there's no scrolling to do. */
+.mark-all-read-btn {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 0;
+  font-size: 0.95rem;
+}
 .mobile-article-row {
   display: flex;
   align-items: flex-start;

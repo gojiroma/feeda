@@ -761,6 +761,7 @@ function renderApp() {
     onTogglePinFeed: togglePinFeed,
     onSetFeedColor: setFeedColor,
     onCopyFeedUrl: copyFeedUrl,
+    onMarkAllRead: handleMarkAllReadClick,
   });
 }
 
@@ -1154,6 +1155,19 @@ async function markAllVisibleEntriesRead(entries, containerEl) {
     li.classList.remove("unread");
   }
   scheduleScrollSync();
+}
+
+// The "全て既読" button renderArticleList adds at the bottom of the list
+// when it's short enough to fit on screen without scrolling (see
+// ui/articleList.js's appendMarkAllReadButtonIfFits) — those rows never
+// scroll past the top, so the per-row (handleArticleScrollIntersections) and
+// reached-the-bottom (handleArticleListScrollBottom) auto-read paths never
+// fire for them on their own. Same batch mark as reaching the bottom does;
+// only the button itself needs manually dropping afterward since nothing
+// else here re-renders the list.
+async function handleMarkAllReadClick() {
+  await markAllVisibleEntriesRead(articleScrollEntries.values(), articleListEl);
+  articleListEl.querySelector(".mark-all-read-btn")?.remove();
 }
 
 // "u" (see wireKeyboardNav) — clears an active search back to the plain

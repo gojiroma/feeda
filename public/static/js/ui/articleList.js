@@ -333,6 +333,20 @@ function buildFeedHeader(feedId, { feedTitleById, feedsById, feedActions }) {
   return header;
 }
 
+// Only worth offering when the whole list already fits on screen without
+// scrolling — once there's more to scroll through, reaching the bottom (see
+// main.js's handleArticleListScrollBottom) already marks everything read for
+// free, so a duplicate button would just be clutter competing with the
+// actual articles for space.
+function appendMarkAllReadButtonIfFits(container, { onMarkAllRead, hasUnreadEntries }) {
+  if (!onMarkAllRead || !hasUnreadEntries) return;
+  if (container.scrollHeight > container.clientHeight + 1) return;
+  container.appendChild(createButton(
+    { type: "button", className: "mark-all-read-btn primary", textContent: "全て既読" },
+    onMarkAllRead
+  ));
+}
+
 export function renderArticleList(
   container,
   {
@@ -355,6 +369,7 @@ export function renderArticleList(
     onTogglePinFeed,
     onSetFeedColor,
     onCopyFeedUrl,
+    onMarkAllRead,
   }
 ) {
   const prevWrap = container.querySelector(".article-list-grouped");
@@ -411,6 +426,7 @@ export function renderArticleList(
         onCopyUrl: onCopyFeedUrl,
       }
     : null;
+  const hasUnreadEntries = entries.some((entry) => isUnread(entry));
 
   if (groupByFeed) {
     // Each feed gets its own header (name + hover-revealed actions row) and
@@ -438,6 +454,7 @@ export function renderArticleList(
       if (!prevScrollTopByFeed.has(block.dataset.feedId)) continue;
       block.querySelector(".mobile-article-list-inner").scrollTop = prevScrollTopByFeed.get(block.dataset.feedId);
     }
+    appendMarkAllReadButtonIfFits(container, { onMarkAllRead, hasUnreadEntries });
     restorePreservedComment(container, preservedComment);
     return;
   }
@@ -447,6 +464,7 @@ export function renderArticleList(
     ul.appendChild(buildArticleItem(entry, { ...itemProps, showFeedName }));
   }
   container.appendChild(ul);
+  appendMarkAllReadButtonIfFits(container, { onMarkAllRead, hasUnreadEntries });
   restorePreservedComment(container, preservedComment);
 }
 
