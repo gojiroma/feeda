@@ -61,7 +61,7 @@ const moreMenuEl = document.getElementById("more-menu");
 // own. Assigned before wireKeyboardNav's listener can ever actually fire
 // (both happen synchronously inside wireApp), so the placeholder default
 // never really runs.
-let openShortcutsModal = () => {};
+let openShortcutsModal = () => { };
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
@@ -1295,7 +1295,7 @@ function showAnnotatePopup(entry, initialLogEntry, x, y) {
 // fetch for every single one on that one visit. The excess simply stays
 // due and rolls into the next visit/scheduled run instead, spreading a
 // large backlog across several sessions rather than bursting it into one.
-const MAX_FETCHES_PER_SESSION = 15;
+const MAX_FETCHES_PER_SESSION = 100;
 
 // Chance, per refreshAll round, of reviving one auto-paused feed for a
 // single extra fetch (see the dueFeeds "先祖返り" step below) — occasional
@@ -1898,7 +1898,7 @@ if ("serviceWorker" in navigator) {
       // so an already-installed (pre-network-first) worker gets replaced
       // as promptly as possible rather than waiting on that check's normal
       // timing.
-      .then((reg) => reg.update().catch(() => {}))
+      .then((reg) => reg.update().catch(() => { }))
       .catch((err) => console.error("service worker registration failed", err));
   });
 }
