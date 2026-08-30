@@ -29,6 +29,10 @@ function logEntryToPayload(logEntry) {
     comments: logEntry.comments || [],
     color: logEntry.color || null,
     tags: logEntry.tags || [],
+    // "刈り取り" (reap) tombstone — see logbook.js's removeLogEntry. Same
+    // upsert-only protocol as feeds/ngWords, so deletion travels as a field
+    // inside the row rather than an actual server-side row delete.
+    deletedAt: logEntry.deletedAt || null,
   };
 }
 
@@ -98,6 +102,7 @@ export async function pullLogUpdates() {
       comments: payload.comments || [],
       color: payload.color || null,
       tags: payload.tags || [],
+      deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,
     });

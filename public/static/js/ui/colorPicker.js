@@ -1,11 +1,9 @@
-// Shared floating-popup mechanics for right-click/long-press UI (reflect's
-// own color picker — see reflect.js). One popup open at a time, tracked here
-// at module scope so opening a second one — or a completely different kind
-// of popup from another screen — always closes whatever's currently
-// showing.
+// Shared floating-popup mechanics, currently used for reflect's "delete and
+// block this URL pattern" prompt (see reflect.js/main.js). One popup open at
+// a time, tracked here at module scope so opening a second one — or a
+// completely different kind of popup from another screen — always closes
+// whatever's currently showing.
 import { COLOR_PALETTE } from "../colorPalette.js";
-
-const LONG_PRESS_MS = 550;
 
 let activePopup = null;
 let activePopupId = null;
@@ -28,10 +26,10 @@ export function closeFloatingPopupIfMissing(validIds) {
   if (activePopupId !== null && !validIds.has(activePopupId)) closeFloatingPopup();
 }
 
-// className picks the popup's look (e.g. "reflect-color-picker" for a plain
-// swatch grid); build(popup) fills in its content — called once, with the
-// popup already positioned near (x, y) and about to be measured/clamped to
-// the viewport.
+// className picks the popup's look (e.g. "url-block-popup" for the reap
+// screen's block-pattern prompt); build(popup) fills in its content — called
+// once, with the popup already positioned near (x, y) and about to be
+// measured/clamped to the viewport.
 export function openFloatingPopup({ id, x, y, className, build }) {
   closeFloatingPopup();
 
@@ -74,9 +72,9 @@ export function openFloatingPopup({ id, x, y, className, build }) {
 }
 
 // Fills `container` with one swatch button per COLOR_PALETTE entry plus a
-// clear ("×") button — shared by reflect's own color-only picker and the
-// article list's combined popup. onSetColor(key | null) fires on click;
-// callers decide whether that closes the popup or just redraws it in place.
+// clear ("×") button — shared by reflect's own hover-revealed palette row and
+// the article list's. onSetColor(key | null) fires on click; callers decide
+// whether that closes the popup or just redraws it in place.
 export function renderColorSwatches(container, { currentColor, onSetColor }) {
   for (const { key, rgb } of COLOR_PALETTE) {
     const swatch = document.createElement("button");
@@ -95,32 +93,4 @@ export function renderColorSwatches(container, { currentColor, onSetColor }) {
   clearBtn.textContent = "×";
   clearBtn.addEventListener("click", () => onSetColor(null));
   container.appendChild(clearBtn);
-}
-
-// Wires an element's right-click (desktop) and long-press (touch) to
-// onOpenRequest(clientX, clientY) — same long-press-as-touch-equivalent-of-
-// right-click pattern used throughout (see openFeedContextMenu in
-// articleList.js). isExcluded lets a
-// caller skip elements where right-click/long-press should behave normally
-// (e.g. an already-open comment form's input, so pasting into it isn't
-// hijacked into reopening the popup).
-export function attachContextTrigger(el, { onOpenRequest, isExcluded }) {
-  if (!onOpenRequest) return;
-  let longPressTimer = null;
-  const cancelLongPress = () => clearTimeout(longPressTimer);
-
-  el.addEventListener("contextmenu", (ev) => {
-    if (isExcluded && isExcluded(ev)) return;
-    ev.preventDefault();
-    onOpenRequest(ev.clientX, ev.clientY);
-  });
-
-  el.addEventListener("pointerdown", (ev) => {
-    if (ev.pointerType !== "touch" || (isExcluded && isExcluded(ev))) return;
-    const { clientX, clientY } = ev;
-    longPressTimer = setTimeout(() => onOpenRequest(clientX, clientY), LONG_PRESS_MS);
-  });
-  el.addEventListener("pointerup", cancelLongPress);
-  el.addEventListener("pointercancel", cancelLongPress);
-  el.addEventListener("pointermove", cancelLongPress);
 }

@@ -14,10 +14,13 @@ import { syncLogNow } from "./logSync.js";
 import { syncSearchHistoryNow } from "./searchSync.js";
 import { syncNgWordsNow } from "./ngWordSync.js";
 import { getActiveNgWords, matchesAnyNgWord } from "./ngWords.js";
+import { syncUrlBlockNow } from "./urlBlockSync.js";
+import { addUrlBlockPattern, getActiveUrlBlockPatterns, matchesAnyUrlBlockPattern, defaultUrlBlockPattern } from "./urlBlocks.js";
 import {
   recordOpen,
   addComment,
   setLogEntryColor,
+  removeLogEntry,
   getEntriesForDay,
   getDailyCounts,
   getFeedAddedCounts,
@@ -33,10 +36,11 @@ import { searchEntries } from "./search.js";
 import { renderColorFilter } from "./ui/commonComponents.js";
 import { colorForWord } from "./colorPalette.js";
 import { renderArticleList } from "./ui/articleList.js";
-import { renderReflectTimeline, renderDayChart, renderLogColorFilter } from "./ui/reflect.js";
+import { renderReflectTimeline, renderDayChart, openBlockUrlPopup } from "./ui/reflect.js";
 import { setupSearchBar } from "./ui/searchBar.js";
 import { setupSeedModal } from "./ui/seedModal.js";
 import { setupNgWordModal } from "./ui/ngWordModal.js";
+import { setupUrlBlockModal } from "./ui/urlBlockModal.js";
 import { setupShortcutsModal } from "./ui/shortcutsModal.js";
 import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js";
 import { setupShareLinkUI } from "./ui/shareLinkModal.js";
@@ -62,10 +66,10 @@ const moreMenuEl = document.getElementById("more-menu");
 // never really runs.
 let openShortcutsModal = () => { };
 const reflectTimelineEl = document.getElementById("reflect-timeline");
+const reflectDayNavEl = document.getElementById("reflect-day-nav");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
 const reflectDayChartEl = document.getElementById("reflect-day-chart");
 const reflectFeedChartEl = document.getElementById("reflect-feed-chart");
-const reflectColorFilterEl = document.getElementById("reflect-color-filter");
 
 // Width of the trend strip in the day-nav header — see renderDayChart.
 const REFLECT_DAY_CHART_DAYS = 21;
@@ -102,16 +106,17 @@ const state = {
   // filterByNgWords). Lowercased once here rather than per-entry at filter
   // time, since matching itself is case-insensitive.
   ngWords: [],
+  // "刈り取り" (reap) URL block patterns (see urlBlocks.js/setupUrlBlockModal)
+  // — an entry whose link matches one is filtered out of the article list
+  // the same way an NG-worded title is (see filterByUrlBlocks), on top of
+  // never being stored at all going forward (see feedFetch.js).
+  urlBlockPatterns: [],
   // Every saved search-history query (see db.js's searchHistory store),
   // kept around so highlightQuery can mark them all as "things I've looked
   // for before" all the time, not just the one currently/last searched.
   // Refreshed by loadAppData and (for the query just typed, without waiting
   // on the next periodic refresh) searchBar.js's onHistoryChange.
   searchHistoryWords: [],
-  // Same idea as feedColorFilter, for the reflect screen's own color tags
-  // (see renderLogColorFilter in ui/reflect.js and toggleLogColorFilter
-  // below) — a log entry matches if it has any color in this set.
-  logColorFilter: new Set(),
   // "view" is the normal reading UI; "reflect" swaps in the activity-log
   // timeline (see renderReflect) — the two are different enough (date-
   // scoped instead of unread-scoped) that they get their own top-level
@@ -160,13 +165,18 @@ function isUnread(entry, feed) {
   return pub > readUntil;
 }
 
-// NG-word filtered the same way the article list itself is (see
-// filterByNgWords) — otherwise a feed whose only unread entries are all
-// NG-matched still shows an unread dot/badge and gets fetch priority even
-// though opening it renders an empty "未読の記事はありません" list.
+// NG-word/URL-block filtered the same way the article list itself is (see
+// filterByNgWords/filterByUrlBlocks) — otherwise a feed whose only unread
+// entries are all filtered still shows an unread dot/badge and gets fetch
+// priority even though opening it renders an empty "未読の記事はありません"
+// list.
 function hasUnread(feed) {
   const entries = state.entriesByFeed.get(feed.feedId) || [];
-  return entries.some((e) => isUnread(e, feed) && !matchesAnyNgWord(e.title, state.ngWords));
+  return entries.some((e) =>
+    isUnread(e, feed) &&
+    !matchesAnyNgWord(e.title, state.ngWords) &&
+    !matchesAnyUrlBlockPattern(e.link, state.urlBlockPatterns)
+  );
 }
 
 function countUnreadSources() {
@@ -195,6 +205,7 @@ async function loadAppData() {
   state.logByEntryId = await getLatestLogEntriesByEntryId();
   state.feedScoreById = await getFeedEngagementScores();
   state.ngWords = (await getActiveNgWords()).map((w) => w.word.toLowerCase());
+  state.urlBlockPatterns = (await getActiveUrlBlockPatterns()).map((p) => p.pattern);
   state.searchHistoryWords = (await getAllSearchHistoryEntries()).map((e) => e.query);
   state.unreadTimelineSnapshot = null;
 }
@@ -316,13 +327,23 @@ function filterByNgWords(entries) {
   return entries.filter((e) => !matchesAnyNgWord(e.title, state.ngWords));
 }
 
+// Sibling of filterByNgWords for the "刈り取り" (reap) URL blocklist (see
+// urlBlocks.js/setupUrlBlockModal) — feedFetch.js already keeps a freshly
+// fetched match from ever being stored, but this also hides any match that
+// was already sitting in IndexedDB from before the pattern existed, without
+// actually deleting it (removing the pattern later brings it right back).
+function filterByUrlBlocks(entries) {
+  if (state.urlBlockPatterns.length === 0) return entries;
+  return entries.filter((e) => !matchesAnyUrlBlockPattern(e.link, state.urlBlockPatterns));
+}
+
 function currentArticles() {
   const query = state.searchQuery;
   if (query) {
     const allEntries = [...state.entriesByFeed.values()].flat();
     const matched = searchEntries(query, allEntries, state.feedTitleById);
     matched.sort((a, b) => (b.pubDate || "").localeCompare(a.pubDate || ""));
-    return { entries: filterByNgWords(matched.slice(0, 200)), showFeedName: true, emptyHint: "検索結果がありません。" };
+    return { entries: filterByUrlBlocks(filterByNgWords(matched.slice(0, 200))), showFeedName: true, emptyHint: "検索結果がありません。" };
   }
   // The article list's only other view: unread entries across all feeds,
   // newest first (date-less unread entries have no position to sort by, so
@@ -366,7 +387,7 @@ function currentArticles() {
     });
   }
   return {
-    entries: filterByNgWords(state.unreadTimelineSnapshot),
+    entries: filterByUrlBlocks(filterByNgWords(state.unreadTimelineSnapshot)),
     feedOrder: state.unreadFeedOrder,
     showFeedName: true,
     emptyHint: "未読の記事はありません。",
@@ -462,20 +483,20 @@ async function renderReflect() {
   // no-ops in reflect mode.
   renderFeedColorFilterBar();
   const query = state.searchQuery.trim();
+  // The day-nav (prev/next/today + trend charts) has nothing sensible to
+  // show while a search query is narrowing the timeline instead of a single
+  // day — no one day is "selected", so hide the whole thing rather than
+  // leave it showing controls that don't apply right now.
+  reflectDayNavEl.classList.toggle("hidden", Boolean(query));
   if (query) {
     reflectDateLabelEl.textContent = `「${query}」の検索結果`;
-    reflectDayChartEl.innerHTML = ""; // no single day selected during search — nothing sensible to highlight
-    reflectFeedChartEl.innerHTML = "";
     const rawEntries = await searchLogEntries(query);
-    renderLogColorFilter(reflectColorFilterEl, {
-      entries: rawEntries,
-      activeColors: state.logColorFilter,
-      onToggleColor: toggleLogColorFilter,
-    });
     renderReflectTimeline(reflectTimelineEl, {
-      entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
+      entries: filterLogEntriesByFeedColor(rawEntries),
       onAddComment: handleAddComment,
       onSetColor: handleSetLogColor,
+      onDelete: handleDeleteLog,
+      onBlockAndDelete: handleBlockAndDeleteLog,
       emptyHint: "検索結果がありません。",
     });
     return;
@@ -498,31 +519,21 @@ async function renderReflect() {
     onSelectDate: jumpReflectToDate,
     onHoverDate: previewReflectDate,
   });
-  renderLogColorFilter(reflectColorFilterEl, {
-    entries: rawEntries,
-    activeColors: state.logColorFilter,
-    onToggleColor: toggleLogColorFilter,
-  });
   renderReflectTimeline(reflectTimelineEl, {
-    entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
+    entries: filterLogEntriesByFeedColor(rawEntries),
     onAddComment: handleAddComment,
     onSetColor: handleSetLogColor,
+    onDelete: handleDeleteLog,
+    onBlockAndDelete: handleBlockAndDeleteLog,
   });
-}
-
-// A log entry matches if it has any color in state.logColorFilter — same
-// "any" semantics as the top filter bar's own color filter (see
-// filterLogEntriesByFeedColor below). Empty filter means no filtering at all.
-function filterLogEntriesByColor(entries) {
-  if (state.logColorFilter.size === 0) return entries;
-  return entries.filter((e) => e.color && state.logColorFilter.has(e.color));
 }
 
 // The feedColorFilter the main screen's #feed-color-filter bar drives (see
 // toggleFeedColorFilter), now shown in reflect mode too (see renderReflect).
-// Narrows to entries whose *feed* carries one of the
-// active colors, distinct from filterLogEntriesByColor's own logColorFilter
-// (a color tagged on the log entry itself, not its feed).
+// Narrows to entries whose *feed* carries one of the active colors — a log
+// entry's own color tag (see .reflect-log-item--colored) is a purely visual
+// per-entry marker now, with no separate filter of its own (the top bar
+// already covers "narrow by color" for this screen).
 function filterLogEntriesByFeedColor(entries) {
   if (state.feedColorFilter.size === 0) return entries;
   return entries.filter((e) => {
@@ -639,34 +650,55 @@ function previewReflectDate(dateStr) {
   }
   getEntriesForDay(dateStr)
     .then((rawEntries) => {
-      renderLogColorFilter(reflectColorFilterEl, {
-        entries: rawEntries,
-        activeColors: state.logColorFilter,
-        onToggleColor: toggleLogColorFilter,
-      });
       renderReflectTimeline(reflectTimelineEl, {
-        entries: filterLogEntriesByColor(filterLogEntriesByFeedColor(rawEntries)),
+        entries: filterLogEntriesByFeedColor(rawEntries),
         onAddComment: handleAddComment,
         onSetColor: handleSetLogColor,
+        onDelete: handleDeleteLog,
+        onBlockAndDelete: handleBlockAndDeleteLog,
       });
     })
     .catch((err) => console.error("reflect preview failed", err));
 }
 
-// The reflect screen's color-filter row (see renderLogColorFilter in
-// ui/reflect.js) — same toggle-membership shape as toggleFeedColorFilter,
-// scoped to logColorFilter instead. A full renderReflect (not the cheap
-// previewReflectDate path) is warranted here since this changes what's
-// filtered, not just which day is in view.
-function toggleLogColorFilter(colorKey) {
-  if (colorKey === null) {
-    state.logColorFilter.clear();
-  } else if (state.logColorFilter.has(colorKey)) {
-    state.logColorFilter.delete(colorKey);
+// "刈り取り" (reap) — the plain delete path (see reflect.js's 🗑️ button).
+// Tombstones the entry (see logbook.js's removeLogEntry) and redraws;
+// renderReflect() below syncs (push+pull) immediately before it redraws,
+// which already covers pushing this tombstone, same as handleAddComment.
+async function handleDeleteLog(logId) {
+  await removeLogEntry(logId);
+  await renderReflect();
+}
+
+// "刈り取り" (reap) — the delete-and-block path (see reflect.js's 🚫
+// button). Opens the pattern-editing popup right next to the button that
+// was clicked; only on confirm does it actually add the pattern, delete the
+// entry, and push the new pattern out so it applies on every device (and to
+// every future fetch — see feedFetch.js) as soon as possible.
+function handleBlockAndDeleteLog(logEntry, x, y) {
+  openBlockUrlPopup(logEntry, x, y, {
+    defaultPattern: defaultUrlBlockPattern(logEntry.url),
+    onConfirm: async (pattern) => {
+      await addUrlBlockPattern(pattern);
+      await removeLogEntry(logEntry.id);
+      syncUrlBlockNow().catch((err) => console.error("url block sync failed", err));
+      await refreshUrlBlockState();
+    },
+  });
+}
+
+// Shared by setupUrlBlockModal's onChange and handleBlockAndDeleteLog —
+// reloads the active pattern list into state and redraws whichever screen
+// is actually showing (render() itself no-ops in reflect mode, same as
+// everywhere else that flips on state.mode).
+async function refreshUrlBlockState() {
+  state.urlBlockPatterns = (await getActiveUrlBlockPatterns()).map((p) => p.pattern);
+  state.unreadTimelineSnapshot = null; // re-derive the home timeline under the new filter
+  if (state.mode === "reflect") {
+    await renderReflect();
   } else {
-    state.logColorFilter.add(colorKey);
+    render();
   }
-  renderReflect().catch((err) => console.error("reflect render failed", err));
 }
 
 let logSyncDebounceTimer = null;
@@ -691,7 +723,7 @@ function renderFeedColorFilterBar() {
 
 // The only reading screen — a single scrolling column of article cards,
 // same at every viewport width. Grouped by feed (each with its own header
-// that opens a per-feed context menu on click — see ui/articleList.js) while
+// whose per-feed actions row reveals on hover — see ui/articleList.js) while
 // browsing the plain unread timeline; a flat list showing each entry's feed
 // name inline while searching, since search results are ranked by
 // relevance, not by feed.
@@ -727,21 +759,19 @@ function renderApp() {
     onToggleKeepFeed: toggleKeepFeed,
     onTogglePinFeed: togglePinFeed,
     onSetFeedColor: setFeedColor,
-    onMarkFeedRead: markFeedReadKeepVisible,
-    onMarkFeedUnread: releaseFeedRead,
     onCopyFeedUrl: copyFeedUrl,
   });
 }
 
 // Feed pause/pin/color changes only ever come from the article list's own
-// per-feed context menu — so this is just render(), which itself no-ops in
-// reflect mode.
+// per-feed hover actions row — so this is just render(), which itself no-ops
+// in reflect mode.
 function refreshAfterFeedChange() {
   render();
 }
 
-// Shared by togglePauseFeed (the article list's own per-feed context
-// menu's "更新停止" item) — persists a feed's
+// Shared by togglePauseFeed (the article list's own per-feed hover actions
+// row's pause/resume icon) — persists a feed's
 // paused state without rendering or syncing itself, so a group of feeds
 // can be paused one at a time and still only trigger one render/sync at
 // the end. Marks the feed userManagedPause so autoPauseDuplicateFeeds
@@ -762,8 +792,8 @@ async function setFeedPaused(feedId, paused) {
   state.feedsById.set(feedId, updated);
 }
 
-// "更新を停止/再開" in the article list's per-feed context menu (see
-// openFeedContextMenu in ui/articleList.js) — toggles whether the feed
+// "更新を停止/再開" in the article list's per-feed hover actions row (see
+// buildFeedHeaderActions in ui/articleList.js) — toggles whether the feed
 // gets fetched at all. Paused feeds sort into their own "更新停止" group
 // (see frequency.js) and are skipped entirely by refreshAll, even when
 // forced.
@@ -775,10 +805,11 @@ async function togglePauseFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// "上部にピン留め/ピン留めを解除" in the feed context menu (see ui/articleList.js)
-// — pulls the feed out of the normal status/frequency tree into its own
-// "📌 ピン留め" group at the very top of the sidebar (see frequency.js's
-// groupFeedsByFrequency), independent of pause/color/read state.
+// "上部にピン留め/ピン留めを解除" in the feed's hover actions row (see
+// ui/articleList.js) — pulls the feed out of the normal status/frequency
+// tree into its own "📌 ピン留め" group at the very top of the sidebar (see
+// frequency.js's groupFeedsByFrequency), independent of pause/color/read
+// state.
 async function togglePinFeed(feedId) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -789,8 +820,8 @@ async function togglePinFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// The article list's per-feed context menu (see openFeedContextMenu in
-// ui/articleList.js) offers this alongside 更新停止 — stopping is the
+// The article list's per-feed hover actions row (see buildFeedHeaderActions
+// in ui/articleList.js) offers this alongside 更新停止 — stopping is the
 // automatic, rule-driven default for a high-frequency feed nobody's
 // engaging with (see autoPauseInactiveFeeds), so this is the deliberate
 // opt-out: explicitly vouching for a feed so that rule never touches it,
@@ -809,10 +840,11 @@ async function toggleKeepFeed(feedId) {
   syncNow().catch((err) => console.error("sync failed", err));
 }
 
-// Right-click/long-press context menu's color row — tags a feed with one of
-// COLOR_PALETTE's colors (see colorPalette.js) for at-a-glance grouping in
-// the sidebar (.feed-item--colored in style.css), same mechanism as reflect
-// entry color-tagging. colorKey null clears the tag.
+// The hover actions row's color swatches (see ui/articleList.js) — tags a
+// feed with one of COLOR_PALETTE's colors (see colorPalette.js) for
+// at-a-glance grouping in the sidebar (.feed-item--colored in style.css),
+// same mechanism as reflect entry color-tagging. colorKey null clears the
+// tag.
 async function setFeedColor(feedId, colorKey) {
   const feed = state.feedsById.get(feedId);
   if (!feed) return;
@@ -1132,43 +1164,6 @@ function clearSearch() {
   render();
 }
 
-// Persists a feed's readUntil watermark to now (and its content-hash
-// catch-up alongside it, same as setFeedPaused) — shared by
-// markFeedReadKeepVisible below, without rendering or syncing itself.
-async function markFeedAllRead(feedId) {
-  const feed = state.feedsById.get(feedId);
-  if (!feed) return;
-  let updated = { ...feed, readUntil: new Date().toISOString() };
-  if (updated.latestContentHash) updated = { ...updated, contentHash: updated.latestContentHash };
-  await markFeedDirty(updated);
-  state.feedsById.set(feedId, updated);
-}
-
-// "既読" in the article list's per-feed context menu (see
-// openFeedContextMenu in ui/articleList.js) — marks every entry currently
-// shown for this feed as read in place, rather than yanking its rows out
-// of the frozen cross-feed timeline the moment they stop qualifying as
-// unread (see state.unreadTimelineSnapshot in currentArticles).
-async function markFeedReadKeepVisible(feedId) {
-  await markFeedAllRead(feedId);
-  render();
-  syncNow().catch((err) => console.error("sync failed", err));
-}
-
-// "解除" in the same context menu — undoes markFeedAllRead/
-// markFeedReadKeepVisible for the whole feed, clearing the read watermark
-// (and the content-hash catch-up alongside it) so every entry the list is
-// currently showing goes back to reading as unread.
-async function releaseFeedRead(feedId) {
-  const feed = state.feedsById.get(feedId);
-  if (!feed) return;
-  const updated = { ...feed, readUntil: null, contentHash: null };
-  await markFeedDirty(updated);
-  state.feedsById.set(feedId, updated);
-  render();
-  syncNow().catch((err) => console.error("sync failed", err));
-}
-
 // Logs the article as opened — recordOpen's own chatter guard means
 // clicking through moments after this won't double-log it.
 //
@@ -1289,6 +1284,11 @@ async function refreshAll() {
     await syncNgWordsNow();
   } catch (err) {
     console.error("ng word sync failed", err);
+  }
+  try {
+    await syncUrlBlockNow();
+  } catch (err) {
+    console.error("url block sync failed", err);
   }
   await loadAppData();
   render();
@@ -1722,6 +1722,12 @@ function wireApp() {
           render();
         })
         .catch((err) => console.error("ng word reload failed", err));
+    },
+  });
+  setupUrlBlockModal(document.getElementById("url-block-btn"), document.getElementById("url-block-modal"), {
+    onChange: () => {
+      syncUrlBlockNow().catch((err) => console.error("url block sync failed", err));
+      refreshUrlBlockState().catch((err) => console.error("url block reload failed", err));
     },
   });
   openShortcutsModal = setupShortcutsModal(

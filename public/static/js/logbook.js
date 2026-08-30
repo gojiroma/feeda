@@ -39,7 +39,11 @@ export async function recordOpen(entry, feed) {
   const now = new Date();
   if (entry.id) {
     const nowMs = now.getTime();
-    const recent = await getLogEntriesByEntryId(entry.id);
+    // Excludes a reaped (deletedAt) row — the whole point of reaping one is
+    // that opening this article again should log it afresh, not get
+    // silently swallowed by the chatter guard because a just-deleted row
+    // happens to still be within CHATTER_WINDOW_MS.
+    const recent = (await getLogEntriesByEntryId(entry.id)).filter((e) => !e.deletedAt);
     if (recent.some((e) => nowMs - new Date(e.openedAt).getTime() <= CHATTER_WINDOW_MS)) {
       return null;
     }
@@ -92,6 +96,20 @@ export async function setLogEntryColor(logId, color) {
   return updated;
 }
 
+// "刈り取り" (reap) — the reflect screen's own per-entry delete (see
+// reflect.js's 🗑️/🚫 buttons). A tombstone (like feeds'/ngWords' own
+// deletedAt) rather than an actual IndexedDB delete, since the sync
+// protocol only ever upserts a row, never removes one — every reader below
+// (getEntriesForDay, searchLogEntries, ...) filters deletedAt rows out.
+export async function removeLogEntry(logId) {
+  const logEntry = await getLogEntry(logId);
+  if (!logEntry) return null;
+  const now = new Date().toISOString();
+  const updated = { ...logEntry, deletedAt: now, clientUpdatedAt: now, dirty: true };
+  await putLogEntry(updated);
+  return updated;
+}
+
 // Display-time merge for duplicate rows logged before the chatter guard
 // above existed (or from any other source of near-simultaneous re-opens):
 // collapses runs of same-article rows within CHATTER_WINDOW_MS of each
@@ -126,9 +144,15 @@ function mergeDuplicates(entriesAscending) {
   return result;
 }
 
+// removeLogEntry above tombstones rather than deletes, so every reader here
+// filters deletedAt rows back out itself.
+function excludeDeleted(entries) {
+  return entries.filter((e) => !e.deletedAt);
+}
+
 export async function getEntriesForDay(dateStr) {
   const [start, end] = dayRangeIso(dateStr);
-  const entries = await getLogEntriesInRange(start, end);
+  const entries = excludeDeleted(await getLogEntriesInRange(start, end));
   // mergeDuplicates expects oldest-first (it walks adjacent pairs forward
   // in time), so the ascending sort stays internal — reverse only the
   // final, already-merged result to show the day newest-first.
@@ -146,7 +170,7 @@ export async function getDailyCounts(days) {
   const startDate = shiftDateStr(today, -(days - 1));
   const [start] = dayRangeIso(startDate);
   const [, end] = dayRangeIso(today);
-  const entries = await getLogEntriesInRange(start, end);
+  const entries = excludeDeleted(await getLogEntriesInRange(start, end));
   entries.sort((a, b) => (a.openedAt || "").localeCompare(b.openedAt || ""));
   const merged = mergeDuplicates(entries);
 
@@ -188,7 +212,7 @@ export async function getFeedAddedCounts(days) {
 // before annotating it, without a per-row IndexedDB lookup for each of
 // potentially hundreds of visible articles.
 export async function getLatestLogEntriesByEntryId() {
-  const all = await getAllLogEntries();
+  const all = excludeDeleted(await getAllLogEntries());
   const map = new Map();
   for (const row of all) {
     if (!row.entryId) continue;
@@ -213,7 +237,7 @@ const ENGAGEMENT_WEIGHT = { open: 1, comment: 4, color: 6 };
 // commented on, or color-tagged ahead of one that's merely posted recently
 // (see main.js's currentArticles/unreadFeedOrder).
 export async function getFeedEngagementScores() {
-  const all = await getAllLogEntries();
+  const all = excludeDeleted(await getAllLogEntries());
   const scores = new Map();
   for (const row of all) {
     if (!row.feedId) continue;
@@ -245,7 +269,7 @@ function matchesLogEntry(query, logEntry) {
 export async function searchLogEntries(query) {
   const q = normalizeQuery(query);
   if (!q) return [];
-  const all = await getAllLogEntries();
+  const all = excludeDeleted(await getAllLogEntries());
   all.sort((a, b) => (a.openedAt || "").localeCompare(b.openedAt || ""));
   const merged = mergeDuplicates(all);
   const matched = merged.filter((e) => matchesLogEntry(q, e));

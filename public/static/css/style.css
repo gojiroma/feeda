@@ -469,17 +469,16 @@ input[type="text"], input[type="url"], input[type="search"] {
   top: 0;
   z-index: 1;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
   padding: 6px 8px;
   background: var(--bg-alt);
   border-bottom: 1px solid var(--border);
   font-size: 0.8rem;
   font-weight: 600;
-  cursor: pointer;
 }
 /* Copy-URL feedback (see copyFeedUrl in main.js) — flashed on the header
-   the menu item was triggered from. */
+   the icon button was clicked from. */
 .article-feed-header.copy-flash {
   background: var(--accent);
   color: var(--accent-fg);
@@ -492,6 +491,11 @@ input[type="text"], input[type="url"], input[type="search"] {
 .article-feed-header--colored {
   border-left: 3px solid rgb(var(--feed-color));
   background: rgba(var(--feed-color), 0.12);
+}
+.article-feed-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .article-feed-header-title {
   flex: 1;
@@ -506,46 +510,44 @@ input[type="text"], input[type="url"], input[type="search"] {
   line-height: 1;
   opacity: 0.75;
 }
+/* Per-feed color/pin/pause/keep/copy actions (see buildFeedHeaderActions in
+   ui/articleList.js) — hidden by default, same hover/focus-within reveal as
+   .article-annotate-inline, plus .article-feed-header--actions-open (set by
+   JS via hoveredFeedId) so the row stays open across the full article-list
+   rebuild a pin/pause/keep/color change triggers, the same problem
+   .article-item--annotate-open works around for a single article row. */
+.article-feed-header-actions {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding-top: 2px;
+}
+.article-feed-header:hover .article-feed-header-actions,
+.article-feed-header:focus-within .article-feed-header-actions,
+.article-feed-header--actions-open .article-feed-header-actions {
+  display: flex;
+}
+.feed-header-icon-btn {
+  padding: 2px 6px;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+.feed-header-icon-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
 
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
 
-/* Feed context menu — right-click/long-press a feed's header in the
-   article list (see openFeedContextMenu in ui/articleList.js). Same
-   floating-popup mechanics as .reflect-color-picker (fixed position,
-   clamped to viewport, closed on outside click/Escape). */
-.feed-context-menu {
-  position: fixed;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 6px;
-  min-width: 160px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-}
-.feed-context-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  font-size: 0.85rem;
-  padding: 6px 8px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-}
-.feed-context-menu-item:hover { background: var(--bg-alt); }
+/* Sits inline in .article-feed-header-actions alongside the pin/pause/keep/
+   copy icon buttons — a plain wrapping row rather than a grid, since it's no
+   longer a standalone section of its own menu. */
 .feed-color-swatch-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  padding: 4px 2px 0;
-  border-top: 1px solid var(--border);
 }
 .feed-color-swatch {
   width: 24px;
@@ -749,9 +751,11 @@ input[type="text"], input[type="url"], input[type="search"] {
    #article-list with !important so it wins over its own display rule
    regardless of viewport. .filter-row (the feed color filter +
    search-history bar) is NOT hidden — reflect filters its timeline through
-   the same bar (see renderReflect/filterLogEntriesByFeedColor in main.js),
-   right alongside reflect's own #reflect-color-filter (a log entry's own
-   tag color, a different axis). */
+   the same bar too (see renderReflect/filterLogEntriesByFeedColor in
+   main.js). A log entry's own color tag is a separate, purely visual axis
+   (see .reflect-log-item--colored) with no filter row of its own anymore —
+   having two differently-scoped color filters stacked on this one screen
+   was more clutter than it was worth. */
 .app.reflect-mode #article-list {
   display: none !important;
 }
@@ -855,49 +859,6 @@ input[type="text"], input[type="url"], input[type="search"] {
   box-shadow: 0 0 0 1px #16a34a;
 }
 
-/* Filter row above the reflect timeline (see renderLogColorFilter in
-   ui/reflect.js) — same shape as .feed-color-filter, just scoped to the
-   reflect screen's own colors. Empty (and hidden via :empty) until at least
-   one entry currently in view is color-tagged. */
-.reflect-color-filter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 0 16px 8px;
-}
-.reflect-color-filter:empty {
-  display: none;
-}
-.reflect-color-filter-swatch {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  background: rgb(var(--reflect-color));
-  opacity: 0.55;
-  cursor: pointer;
-}
-.reflect-color-filter-swatch:hover {
-  opacity: 0.85;
-}
-.reflect-color-filter-swatch.selected {
-  opacity: 1;
-  border-color: var(--text);
-}
-.reflect-color-filter-clear {
-  all: unset;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  line-height: 1;
-  padding: 2px 4px;
-}
-.reflect-color-filter-clear:hover {
-  color: var(--text);
-}
-
 .reflect-timeline {
   flex: 1;
   overflow-y: auto;
@@ -957,33 +918,34 @@ input[type="text"], input[type="url"], input[type="search"] {
   border-left-color: rgb(var(--reflect-color));
   background: rgba(var(--reflect-color), 0.12);
 }
-.reflect-color-picker {
+/* "削除してブロック" prompt (see openBlockUrlPopup in ui/reflect.js) — same
+   floating-popup chrome/mechanics (ui/colorPicker.js's openFloatingPopup) as
+   the article list's own feed color popup used to be, just holding a
+   pattern input instead of a swatch grid. */
+.url-block-popup {
   position: fixed;
   z-index: 30;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px;
-  width: 220px;
+  padding: 10px;
+  width: 280px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
-/* Small color-only floating popup opened from a feed name in the unread
-   list's block header (see buildFeedHeader's onSetFeedColor in
-   articleList.js) — same floating chrome as .reflect-color-picker, just
-   narrower (no tags/comments to fit) and paired with .annotate-palette-row
-   for the swatch layout itself instead of owning it directly. */
-.annotate-palette-popup {
-  position: fixed;
-  z-index: 30;
-  width: 180px;
-  padding: 8px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+.url-block-popup-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.url-block-popup-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+.url-block-popup-row {
+  display: flex;
+  gap: 6px;
 }
 .reflect-color-swatch {
   width: 22px;
@@ -1048,20 +1010,39 @@ input[type="text"], input[type="url"], input[type="search"] {
   white-space: pre-wrap;
   word-break: break-word;
 }
-/* Hidden by default — an input on every timeline row was too much visual
-   noise. Mouse hover reveals it; :focus-within keeps it visible while
-   actually typing, even if the pointer has moved off the row. */
 .reflect-comment-form {
-  display: none;
-  gap: 6px;
-  margin-top: 8px;
-}
-.reflect-log-item:hover .reflect-comment-form,
-.reflect-log-item:focus-within .reflect-comment-form {
   display: flex;
+  gap: 6px;
 }
 .reflect-comment-input {
   flex: 1;
   font-size: 0.85rem;
   padding: 4px 8px;
+}
+/* Color palette + comment thread/add-form + reap (delete) buttons for one
+   log entry (see buildLogActions in ui/reflect.js) — hidden by default, an
+   input/palette/thread on every timeline row was too much visual noise for
+   a screen meant to be skimmed. Mouse hover reveals it; :focus-within keeps
+   it visible while actually typing, even if the pointer has moved off the
+   row. .reflect-log-item--open is a third way in, set by JS (see
+   hoveredLogId in reflect.js): the row this section lives in gets torn down
+   and rebuilt on every color/comment/delete change, and the browser doesn't
+   retroactively apply :hover to the replacement sitting under an unmoved
+   pointer — without it, picking a color would flash the box shut and
+   silently fail to refocus its comment input. */
+.reflect-log-actions {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.reflect-log-item:hover .reflect-log-actions,
+.reflect-log-item:focus-within .reflect-log-actions,
+.reflect-log-item--open .reflect-log-actions {
+  display: flex;
+}
+.reflect-log-icon-btn {
+  padding: 2px 6px;
+  font-size: 0.95rem;
+  line-height: 1.4;
 }

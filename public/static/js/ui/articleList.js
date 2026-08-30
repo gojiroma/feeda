@@ -203,146 +203,134 @@ function groupEntriesByFeed(entries, feedOrder) {
   return order.map((feedId) => ({ feedId, entries: byFeed.get(feedId) }));
 }
 
-// Feed name headlining one feed's block in the grouped-by-feed rendering
-// (see renderArticleList) — a plain click opens the one combined context
-// menu for every per-feed action (see openFeedContextMenu below) instead of
-// a scatter of always-visible buttons. Used to be right-click/long-press
-// only, but the header isn't a link or anything else a click could collide
-// with, so requiring the right-click gesture just made the menu harder to
-// find for no benefit.
-function buildFeedHeader(feedId, { feedTitleById, feedsById, feedActions }) {
-  const header = createElement("div", { className: "article-feed-header" });
+// Which feed's hover-revealed actions row (see buildFeedHeaderActions) the
+// pointer is currently over — same rebuild-loses-hover problem and same fix
+// as hoveredEntryId above: renderArticleList tears the whole list down and
+// rebuilds it on every pin/pause/keep/color change (see refreshAfterFeedChange
+// in main.js), and the browser won't retroactively apply :hover to the
+// replacement header sitting under an unmoved pointer.
+let hoveredFeedId = null;
 
+// One hover-revealed icon button for a per-feed toggle (pin, pause/resume,
+// keep) — active is whether the toggle is currently "on", styled to stand
+// out from an "off" button sitting right next to it.
+function createFeedIconButton({ icon, title, active, onClick }) {
+  return createButton(
+    {
+      type: "button",
+      className: "feed-header-icon-btn" + (active ? " active" : ""),
+      textContent: icon,
+      title
+    },
+    onClick
+  );
+}
+
+// Hover-revealed row of per-feed actions living inside the feed header (see
+// buildFeedHeader) — color, pin, pause/resume, keep, and copy-URL. Replaces
+// the old click-to-open combined context menu: these are common enough
+// actions that surfacing them straight on hover (same as the article row's
+// own annotate section) beats requiring a click to open a menu first.
+// Marking the whole feed read/unread deliberately isn't here — main.js
+// already tracks read state per-article, via scroll (see
+// handleArticleScrollIntersections), so a whole-feed shortcut for it isn't
+// needed on top of that.
+function buildFeedHeaderActions(feed, { onTogglePause, onToggleKeep, onTogglePin, onSetColor, onCopyUrl }, headerEl) {
+  const row = createElement("div", { className: "article-feed-header-actions" });
+
+  if (onSetColor) {
+    const swatchRow = createElement("div", { className: "feed-color-swatch-row" });
+    renderFeedColorSwatches(swatchRow, {
+      currentColor: feed.color,
+      onSetColor: (color) => onSetColor(feed.feedId, color),
+    });
+    row.appendChild(swatchRow);
+  }
+
+  if (onTogglePin) {
+    row.appendChild(createFeedIconButton({
+      icon: "📌",
+      title: feed.pinned ? "ピン留めを解除" : "上部にピン留め",
+      active: feed.pinned,
+      onClick: () => onTogglePin(feed.feedId),
+    }));
+  }
+
+  if (onTogglePause) {
+    row.appendChild(createFeedIconButton({
+      icon: feed.paused ? "▶️" : "⏸️",
+      title: feed.paused ? "更新を再開" : "更新を停止",
+      active: feed.paused,
+      onClick: () => onTogglePause(feed.feedId),
+    }));
+  }
+
+  if (onToggleKeep && !feed.paused) {
+    row.appendChild(createFeedIconButton({
+      icon: "🛡️",
+      title: feed.keep ? "自動停止の対象から外している（クリックで戻す）" : "自動停止の対象から外す（残す）",
+      active: feed.keep,
+      onClick: () => onToggleKeep(feed.feedId),
+    }));
+  }
+
+  if (onCopyUrl) {
+    row.appendChild(createFeedIconButton({
+      icon: "🔗",
+      title: "URLをコピー",
+      onClick: () => onCopyUrl(feed, headerEl),
+    }));
+  }
+
+  return row;
+}
+
+// Feed name headlining one feed's block in the grouped-by-feed rendering
+// (see renderArticleList) — hovering it reveals the per-feed actions row
+// (see buildFeedHeaderActions) instead of requiring a click to open a
+// separate context menu.
+function buildFeedHeader(feedId, { feedTitleById, feedsById, feedActions }) {
   const feed = feedsById ? feedsById.get(feedId) : null;
+  const actionsOpen = feedActions && (feedId === hoveredFeedId);
+
+  const header = createElement("div", {
+    className: "article-feed-header" + (actionsOpen ? " article-feed-header--actions-open" : "")
+  });
+
   const colorRgb = feed && feed.color && COLOR_BY_KEY.get(feed.color);
   if (colorRgb) {
     header.classList.add("article-feed-header--colored");
     setCustomProperty(header, "feed-color", colorRgb);
   }
 
+  const row = createElement("div", { className: "article-feed-header-row" });
+
   const title = createElement("span", {
     className: "article-feed-header-title",
     textContent: feedTitleById.get(feedId) || ""
   });
-  header.appendChild(title);
+  row.appendChild(title);
 
   if (feed && feed.pinned) {
     const pin = createElement("span", { className: "article-feed-header-pin", html: "📌", title: "ピン留め済み" });
-    header.appendChild(pin);
+    row.appendChild(pin);
   }
 
+  header.appendChild(row);
+
   if (feedActions) {
-    header.addEventListener("click", (ev) => openFeedContextMenu(feed || { feedId }, ev.clientX, ev.clientY, feedActions, header));
+    header.appendChild(buildFeedHeaderActions(feed || { feedId }, feedActions, header));
+    header.addEventListener("mouseenter", () => {
+      hoveredFeedId = feedId;
+      header.classList.add("article-feed-header--actions-open");
+    });
+    header.addEventListener("mouseleave", () => {
+      if (hoveredFeedId === feedId) hoveredFeedId = null;
+      header.classList.remove("article-feed-header--actions-open");
+    });
   }
 
   return header;
-}
-
-// One consolidated right-click/long-press menu for every per-feed action
-// reachable from the article list — pin, pause/resume, opting a feed out of
-// autoPauseInactiveFeeds, color, marking the whole feed read/unread, and
-// copying its URL. Ported from the old sidebar's own feed context menu (see
-// git history for ui/feedList.js) now that there's no sidebar to host it.
-let activeMenu = null;
-let activeMenuFeedId = null;
-let removeOutsideListeners = null;
-
-function closeFeedContextMenu() {
-  if (removeOutsideListeners) removeOutsideListeners();
-  removeOutsideListeners = null;
-  if (activeMenu) activeMenu.remove();
-  activeMenu = null;
-  activeMenuFeedId = null;
-}
-
-function openFeedContextMenu(feed, x, y, { onTogglePause, onToggleKeep, onTogglePin, onSetColor, onMarkRead, onMarkUnread, onCopyUrl }, headerEl) {
-  closeFeedContextMenu();
-
-  const menu = createElement("div", {
-    className: "feed-context-menu",
-    style: { left: `${x}px`, top: `${y}px` }
-  });
-
-  if (onTogglePin) {
-    menu.appendChild(createButton(
-      { type: "button", className: "feed-context-menu-item", textContent: feed.pinned ? "ピン留めを解除" : "上部にピン留め" },
-      () => { onTogglePin(feed.feedId); closeFeedContextMenu(); }
-    ));
-  }
-
-  if (onTogglePause) {
-    menu.appendChild(createButton(
-      { type: "button", className: "feed-context-menu-item", textContent: feed.paused ? "更新を再開" : "更新を停止" },
-      () => { onTogglePause(feed.feedId); closeFeedContextMenu(); }
-    ));
-  }
-
-  if (onToggleKeep && !feed.paused) {
-    menu.appendChild(createButton(
-      {
-        type: "button",
-        className: "feed-context-menu-item",
-        textContent: feed.keep ? "自動停止の対象から外している ✓" : "自動停止の対象から外す（残す）",
-        title: "自動停止の対象から外します"
-      },
-      () => { onToggleKeep(feed.feedId); closeFeedContextMenu(); }
-    ));
-  }
-
-  if (onSetColor) {
-    const swatchRow = createElement("div", { className: "feed-color-swatch-row" });
-    renderFeedColorSwatches(swatchRow, {
-      currentColor: feed.color,
-      onSetColor: (color) => { onSetColor(feed.feedId, color); closeFeedContextMenu(); },
-    });
-    menu.appendChild(swatchRow);
-  }
-
-  if (onMarkRead) {
-    menu.appendChild(createButton(
-      { type: "button", className: "feed-context-menu-item", textContent: "既読", title: "このフィードをすべて既読にします" },
-      () => { onMarkRead(feed.feedId); closeFeedContextMenu(); }
-    ));
-  }
-
-  if (onMarkUnread) {
-    menu.appendChild(createButton(
-      { type: "button", className: "feed-context-menu-item", textContent: "解除", title: "既読状態を解除し、未読に戻します" },
-      () => { onMarkUnread(feed.feedId); closeFeedContextMenu(); }
-    ));
-  }
-
-  if (onCopyUrl) {
-    menu.appendChild(createButton(
-      { type: "button", className: "feed-context-menu-item", textContent: "URLをコピー" },
-      () => { onCopyUrl(feed, headerEl); closeFeedContextMenu(); }
-    ));
-  }
-
-  document.body.appendChild(menu);
-  activeMenu = menu;
-  activeMenuFeedId = feed.feedId;
-
-  const rect = menu.getBoundingClientRect();
-  const maxLeft = window.innerWidth - rect.width - 8;
-  const maxTop = window.innerHeight - rect.height - 8;
-  menu.style.left = `${Math.max(8, Math.min(x, maxLeft))}px`;
-  menu.style.top = `${Math.max(8, Math.min(y, maxTop))}px`;
-
-  setTimeout(() => {
-    const onPointerDown = (ev) => {
-      if (!menu.contains(ev.target)) closeFeedContextMenu();
-    };
-    const onKeydown = (ev) => {
-      if (ev.key === "Escape") closeFeedContextMenu();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeydown, true);
-    removeOutsideListeners = () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeydown, true);
-    };
-  }, 0);
 }
 
 export function renderArticleList(
@@ -366,8 +354,6 @@ export function renderArticleList(
     onToggleKeepFeed,
     onTogglePinFeed,
     onSetFeedColor,
-    onMarkFeedRead,
-    onMarkFeedUnread,
     onCopyFeedUrl,
   }
 ) {
@@ -399,12 +385,6 @@ export function renderArticleList(
       : null;
 
   container.innerHTML = "";
-  // Same idea as reflect's own popup handling — only close the feed context
-  // menu once the feed it's anchored to has actually dropped out of the
-  // list (feed switched away, search cleared it, ...).
-  if (activeMenuFeedId !== null && !entries.some((e) => e.feedId === activeMenuFeedId)) {
-    closeFeedContextMenu();
-  }
 
   if (entries.length === 0) {
     renderEmptyHint(container, emptyHint || "記事がありません。");
@@ -422,21 +402,19 @@ export function renderArticleList(
     logByEntryId,
     forceOpenEntryId: preservedComment?.entryId,
   };
-  const feedActions = (onTogglePauseFeed || onToggleKeepFeed || onTogglePinFeed || onSetFeedColor || onMarkFeedRead || onMarkFeedUnread || onCopyFeedUrl)
+  const feedActions = (onTogglePauseFeed || onToggleKeepFeed || onTogglePinFeed || onSetFeedColor || onCopyFeedUrl)
     ? {
         onTogglePause: onTogglePauseFeed,
         onToggleKeep: onToggleKeepFeed,
         onTogglePin: onTogglePinFeed,
         onSetColor: onSetFeedColor,
-        onMarkRead: onMarkFeedRead,
-        onMarkUnread: onMarkFeedUnread,
         onCopyUrl: onCopyFeedUrl,
       }
     : null;
 
   if (groupByFeed) {
-    // Each feed gets its own header (name + context menu trigger) and its
-    // own <ul>, stacked via CSS — a feed's block never straddles another's,
+    // Each feed gets its own header (name + hover-revealed actions row) and
+    // its own <ul>, stacked via CSS — a feed's block never straddles another's,
     // so a background refetch can move a whole block to the top of the pile
     // without disturbing anything else on screen (see main.js's
     // mergeIntoUnreadTimeline).

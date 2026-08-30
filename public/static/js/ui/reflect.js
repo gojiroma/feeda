@@ -3,21 +3,22 @@
 // logbook.js for the data shape and main.js's renderReflect for how a day's
 // entries get here.
 
-import { COLOR_PALETTE, COLOR_BY_KEY } from "../colorPalette.js";
-import {
-  openFloatingPopup,
-  closeFloatingPopup,
-  closeFloatingPopupIfMissing,
-  renderColorSwatches,
-  attachContextTrigger,
-} from "./colorPicker.js";
+import { COLOR_BY_KEY } from "../colorPalette.js";
+import { openFloatingPopup, closeFloatingPopup, closeFloatingPopupIfMissing, renderColorSwatches } from "./colorPicker.js";
 import { renderEmptyHint } from "./listUtils.js";
 import { createElement, createButton, setCustomProperty } from "./domUtils.js";
 
-// Right-click (desktop) or long-press (touch) an entry to tag it with one
-// of COLOR_PALETTE's colors, shown as a left border + low-alpha background
-// tint via --reflect-color (see .reflect-log-item--colored /
-// .reflect-color-swatch in style.css).
+// Which entry's hover-revealed actions section (see buildLogActions) the
+// pointer is currently over — tracked at module scope, outside any one
+// render, because :hover/:focus-within alone can't survive a rebuild.
+// container.innerHTML = "" (see renderReflectTimeline) destroys the hovered
+// row and replaces it with a new element sitting at the same screen
+// position; the browser doesn't retroactively apply :hover to that new
+// element until the pointer actually moves again, so without this the
+// section would flash shut the instant a color pick (or delete) triggers a
+// redraw out from under a still-hovering mouse. Same trick as
+// hoveredEntryId in ui/articleList.js.
+let hoveredLogId = null;
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -47,39 +48,65 @@ function renderComment(comment) {
   return li;
 }
 
-function openColorPicker(logEntry, x, y, onSetColor) {
-  openFloatingPopup({
-    id: logEntry.id,
-    x,
-    y,
-    className: "reflect-color-picker",
-    build: (picker) => {
-      renderColorSwatches(picker, {
-        currentColor: logEntry.color,
-        onSetColor: (color) => {
-          onSetColor(logEntry.id, color);
-          closeFloatingPopup();
-        },
-      });
-    },
+// Color palette + comment thread/add-form + reap (delete) actions for one
+// log entry, revealed on hover/focus instead of the old right-click popup —
+// color and comment were already the most-used per-entry actions, and now
+// share the same one-hover reveal (see .reflect-log-actions in style.css).
+function buildLogActions(logEntry, { onSetColor, onAddComment, onDelete, onBlockAndDelete }) {
+  const section = createElement("div", { className: "reflect-log-actions" });
+
+  const paletteRow = createElement("div", { className: "annotate-palette-row" });
+  renderColorSwatches(paletteRow, { currentColor: logEntry.color, onSetColor });
+  if (onDelete) {
+    paletteRow.appendChild(createButton(
+      { type: "button", className: "reflect-log-icon-btn", textContent: "🗑️", title: "この記録を削除" },
+      onDelete
+    ));
+  }
+  if (onBlockAndDelete) {
+    paletteRow.appendChild(createButton(
+      {
+        type: "button",
+        className: "reflect-log-icon-btn",
+        textContent: "🚫",
+        title: "削除して、このURLパターンを今後も追加しないようにする"
+      },
+      (ev) => onBlockAndDelete(logEntry, ev.clientX, ev.clientY)
+    ));
+  }
+  section.appendChild(paletteRow);
+
+  const comments = logEntry.comments || [];
+  if (comments.length > 0) {
+    const commentList = createElement("ul", { className: "reflect-comment-list" });
+    for (const comment of comments) commentList.appendChild(renderComment(comment));
+    section.appendChild(commentList);
+  }
+
+  const form = createElement("form", { className: "reflect-comment-form" });
+  const input = createElement("input", {
+    type: "text",
+    className: "reflect-comment-input",
+    placeholder: "コメントを追加…"
   });
+  form.appendChild(input);
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const text = input.value;
+    if (!text.trim()) return;
+    input.value = "";
+    onAddComment(text);
+  });
+  section.appendChild(form);
+
+  return section;
 }
 
-// Mirrors the article list's own long-press-as-touch-equivalent-of-right-
-// click pattern. Skips the comment form/input specifically so right-clicking
-// (to paste, say) or a long press while selecting text there doesn't get
-// hijacked into opening the color picker instead.
-function attachColorPicker(li, logEntry, onSetColor) {
-  if (!onSetColor) return;
-  attachContextTrigger(li, {
-    onOpenRequest: (x, y) => openColorPicker(logEntry, x, y, onSetColor),
-    isExcluded: (ev) => Boolean(ev.target.closest(".reflect-comment-form")),
-  });
-}
+function renderLogItem(logEntry, { onAddComment, onSetColor, onDelete, onBlockAndDelete, forceOpenLogId }) {
+  const annotateOpen = logEntry.id === hoveredLogId || logEntry.id === forceOpenLogId;
 
-function renderLogItem(logEntry, onAddComment, onSetColor) {
   const li = createElement("li", {
-    className: "reflect-log-item",
+    className: "reflect-log-item" + (annotateOpen ? " reflect-log-item--open" : ""),
     dataset: { logId: logEntry.id }
   });
   const rgb = logEntry.color && COLOR_BY_KEY.get(logEntry.color);
@@ -87,6 +114,15 @@ function renderLogItem(logEntry, onAddComment, onSetColor) {
     li.classList.add("reflect-log-item--colored");
     setCustomProperty(li, "reflect-color", rgb);
   }
+
+  li.addEventListener("mouseenter", () => {
+    hoveredLogId = logEntry.id;
+    li.classList.add("reflect-log-item--open");
+  });
+  li.addEventListener("mouseleave", () => {
+    if (hoveredLogId === logEntry.id) hoveredLogId = null;
+    li.classList.remove("reflect-log-item--open");
+  });
 
   const time = createElement("div", {
     className: "reflect-log-time",
@@ -113,88 +149,28 @@ function renderLogItem(logEntry, onAddComment, onSetColor) {
     body.appendChild(meta);
   }
 
-  const comments = logEntry.comments || [];
-  if (comments.length > 0) {
-    const commentList = createElement("ul", { className: "reflect-comment-list" });
-    for (const comment of comments) commentList.appendChild(renderComment(comment));
-    body.appendChild(commentList);
-  }
-
-  // The add-comment form is hidden by default (see .reflect-comment-form in
-  // style.css) — an input on every single entry was too much visual noise
-  // for a timeline meant to be skimmed. It shows on mouse hover/focus.
-  const form = createElement("form", { className: "reflect-comment-form" });
-  const input = createElement("input", {
-    type: "text",
-    className: "reflect-comment-input",
-    placeholder: "コメントを追加…"
-  });
-  form.appendChild(input);
-  form.addEventListener("submit", (ev) => {
-    ev.preventDefault();
-    const text = input.value;
-    if (!text.trim()) return;
-    input.value = "";
-    onAddComment(logEntry.id, text);
-  });
-  body.appendChild(form);
+  body.appendChild(
+    buildLogActions(logEntry, {
+      onSetColor: (color) => onSetColor(logEntry.id, color),
+      onAddComment: (text) => onAddComment(logEntry.id, text),
+      onDelete: onDelete ? () => onDelete(logEntry.id) : null,
+      onBlockAndDelete,
+    })
+  );
 
   li.appendChild(body);
-  attachColorPicker(li, logEntry, onSetColor);
   return li;
 }
 
-// Filter row above the timeline (see .reflect-color-filter in style.css) —
-// mirrors renderColorFilter in ui/commonComponents.js: one swatch per color
-// actually tagged on some entry *currently loaded* (the day's entries, or
-// the current search results — see main.js's renderReflect), each toggling
-// that color's membership in `activeColors`. An entry shows if it matches
-// any active color (see filterLogEntriesByColor in main.js); an empty
-// activeColors set means no filter, and the whole row disappears (via
-// :empty) once nothing in view is tagged at all.
-export function renderLogColorFilter(container, { entries, activeColors, onToggleColor }) {
-  container.innerHTML = "";
-  const usedColors = new Set(entries.map((e) => e.color).filter(Boolean));
-  if (usedColors.size === 0) return;
-
-  for (const { key, rgb } of COLOR_PALETTE) {
-    if (!usedColors.has(key)) continue;
-    const swatch = createButton(
-      {
-        type: "button",
-        className: "reflect-color-filter-swatch" + (activeColors.has(key) ? " selected" : ""),
-        style: { "--reflect-color": rgb },
-        title: activeColors.has(key) ? "この色のフィルターを解除" : "この色の記録だけ表示",
-        dataset: { color: key }
-      },
-      () => onToggleColor(key)
-    );
-    container.appendChild(swatch);
-  }
-
-  if (activeColors.size > 0) {
-    const clearBtn = createButton(
-      {
-        type: "button",
-        className: "reflect-color-filter-clear",
-        textContent: "×",
-        title: "色フィルターをすべて解除"
-      },
-      () => onToggleColor(null)
-    );
-    container.appendChild(clearBtn);
-  }
-}
-
-export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, emptyHint }) {
-  // Same rebuild-wipes-live-state problem the picker comment below already
-  // works around, but for a comment mid-typed into one entry's (normally
-  // hover/focus-revealed — see .reflect-comment-form in style.css) comment
-  // box: this whole timeline redraws on the REFLECT_LIVE_REFRESH_MS timer
-  // and on regaining tab focus (see main.js), neither of which reflects the
-  // user actually doing anything. Only restore it onto the same log entry's
-  // box (never leak a draft onto a different entry after the list reorders)
-  // and only when that input still has focus.
+export function renderReflectTimeline(container, { entries, onAddComment, onSetColor, onDelete, onBlockAndDelete, emptyHint }) {
+  // A comment mid-typed into one entry's (normally hover/focus-revealed —
+  // see .reflect-log-actions in style.css) comment box would otherwise
+  // vanish on every redraw this whole timeline goes through — the
+  // REFLECT_LIVE_REFRESH_MS timer, regaining tab focus (see main.js) — none
+  // of which reflects the user actually doing anything. Only restore it
+  // onto the same log entry's box (never leak a draft onto a different
+  // entry after the list reorders) and only when that input still has
+  // focus.
   const focusedCommentLi = document.activeElement?.closest?.(".reflect-log-item");
   const focusedCommentInput = focusedCommentLi?.querySelector(".reflect-comment-input");
   const preservedComment =
@@ -208,14 +184,11 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
       : null;
 
   container.innerHTML = "";
-  // The picker lives in document.body (see openColorPicker), so rebuilding
-  // this list doesn't touch it — closing it unconditionally on every redraw
-  // used to be the only thing that did. That made it slam shut mid-pick
-  // whenever a background sync (new unread items logged elsewhere, the
-  // REFLECT_LIVE_REFRESH_MS timer, ...) redrew the timeline underneath the
-  // user. Only close it when the entry it's anchored to has actually
-  // dropped out of view (date changed, search cleared it, etc.) — a picker
-  // whose entry is still on screen stays open across an unrelated redraw.
+  // The block-pattern popup (see openBlockUrlPopup) lives in document.body,
+  // so rebuilding this list doesn't touch it directly — but if the entry it
+  // was opened from has actually dropped out of view (date changed, search
+  // cleared it, ...) by the time an unrelated redraw lands, there's nothing
+  // left for "confirm" to act on, so close it.
   closeFloatingPopupIfMissing(new Set(entries.map((e) => e.id)));
 
   if (entries.length === 0) {
@@ -224,7 +197,15 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
   }
 
   const ul = createElement("ul", { className: "reflect-timeline-list" });
-  for (const logEntry of entries) ul.appendChild(renderLogItem(logEntry, onAddComment, onSetColor));
+  for (const logEntry of entries) {
+    ul.appendChild(renderLogItem(logEntry, {
+      onAddComment,
+      onSetColor,
+      onDelete,
+      onBlockAndDelete,
+      forceOpenLogId: preservedComment?.logId,
+    }));
+  }
   container.appendChild(ul);
 
   if (preservedComment) {
@@ -236,6 +217,54 @@ export function renderReflectTimeline(container, { entries, onAddComment, onSetC
       restoredInput.setSelectionRange(preservedComment.selectionStart, preservedComment.selectionEnd);
     }
   }
+}
+
+// Opens next to the 🚫 button in a log entry's hover actions row (see
+// buildLogActions) — lets the user tweak the wildcard URL pattern (see
+// urlBlocks.js) before confirming "delete this entry, and reject anything
+// matching this pattern from now on" (see main.js's handleBlockAndDeleteLog).
+// defaultPattern is only a starting point; onConfirm(pattern) fires with
+// whatever's actually in the input at confirm time.
+export function openBlockUrlPopup(logEntry, x, y, { defaultPattern, onConfirm }) {
+  openFloatingPopup({
+    id: logEntry.id,
+    x,
+    y,
+    className: "url-block-popup",
+    build: (popup) => {
+      const hint = createElement("div", {
+        className: "url-block-popup-hint",
+        textContent: "このパターンに一致するURLは今後追加しません（* はワイルドカード）"
+      });
+      popup.appendChild(hint);
+
+      const input = createElement("input", {
+        type: "text",
+        className: "url-block-popup-input",
+        value: defaultPattern
+      });
+      popup.appendChild(input);
+
+      const row = createElement("div", { className: "url-block-popup-row" });
+      row.appendChild(createButton(
+        { type: "button", className: "primary", textContent: "削除してブロック" },
+        () => {
+          const pattern = input.value.trim();
+          if (!pattern) return;
+          closeFloatingPopup();
+          onConfirm(pattern);
+        }
+      ));
+      row.appendChild(createButton(
+        { type: "button", textContent: "キャンセル" },
+        () => closeFloatingPopup()
+      ));
+      popup.appendChild(row);
+
+      input.focus();
+      input.select();
+    },
+  });
 }
 
 // The trend strip inside the day-nav header (see main.js's renderReflect

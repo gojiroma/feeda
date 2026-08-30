@@ -6,6 +6,7 @@ const ENC_KEY_INFO = "feeda:enc-key";
 const FEED_ID_INFO = "feeda:feed-id";
 const SEARCH_ID_INFO = "feeda:search-id";
 const NG_WORD_ID_INFO = "feeda:ng-word-id";
+const URL_BLOCK_ID_INFO = "feeda:url-block-id";
 const SHARE_LINK_KEY_INFO = "feeda:share-link-key";
 
 function toBytes(str) {
@@ -126,6 +127,22 @@ export async function deriveNgWordId(seed, word) {
   combined.set(seedBytes, 0);
   combined.set(infoBytes, seedBytes.length);
   combined.set(wordBytes, seedBytes.length + infoBytes.length);
+  const digest = await crypto.subtle.digest("SHA-256", combined);
+  return bytesToHex(digest);
+}
+
+// pattern is hashed only trimmed, not case-folded — unlike deriveNgWordId's
+// word, a URL wildcard pattern is matched case-sensitively (see
+// matchesAnyUrlBlockPattern in urlBlocks.js), so two patterns differing only
+// in case are deliberately treated as different rows here too.
+export async function deriveUrlBlockId(seed, pattern) {
+  const seedBytes = toBytes(seed.trim());
+  const infoBytes = toBytes(URL_BLOCK_ID_INFO);
+  const patternBytes = toBytes(pattern.trim());
+  const combined = new Uint8Array(seedBytes.length + infoBytes.length + patternBytes.length);
+  combined.set(seedBytes, 0);
+  combined.set(infoBytes, seedBytes.length);
+  combined.set(patternBytes, seedBytes.length + infoBytes.length);
   const digest = await crypto.subtle.digest("SHA-256", combined);
   return bytesToHex(digest);
 }

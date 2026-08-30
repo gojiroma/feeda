@@ -1,6 +1,7 @@
 import { putFeed, putEntries, getEntriesByFeed } from "./db.js";
 import { getSession } from "./session.js";
 import { computeFrequencyGroup, nextCheckDelayMs } from "./frequency.js";
+import { getActiveUrlBlockPatterns, matchesAnyUrlBlockPattern } from "./urlBlocks.js";
 
 function apiUrl(path) {
   const { apiBase } = getSession();
@@ -120,8 +121,17 @@ export async function fetchFeed(feed) {
   const xmlText = await res.text();
   const { title, entries } = parseFeedXml(xmlText);
 
+  // "刈り取り" (reap) blocklist (see urlBlocks.js) — an entry whose link
+  // matches one of these wildcard patterns is rejected right here, before it
+  // ever reaches IndexedDB, rather than merely hidden at render time like an
+  // NG-worded title (see filterByUrlBlocks in main.js). Read fresh on every
+  // fetch instead of threaded through as a parameter: this only runs once
+  // per feed per refresh cycle, so the extra IndexedDB round-trip is cheap,
+  // and it means a pattern added seconds ago already applies to the very
+  // next fetch instead of whatever stale list the caller happened to hold.
+  const blockPatterns = (await getActiveUrlBlockPatterns()).map((p) => p.pattern);
   const dbEntries = entries
-    .filter((e) => e.guid)
+    .filter((e) => e.guid && !matchesAnyUrlBlockPattern(e.link, blockPatterns))
     .map((e) => ({ id: `${feed.feedId}:${e.guid}`, feedId: feed.feedId, ...e }));
   await putEntries(dbEntries);
 

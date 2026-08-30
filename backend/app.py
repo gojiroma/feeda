@@ -41,6 +41,7 @@ def create_app():
     from routes.log_sync import log_sync_bp
     from routes.search_sync import search_sync_bp
     from routes.ng_word_sync import ng_word_sync_bp
+    from routes.url_block_sync import url_block_sync_bp
     from routes.proxy import proxy_bp
     from routes.pair import pair_bp
     from routes.share_link import share_link_bp
@@ -49,6 +50,7 @@ def create_app():
     app.register_blueprint(log_sync_bp)
     app.register_blueprint(search_sync_bp)
     app.register_blueprint(ng_word_sync_bp)
+    app.register_blueprint(url_block_sync_bp)
     app.register_blueprint(proxy_bp)
     app.register_blueprint(pair_bp)
     app.register_blueprint(share_link_bp)

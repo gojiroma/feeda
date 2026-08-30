@@ -56,6 +56,7 @@
         <button type="button" id="more-menu-btn" class="icon-btn" title="その他" aria-haspopup="true" aria-expanded="false">⋯</button>
         <div id="more-menu" class="more-menu hidden" role="menu">
           <button type="button" id="ng-word-btn" title="NGワードを管理" role="menuitem">NGワード</button>
+          <button type="button" id="url-block-btn" title="URLブロックパターンを管理" role="menuitem">URLブロック</button>
           <button type="button" id="seed-btn" title="シードとAPIベースURLを表示" role="menuitem">シード</button>
           <button type="button" id="shortcuts-btn" title="キーボードショートカット一覧" role="menuitem">キーボードショートカット</button>
           <button type="button" id="opml-export-btn" title="購読フィード一覧をOPMLでダウンロード" role="menuitem">OPMLをエクスポート</button>
@@ -73,7 +74,7 @@
     <div id="article-list" class="article-list-view"></div>
     <div class="reflect-view" id="reflect-view">
       <div class="reflect-main">
-        <div class="reflect-day-nav">
+        <div class="reflect-day-nav" id="reflect-day-nav">
           <div class="reflect-day-nav-row">
             <button type="button" id="reflect-prev-day" aria-label="前の日">←</button>
             <span id="reflect-date-label" class="reflect-date-label"></span>
@@ -92,7 +93,6 @@
             </div>
           </div>
         </div>
-        <div id="reflect-color-filter" class="reflect-color-filter"></div>
         <div id="reflect-timeline" class="reflect-timeline"></div>
       </div>
     </div>
@@ -113,6 +113,24 @@
       <ul id="ng-word-list" class="ng-word-list"></ul>
       <div class="setup-row">
         <button id="ng-word-modal-close-btn" type="button" class="primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="url-block-modal" class="modal hidden">
+    <div class="modal-card">
+      <h1>URLブロック</h1>
+      <p>
+        登録したワイルドカードパターン（<code>*</code>）に一致するURLの記事は、今後追加されなくなります。
+        振り返り画面の🚫ボタンからも追加できます。誤って追加した場合はここから削除してください。
+      </p>
+      <form id="url-block-form" class="setup-row">
+        <input id="url-block-input" type="text" placeholder="例: https://example.com/ads/*" autocomplete="off">
+        <button type="submit" class="primary">追加</button>
+      </form>
+      <ul id="url-block-list" class="ng-word-list"></ul>
+      <div class="setup-row">
+        <button id="url-block-modal-close-btn" type="button" class="primary">閉じる</button>
       </div>
     </div>
   </div>

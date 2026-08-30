@@ -2,7 +2,7 @@ import { deriveSearchId } from "./crypto.js";
 import { getSession } from "./session.js";
 
 const DB_NAME = "feeda";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 let dbPromise = null;
 
@@ -59,6 +59,16 @@ export function openDb() {
       // own — see sync.js) since the sync protocol only ever upserts.
       if (!db.objectStoreNames.contains("ngWords")) {
         db.createObjectStore("ngWords", { keyPath: "word" });
+      }
+      // "刈り取り" (reap) URL blocklist (see urlBlocks.js) — a feed entry
+      // whose link matches one of these wildcard patterns is dropped before
+      // it's ever stored (see feedFetch.js), and any already-stored match is
+      // hidden the same way an NG-worded title is (see filterByUrlBlocks in
+      // main.js). Keyed by the pattern text itself and synced the same way
+      // ngWords is (urlBlockSync.js), via a content-derived urlBlockId
+      // (deriveUrlBlockId in crypto.js).
+      if (!db.objectStoreNames.contains("urlBlocks")) {
+        db.createObjectStore("urlBlocks", { keyPath: "pattern" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -278,4 +288,24 @@ export async function getNgWord(word) {
 export async function getAllNgWords() {
   const db = await openDb();
   return reqToPromise(tx(db, "ngWords", "readonly").objectStore("ngWords").getAll());
+}
+
+export async function putUrlBlock(entry) {
+  const db = await openDb();
+  const t = tx(db, "urlBlocks", "readwrite");
+  t.objectStore("urlBlocks").put(entry);
+  return new Promise((resolve, reject) => {
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+}
+
+export async function getUrlBlock(pattern) {
+  const db = await openDb();
+  return reqToPromise(tx(db, "urlBlocks", "readonly").objectStore("urlBlocks").get(pattern));
+}
+
+export async function getAllUrlBlocks() {
+  const db = await openDb();
+  return reqToPromise(tx(db, "urlBlocks", "readonly").objectStore("urlBlocks").getAll());
 }
