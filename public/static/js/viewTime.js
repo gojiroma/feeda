@@ -12,6 +12,10 @@ const HEARTBEAT_SECONDS = HEARTBEAT_INTERVAL_MS / 1000;
 // While locked there's nothing left to accumulate — this only needs to be
 // frequent enough to notice the local calendar day rolling over promptly.
 const LOCK_POLL_INTERVAL_MS = 60 * 1000;
+// Drives the on-screen countdown (see onTick in startViewTimeTracking)
+// between heartbeats, so the displayed number visibly ticks down once a
+// second instead of jumping only every HEARTBEAT_INTERVAL_MS.
+const COUNTDOWN_TICK_MS = 1000;
 
 function apiUrl(path) {
   const { apiBase } = getSession();
@@ -43,18 +47,18 @@ async function fetchStatus() {
 }
 
 // Exposed separately from startViewTimeTracking so main.js's startApp can
-// await it and decide the *initial* screen (振り返る vs 見る) before the
-// first render, instead of always booting into 見る and only forcing
-// 振り返る a moment later once the first status check resolves. Fails open
-// (not locked) on a network error — a status-check hiccup shouldn't lock
-// someone out of reading.
-export async function checkInitialLock() {
+// await it and decide the *initial* screen (振り返る vs 見る) — and seed the
+// countdown watermark's starting point — before the first render, instead
+// of always booting into 見る with a blank timer and only correcting both a
+// moment later once the first status check resolves. Fails open (not
+// locked, full budget shown) on a network error — a status-check hiccup
+// shouldn't lock someone out of reading or show a bogus countdown.
+export async function fetchInitialStatus() {
   try {
-    const { limitReached } = await fetchStatus();
-    return limitReached;
+    return await fetchStatus();
   } catch (err) {
     console.error("view-time status check failed", err);
-    return false;
+    return { limitReached: false, secondsViewed: 0, limitSeconds: DAILY_LIMIT_SECONDS };
   }
 }
 
@@ -72,13 +76,31 @@ async function sendHeartbeat() {
 // backend/routes/view_time.py) — kept in the DB rather than only in
 // localStorage so clearing site data, or opening the same account on
 // another device, doesn't reset the clock. This module only tracks state
-// and reports transitions via onLocked/onUnlocked; main.js owns what a lock
-// actually does (forcing and pinning 振り返る — see applyViewTimeLock).
-// initiallyLocked is the result of an earlier checkInitialLock() call, so
-// this doesn't repeat that same status fetch a second time on startup.
-export function startViewTimeTracking({ initiallyLocked, onLocked, onUnlocked }) {
+// and reports transitions via onLocked/onUnlocked (main.js owns what a lock
+// actually does — forcing and pinning 振り返る, see applyViewTimeLock) and
+// the remaining seconds via onTick (main.js's countdown watermark, see
+// updateViewTimeWatermark). initialStatus is the result of an earlier
+// fetchInitialStatus() call, so this doesn't repeat that same status fetch
+// a second time on startup.
+export function startViewTimeTracking({ initialStatus, onLocked, onUnlocked, onTick }) {
   let heartbeatTimer = null;
   let lockPollTimer = null;
+  let countdownTimer = null;
+  let secondsViewed = initialStatus.secondsViewed;
+  let limitSeconds = initialStatus.limitSeconds;
+
+  function remainingSeconds() {
+    return Math.max(0, limitSeconds - secondsViewed);
+  }
+
+  function reportTick() {
+    onTick?.(remainingSeconds());
+  }
+
+  function applyStatus(status) {
+    secondsViewed = status.secondsViewed;
+    limitSeconds = status.limitSeconds;
+  }
 
   function stopHeartbeat() {
     clearInterval(heartbeatTimer);
@@ -90,39 +112,64 @@ export function startViewTimeTracking({ initiallyLocked, onLocked, onUnlocked })
     lockPollTimer = null;
   }
 
+  function stopCountdown() {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
+  }
+
+  // Only counts down while the tab actually has the foreground (backgrounded,
+  // minimized, another tab focused) — same condition as tick() below, since
+  // the server-side budget itself only grows from foreground heartbeats.
+  // Each heartbeat's response (see tick()) overwrites this local count with
+  // the server's own figure, so up to ~HEARTBEAT_INTERVAL_MS of local drift
+  // (a throttled background timer, another tab also accumulating today's
+  // budget, ...) self-corrects every 20s rather than compounding.
+  function tickCountdown() {
+    if (document.hidden) return;
+    secondsViewed = Math.min(limitSeconds, secondsViewed + 1);
+    reportTick();
+  }
+
+  function startForeground() {
+    reportTick();
+    heartbeatTimer = setInterval(tick, HEARTBEAT_INTERVAL_MS);
+    countdownTimer = setInterval(tickCountdown, COUNTDOWN_TICK_MS);
+  }
+
   function lock() {
     stopHeartbeat();
+    stopCountdown();
+    secondsViewed = limitSeconds;
+    reportTick();
     onLocked();
     lockPollTimer = setInterval(() => {
       fetchStatus()
-        .then(({ limitReached }) => {
-          if (!limitReached) unlock();
-        })
+        .then((status) => (status.limitReached ? applyStatus(status) : unlock(status)))
         .catch((err) => console.error("view-time status check failed", err));
     }, LOCK_POLL_INTERVAL_MS);
   }
 
-  function unlock() {
+  function unlock(status) {
     stopLockPoll();
+    if (status) applyStatus(status);
     onUnlocked();
-    heartbeatTimer = setInterval(tick, HEARTBEAT_INTERVAL_MS);
+    startForeground();
   }
 
-  // Only counts time the tab actually has in the foreground — a hidden tab
-  // (backgrounded, minimized, another tab focused) sends nothing that
-  // interval.
   function tick() {
     if (document.hidden) return;
     sendHeartbeat()
-      .then(({ limitReached }) => {
-        if (limitReached) lock();
+      .then((status) => {
+        applyStatus(status);
+        reportTick();
+        if (status.limitReached) lock();
       })
       .catch((err) => console.error("view-time heartbeat failed", err));
   }
 
-  if (initiallyLocked) {
+  if (initialStatus.limitReached) {
     lock();
   } else {
-    heartbeatTimer = setInterval(tick, HEARTBEAT_INTERVAL_MS);
+    startForeground();
   }
 }

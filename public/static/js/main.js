@@ -46,7 +46,7 @@ import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js
 import { setupShareLinkUI } from "./ui/shareLinkModal.js";
 import { updateFavicon } from "./favicon.js";
 import { extractArticlePreview } from "./sanitize.js";
-import { checkInitialLock, startViewTimeTracking } from "./viewTime.js";
+import { fetchInitialStatus, startViewTimeTracking } from "./viewTime.js";
 
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
@@ -56,7 +56,7 @@ const articleListEl = document.getElementById("article-list");
 const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
-const clockWatermarkEl = document.getElementById("clock-watermark");
+const viewTimeWatermarkEl = document.getElementById("view-time-watermark");
 const viewLimitBannerEl = document.getElementById("view-limit-banner");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const moreMenuBtn = document.getElementById("more-menu-btn");
@@ -765,11 +765,12 @@ function renderFeedColorFilterBar() {
   });
 }
 
-// The only reading screen — a single scrolling column of article cards,
-// same at every viewport width. Grouped by feed (each with its own header
-// whose per-feed actions row reveals on hover — see ui/articleList.js) while
-// browsing the plain unread timeline; a flat list showing each entry's feed
-// name inline while searching, since search results are ranked by
+// The only reading screen — a single scrolling column of article cards on a
+// phone-width screen, widening into a multi-column grid on a PC (see
+// .article-list-view in style.css). Grouped by feed (each with its own
+// header whose per-feed actions row reveals on hover — see ui/articleList.js)
+// while browsing the plain unread timeline; a flat list showing each entry's
+// feed name inline while searching, since search results are ranked by
 // relevance, not by feed.
 function renderApp() {
   const query = state.searchQuery;
@@ -1540,27 +1541,18 @@ function hideStatus() {
   statusBarFillEl.style.width = "0%";
 }
 
-// --- clock watermark -------------------------------------------------------
-// Faint fixed HH:MM overlay (see .clock-watermark in style.css) shown
-// across every screen — started once at boot in startApp and left running
-// for the life of the tab, unlike the next-fetch indicator below (which is
-// only ever shown for its first 30s) this is meant to be a permanent
-// fixture.
-function updateClockWatermark() {
-  clockWatermarkEl.textContent = new Date().toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-function startClockWatermark() {
-  updateClockWatermark();
-  // Only the minute digits are shown, so a 1s tick is more often than the
-  // display can even change — one cheap textContent write a second isn't
-  // worth trading for the complexity of scheduling around the exact next
-  // minute boundary instead.
-  setInterval(updateClockWatermark, 1000);
+// --- view-time watermark ----------------------------------------------------
+// Faint fixed M:SS overlay (see .view-time-watermark in style.css) shown
+// across every screen, counting down today's remaining view-time budget (see
+// viewTime.js's DAILY_LIMIT_SECONDS/onTick) — unlike the next-fetch indicator
+// below (which is only ever shown for its first 30s) this is meant to be a
+// permanent fixture, driven for the life of the tab by
+// startViewTimeTracking's own countdown, not a separate timer here.
+function updateViewTimeWatermark(remainingSeconds) {
+  const total = Math.max(0, Math.round(remainingSeconds));
+  const minutes = Math.floor(total / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  viewTimeWatermarkEl.textContent = `${minutes}:${seconds}`;
 }
 
 // --- keyboard navigation ---------------------------------
@@ -1825,16 +1817,17 @@ function wireApp() {
 async function startApp() {
   appRoot.classList.remove("hidden");
   wireApp();
-  startClockWatermark();
   // Awaited before the first render so an already-exhausted daily budget
   // (see applyViewTimeLock) pins 振り返る from the very first paint instead
-  // of flashing 見る for a moment first.
-  const initiallyLocked = await checkInitialLock();
-  applyViewTimeLock(initiallyLocked);
+  // of flashing 見る for a moment first, and so the countdown watermark
+  // starts from the real server-side total instead of a blank/zeroed one.
+  const initialStatus = await fetchInitialStatus();
+  applyViewTimeLock(initialStatus.limitReached);
   startViewTimeTracking({
-    initiallyLocked,
+    initialStatus,
     onLocked: () => applyViewTimeLock(true),
     onUnlocked: () => applyViewTimeLock(false),
+    onTick: updateViewTimeWatermark,
   });
   await loadAppData();
   render();
