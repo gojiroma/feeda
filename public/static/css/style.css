@@ -476,13 +476,12 @@ input[type="text"], input[type="url"], input[type="search"] {
 /* Grouped-by-feed rendering of the article list (see groupByFeed in
    articleList.js) — one block per feed, each headlined by its own name
    (right-click/long-press for the per-feed context menu) instead of a
-   per-row feed name. Laid out as a grid (see the column-count breakpoints
+   per-row feed name. Laid out as a grid (see the shared auto-fit column rule
    near .article-list-view below) so a wide PC window shows several feeds'
    blocks side by side instead of one long column; align-items:start keeps
    a short block from stretching to match a tall neighbor in the same row. */
 .article-list-grouped {
   display: grid;
-  grid-template-columns: 1fr;
   align-items: start;
   gap: 4px 20px;
 }
@@ -699,9 +698,9 @@ input[type="text"], input[type="url"], input[type="search"] {
 
 /* The whole app's only content view (see #article-list in index.html) — a
    single scrolling column of article cards on a phone-width screen, widening
-   into a multi-column grid on a PC (see the breakpoints below) so a big
-   monitor shows more of the list at once instead of one long, mostly-empty
-   row down the middle. */
+   into a multi-column grid on a PC (see the shared auto-fit column rule
+   below) so a big monitor shows more of the list at once instead of one
+   long, mostly-empty row down the middle. */
 .article-list-view {
   flex: 1;
   min-height: 0;
@@ -720,43 +719,20 @@ input[type="text"], input[type="url"], input[type="search"] {
    direct-child combinator. */
 .article-list-view > .mobile-article-list-inner {
   display: grid;
-  grid-template-columns: 1fr;
   align-items: start;
   gap: 0 20px;
 }
-/* Column-count ramps from 1 (phone) up to a cap of 6 (very wide PC
-   monitors) as the viewport widens — shared by both the grouped and flat
-   layouts above. Values chosen so a typical laptop window already gets 2-3
-   columns rather than only kicking in on ultra-wide displays. */
-@media (min-width: 900px) {
-  .article-list-grouped,
-  .article-list-view > .mobile-article-list-inner {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-@media (min-width: 1200px) {
-  .article-list-grouped,
-  .article-list-view > .mobile-article-list-inner {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-@media (min-width: 1600px) {
-  .article-list-grouped,
-  .article-list-view > .mobile-article-list-inner {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-@media (min-width: 1900px) {
-  .article-list-grouped,
-  .article-list-view > .mobile-article-list-inner {
-    grid-template-columns: repeat(5, 1fr);
-  }
-}
-@media (min-width: 2200px) {
-  .article-list-grouped,
-  .article-list-view > .mobile-article-list-inner {
-    grid-template-columns: repeat(6, 1fr);
-  }
+/* Shared column rule for both the grouped and flat layouts above — no fixed
+   column-count cap, just as many ~320px-minimum columns as the viewport
+   fits (a single feed on a huge monitor still only ever gets 1, and a
+   20-feed list on a wide-enough monitor can spread across all 20; a phone-
+   width screen naturally lands on 1, the same single column as before).
+   auto-fit rather than auto-fill so, when there are fewer blocks/articles
+   than would-be columns, the empty tracks collapse instead of leaving
+   left-aligned columns with dead space to their right. */
+.article-list-grouped,
+.article-list-view > .mobile-article-list-inner {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 .mobile-article-item {
   border-bottom: 1px solid var(--border);

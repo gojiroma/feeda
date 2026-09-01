@@ -123,7 +123,24 @@ function buildArticleItem(entry, { feedTitleById, query, isUnread, onOpen, onSet
     target: "_blank",
     rel: "noopener noreferrer"
   });
-  row.addEventListener("click", () => onOpen(entry));
+  row.addEventListener("click", (ev) => {
+    onOpen(entry);
+    // Safari can silently swallow the anchor's own target="_blank" default
+    // action here: onOpen (main.js's openEntry) awaits an IndexedDB write
+    // then re-renders the list (container.innerHTML = "" in
+    // renderArticleList), tearing out this very <a> — and on Safari that
+    // happening within the same click's processing window sometimes cancels
+    // the pending new-tab navigation instead of letting it survive (Chrome/
+    // Firefox don't have this problem). Opening explicitly, synchronously,
+    // right here — still inside the click's own trusted user gesture —
+    // sidesteps that. A modified click (cmd/ctrl/shift/alt, or a
+    // middle-click) is left to the browser's native handling so
+    // open-in-background-tab/open-in-new-window still work as expected.
+    if (entry.link && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey) {
+      ev.preventDefault();
+      window.open(entry.link, "_blank", "noopener,noreferrer");
+    }
+  });
 
   const { imageSrc, snippet } = extractArticlePreview(entry.content || entry.summary || "");
 
