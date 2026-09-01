@@ -46,7 +46,7 @@ import { setupPairingShareUI, setupPairingReceiveUI } from "./ui/pairingModal.js
 import { setupShareLinkUI } from "./ui/shareLinkModal.js";
 import { updateFavicon } from "./favicon.js";
 import { extractArticlePreview } from "./sanitize.js";
-import { startViewTimeTracking } from "./viewTime.js";
+import { checkInitialLock, startViewTimeTracking } from "./viewTime.js";
 
 const setupScreen = document.getElementById("setup-screen");
 const appRoot = document.getElementById("app");
@@ -57,7 +57,7 @@ const statusBarEl = document.getElementById("status-bar");
 const statusBarFillEl = document.getElementById("status-bar-fill");
 const statusBarTextEl = document.getElementById("status-bar-text");
 const clockWatermarkEl = document.getElementById("clock-watermark");
-const viewLimitOverlayEl = document.getElementById("view-limit-overlay");
+const viewLimitBannerEl = document.getElementById("view-limit-banner");
 const modeToggleBtn = document.getElementById("mode-toggle-btn");
 const moreMenuBtn = document.getElementById("more-menu-btn");
 const moreMenuEl = document.getElementById("more-menu");
@@ -449,21 +449,62 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-function toggleMode() {
-  state.mode = state.mode === "view" ? "reflect" : "view";
-  appRoot.classList.toggle("reflect-mode", state.mode === "reflect");
+// Set once startApp's initial view-time check (or a later lock/unlock
+// transition — see applyViewTimeLock) determines the daily budget is spent.
+// Guarded here rather than only by disabling modeToggleBtn, since the 'r'
+// keyboard shortcut calls setMode/toggleMode directly and never touches the
+// button itself.
+let viewTimeLocked = false;
+
+function setMode(mode) {
+  state.mode = mode;
+  appRoot.classList.toggle("reflect-mode", mode === "reflect");
   // Icon-only button (see .icon-btn in style.css) — the glyph itself
   // (📖) doesn't change, .active carries which mode is current, and the
   // title covers what a click does for anyone hovering/using a screen
   // reader.
-  modeToggleBtn.classList.toggle("active", state.mode === "reflect");
-  modeToggleBtn.title = state.mode === "reflect" ? "見るに戻る" : "振り返る";
-  if (state.mode === "reflect") {
+  modeToggleBtn.classList.toggle("active", mode === "reflect");
+  modeToggleBtn.title = viewTimeLocked
+    ? "本日の閲覧時間の上限のため「見る」は利用できません"
+    : mode === "reflect"
+      ? "見るに戻る"
+      : "振り返る";
+  if (mode === "reflect") {
     renderReflect().catch((err) => console.error("reflect render failed", err));
     startReflectLiveRefresh();
   } else {
     stopReflectLiveRefresh();
     render();
+  }
+}
+
+function toggleMode() {
+  // Locked out of 見る, but already sitting on 振り返る (the only place
+  // left to be) — nothing to do.
+  if (viewTimeLocked && state.mode === "reflect") return;
+  setMode(state.mode === "view" ? "reflect" : "view");
+}
+
+// Called once at boot (after the initial view-time check) and again on every
+// later lock/unlock transition (see startViewTimeTracking's onLocked/
+// onUnlocked in startApp) — unlike the old full-screen lockout overlay this
+// replaced, reaching the daily limit only blocks 見る: 振り返る (reviewing
+// already-read history, not consuming new content) stays fully usable, so
+// this pins the app on 振り返る and disables the toggle instead of covering
+// the screen.
+function applyViewTimeLock(locked) {
+  viewTimeLocked = locked;
+  viewLimitBannerEl.classList.toggle("hidden", !locked);
+  modeToggleBtn.disabled = locked;
+  if (locked && state.mode !== "reflect") {
+    setMode("reflect");
+  } else {
+    // Refresh the title/disabled state setMode would otherwise have set.
+    modeToggleBtn.title = locked
+      ? "本日の閲覧時間の上限のため「見る」は利用できません"
+      : state.mode === "reflect"
+        ? "見るに戻る"
+        : "振り返る";
   }
 }
 
@@ -1785,12 +1826,26 @@ async function startApp() {
   appRoot.classList.remove("hidden");
   wireApp();
   startClockWatermark();
+  // Awaited before the first render so an already-exhausted daily budget
+  // (see applyViewTimeLock) pins 振り返る from the very first paint instead
+  // of flashing 見る for a moment first.
+  const initiallyLocked = await checkInitialLock();
+  applyViewTimeLock(initiallyLocked);
   startViewTimeTracking({
-    onLocked: () => viewLimitOverlayEl.classList.remove("hidden"),
-    onUnlocked: () => viewLimitOverlayEl.classList.add("hidden"),
+    initiallyLocked,
+    onLocked: () => applyViewTimeLock(true),
+    onUnlocked: () => applyViewTimeLock(false),
   });
   await loadAppData();
   render();
+  if (state.mode === "reflect") {
+    // applyViewTimeLock's setMode("reflect") above (if it fired) ran before
+    // loadAppData populated state.feedsById, so the feed color-filter bar it
+    // drew came up empty — refresh once now that feed data actually exists.
+    // render() itself no-ops in reflect mode (see its own comment), so this
+    // wouldn't otherwise happen on its own.
+    renderReflect().catch((err) => console.error("reflect render failed", err));
+  }
   refreshAll();
 }
 

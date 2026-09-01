@@ -154,19 +154,22 @@ input[type="text"], input[type="url"], input[type="search"] {
 .modal-card h1 { margin-top: 0; font-size: 1.3rem; }
 .modal-card p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
 
-/* Daily view-time limit lockout (see viewTime.js) — same fixed full-screen
-   chrome as .modal, but with no close button and the highest z-index in the
-   app: unlike every other modal here, this one is never meant to be
-   dismissable by the user, only by the calendar day rolling over. */
-.view-limit-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background: rgba(0, 0, 0, 0.75);
-  z-index: 40;
+/* Daily view-time limit notice (see viewTime.js) — a plain in-flow strip,
+   not an overlay: reaching the limit locks out "見る" (see
+   applyViewTimeLock in main.js, which forces and pins 振り返る) but must
+   never block 振り返る itself, so nothing here uses position:fixed or a
+   high z-index the way an actual modal would. */
+.view-limit-banner {
+  padding: 8px 16px;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--danger);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-align: center;
+}
+#mode-toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 #ng-word-form { display: flex; gap: 8px; }

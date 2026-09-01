@@ -42,6 +42,22 @@ async function fetchStatus() {
   return res.json();
 }
 
+// Exposed separately from startViewTimeTracking so main.js's startApp can
+// await it and decide the *initial* screen (振り返る vs 見る) before the
+// first render, instead of always booting into 見る and only forcing
+// 振り返る a moment later once the first status check resolves. Fails open
+// (not locked) on a network error — a status-check hiccup shouldn't lock
+// someone out of reading.
+export async function checkInitialLock() {
+  try {
+    const { limitReached } = await fetchStatus();
+    return limitReached;
+  } catch (err) {
+    console.error("view-time status check failed", err);
+    return false;
+  }
+}
+
 async function sendHeartbeat() {
   const res = await fetch(apiUrl("/api/view-time/heartbeat"), {
     method: "POST",
@@ -56,9 +72,11 @@ async function sendHeartbeat() {
 // backend/routes/view_time.py) — kept in the DB rather than only in
 // localStorage so clearing site data, or opening the same account on
 // another device, doesn't reset the clock. This module only tracks state
-// and reports transitions via onLocked/onUnlocked; main.js owns rendering
-// the actual blocking overlay.
-export function startViewTimeTracking({ onLocked, onUnlocked }) {
+// and reports transitions via onLocked/onUnlocked; main.js owns what a lock
+// actually does (forcing and pinning 振り返る — see applyViewTimeLock).
+// initiallyLocked is the result of an earlier checkInitialLock() call, so
+// this doesn't repeat that same status fetch a second time on startup.
+export function startViewTimeTracking({ initiallyLocked, onLocked, onUnlocked }) {
   let heartbeatTimer = null;
   let lockPollTimer = null;
 
@@ -102,17 +120,9 @@ export function startViewTimeTracking({ onLocked, onUnlocked }) {
       .catch((err) => console.error("view-time heartbeat failed", err));
   }
 
-  // Checked once up front (before this tab logs any time of its own) so an
-  // already-exhausted budget — used up earlier today in another tab or on
-  // another device sharing this account — locks immediately on load instead
-  // of only after this tab's first heartbeat.
-  fetchStatus()
-    .then(({ limitReached }) => {
-      if (limitReached) {
-        lock();
-      } else {
-        heartbeatTimer = setInterval(tick, HEARTBEAT_INTERVAL_MS);
-      }
-    })
-    .catch((err) => console.error("view-time status check failed", err));
+  if (initiallyLocked) {
+    lock();
+  } else {
+    heartbeatTimer = setInterval(tick, HEARTBEAT_INTERVAL_MS);
+  }
 }
