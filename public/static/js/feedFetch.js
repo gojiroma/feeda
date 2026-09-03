@@ -1,6 +1,5 @@
-import { putFeed, putEntries, getEntriesByFeed } from "./db.js";
+import { putFeed, putEntries } from "./db.js";
 import { getSession } from "./session.js";
-import { computeFrequencyGroup, nextCheckDelayMs } from "./frequency.js";
 import { getActiveUrlBlockPatterns, matchesAnyUrlBlockPattern } from "./urlBlocks.js";
 
 function apiUrl(path) {
@@ -28,19 +27,6 @@ function firstNonEmpty(...values) {
 // feed bound the Dublin Core namespace to.
 function dcDate(el) {
   return text(el.getElementsByTagNameNS("*", "date")[0]);
-}
-
-// Feeds with no publish dates on their entries can't use the readUntil
-// watermark at all — there's nothing to compare against "now". Fall back to
-// fingerprinting the entry list itself: if the fingerprint changes, the feed
-// has new/changed content and is shown as unread as a whole (see isUnread in
-// main.js), since there's no per-entry date to say exactly which is new.
-async function hashEntryList(entries) {
-  const key = entries.map((e) => e.guid).join("\n");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 }
 
 function parseRss(doc, channel) {
@@ -95,6 +81,11 @@ function parseFeedXml(xmlText) {
   throw new Error("unrecognized feed format");
 }
 
+// Fetches one feed on demand (see main.js's selectFeed — there's no
+// background crawl any more, this only ever runs when the user actually
+// clicks the feed in the sidebar) and stores whatever new entries it finds.
+// etag/lastModified still ride along on a conditional GET so re-clicking an
+// unchanged feed costs a cheap 304 instead of a full re-download.
 export async function fetchFeed(feed) {
   const { accountId } = getSession();
   const headers = { Authorization: `Bearer ${accountId}` };
@@ -105,8 +96,7 @@ export async function fetchFeed(feed) {
   const res = await fetch(apiUrl("/api/fetch-feed"), { headers });
 
   if (res.status === 304) {
-    const schedule = await computeSchedule(feed);
-    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString(), ...schedule });
+    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString() });
     return [];
   }
   if (!res.ok) {
@@ -123,21 +113,12 @@ export async function fetchFeed(feed) {
 
   // "刈り取り" (reap) blocklist (see urlBlocks.js) — an entry whose link
   // matches one of these wildcard patterns is rejected right here, before it
-  // ever reaches IndexedDB, rather than merely hidden at render time like an
-  // NG-worded title (see filterByUrlBlocks in main.js). Read fresh on every
-  // fetch instead of threaded through as a parameter: this only runs once
-  // per feed per refresh cycle, so the extra IndexedDB round-trip is cheap,
-  // and it means a pattern added seconds ago already applies to the very
-  // next fetch instead of whatever stale list the caller happened to hold.
+  // ever reaches IndexedDB, rather than merely hidden at render time.
   const blockPatterns = (await getActiveUrlBlockPatterns()).map((p) => p.pattern);
   const dbEntries = entries
     .filter((e) => e.guid && !matchesAnyUrlBlockPattern(e.link, blockPatterns))
     .map((e) => ({ id: `${feed.feedId}:${e.guid}`, feedId: feed.feedId, ...e }));
   await putEntries(dbEntries);
-
-  const isDateless = dbEntries.length > 0 && !dbEntries.some((e) => e.pubDate);
-  const latestContentHash = isDateless ? await hashEntryList(dbEntries) : null;
-  const schedule = await computeSchedule(feed);
 
   await putFeed({
     ...feed,
@@ -152,27 +133,7 @@ export async function fetchFeed(feed) {
     lastFetchedAt: new Date().toISOString(),
     etag: res.headers.get("ETag") || null,
     lastModified: res.headers.get("Last-Modified") || null,
-    latestContentHash,
-    ...schedule,
   });
 
   return dbEntries;
-}
-
-// Schedules the next fetch based on the feed's own posting frequency
-// (computed from its full cached history, same as the UI's grouping) so a
-// large subscription list doesn't mean re-fetching everything on every
-// visit. nextCheckAt is purely local — never synced. frequencyGroup *is*
-// synced (only when it actually changes, to avoid needless writes) so a
-// fresh device with no fetch history of its own can still order its first
-// scan by how often each feed tends to post — see main.js's refreshAll.
-async function computeSchedule(feed) {
-  const allEntries = await getEntriesByFeed(feed.feedId);
-  const group = computeFrequencyGroup(allEntries);
-  const nextCheckAt = new Date(Date.now() + nextCheckDelayMs(group.key)).toISOString();
-
-  if (feed.frequencyGroup === group.key) {
-    return { nextCheckAt };
-  }
-  return { nextCheckAt, frequencyGroup: group.key, dirty: true, clientUpdatedAt: new Date().toISOString() };
 }

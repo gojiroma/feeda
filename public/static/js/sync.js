@@ -20,23 +20,12 @@ function feedToPayload(feed) {
     url: feed.url,
     title: feed.title,
     addedAt: feed.addedAt,
-    readUntil: feed.readUntil,
-    contentHash: feed.contentHash || null,
-    frequencyGroup: feed.frequencyGroup || null,
     paused: feed.paused || false,
-    // Set once the user has ever manually toggled pause on this feed (via
-    // right-click/long-press) — synced so the auto-dedupe-by-host cleanup
-    // (see main.js) never fights a deliberate un-pause on another device.
-    userManagedPause: feed.userManagedPause || false,
     // Context-menu color tag (see colorPalette.js) — a palette key or null.
     color: feed.color || null,
-    // Pulled to the top of the article list's unread timeline regardless of
-    // read state, staleness, or pause (see main.js's togglePinFeed).
+    // Pulled to the top of the feed list regardless of staleness or pause
+    // (see main.js's togglePinFeed).
     pinned: feed.pinned || false,
-    // Free-text tags — no UI writes these any more (removed along with the
-    // sidebar's tag editor), but the field stays synced so a device that
-    // still has some from before keeps seeing them round-trip correctly.
-    tags: feed.tags || [],
     deletedAt: feed.deletedAt || null,
   };
 }
@@ -97,14 +86,7 @@ export async function pullUpdates() {
 
     if (existing && existing.dirty && existing.clientUpdatedAt > row.clientUpdatedAt) {
       // unpushed local change (e.g. a color/pause edit) is newer than this
-      // row overall, so the rest of it is skipped and will win on the next
-      // push — but readUntil is monotonic (see laterIso in db.js), so still
-      // pull it forward if the remote side has read further than we have.
-      // Otherwise this device's own next push would carry its stale
-      // readUntil back over another device's more-advanced one.
-      if (payload.readUntil && payload.readUntil !== existing.readUntil) {
-        await putFeed({ ...existing, readUntil: payload.readUntil });
-      }
+      // row overall, so it's skipped and will win on the next push.
       continue;
     }
 
@@ -113,22 +95,15 @@ export async function pullUpdates() {
       url: payload.url,
       title: payload.title,
       addedAt: payload.addedAt,
-      readUntil: payload.readUntil,
-      contentHash: payload.contentHash || null,
-      frequencyGroup: payload.frequencyGroup || null,
       paused: payload.paused || false,
-      userManagedPause: payload.userManagedPause || false,
       color: payload.color || null,
       pinned: payload.pinned || false,
-      tags: payload.tags || [],
       deletedAt: payload.deletedAt || null,
       clientUpdatedAt: row.clientUpdatedAt,
       dirty: false,
       lastFetchedAt: existing ? existing.lastFetchedAt : null,
       etag: existing ? existing.etag : null,
       lastModified: existing ? existing.lastModified : null,
-      latestContentHash: existing ? existing.latestContentHash : null,
-      nextCheckAt: existing ? existing.nextCheckAt : null,
     });
   }
 
@@ -140,11 +115,6 @@ async function getExistingFeed(feedId) {
   return feeds.find((f) => f.feedId === feedId) || null;
 }
 
-// Pull before push (unlike log/search sync, which push first) — this way a
-// feed touched locally for an unrelated reason (color/pause) picks up any
-// more-advanced readUntil another device already pushed *before* this
-// device's own dirty row goes out, instead of overwriting it. See
-// pullUpdates' readUntil merge above for the other half of this.
 // Wrapped in serialized() so overlapping callers (see syncGuard.js) never
 // run two pull+push cycles at once.
 export const syncNow = serialized(async function syncNow() {
