@@ -1,6 +1,7 @@
-import { putFeed, putEntries } from "./db.js";
+import { putFeed, putEntries, getEntriesByFeed } from "./db.js";
 import { getSession } from "./session.js";
 import { getActiveUrlBlockPatterns, matchesAnyUrlBlockPattern } from "./urlBlocks.js";
+import { computeFrequencyGroup } from "./frequency.js";
 
 function apiUrl(path) {
   const { apiBase } = getSession();
@@ -68,6 +69,19 @@ function parseAtom(feedEl) {
   return { title, entries };
 }
 
+// Re-derives a feed's posting-frequency group (see frequency.js) from its
+// full cached history, purely for how the feed list groups/labels it (see
+// ui/feedList.js) — there's no fetch schedule left that depends on this any
+// more. Only marks the feed dirty (to sync the new label to other devices)
+// when the group actually changed, so re-clicking an already-classified
+// feed doesn't spam the sync queue.
+async function withFrequencyGroup(feed) {
+  const allEntries = await getEntriesByFeed(feed.feedId);
+  const group = computeFrequencyGroup(allEntries).key;
+  if (feed.frequencyGroup === group) return feed;
+  return { ...feed, frequencyGroup: group, dirty: true, clientUpdatedAt: new Date().toISOString() };
+}
+
 function parseFeedXml(xmlText) {
   const doc = new DOMParser().parseFromString(xmlText, "text/xml");
   if (doc.querySelector("parsererror")) throw new Error("failed to parse feed XML");
@@ -96,7 +110,7 @@ export async function fetchFeed(feed) {
   const res = await fetch(apiUrl("/api/fetch-feed"), { headers });
 
   if (res.status === 304) {
-    await putFeed({ ...feed, lastFetchedAt: new Date().toISOString() });
+    await putFeed(await withFrequencyGroup({ ...feed, lastFetchedAt: new Date().toISOString() }));
     return [];
   }
   if (!res.ok) {
@@ -120,20 +134,22 @@ export async function fetchFeed(feed) {
     .map((e) => ({ id: `${feed.feedId}:${e.guid}`, feedId: feed.feedId, ...e }));
   await putEntries(dbEntries);
 
-  await putFeed({
-    ...feed,
-    // The feed's own <title> is the source of truth for what to call it —
-    // prefer it over whatever guess was stored at registration time (e.g.
-    // the userscript's best-effort <link title> guess, or an OPML entry's
-    // title). This also self-heals feeds that were registered with a wrong
-    // guess: the next time each one is fetched, its real title takes over.
-    // Only fall back to the stored guess for the rare feed that omits
-    // <title> entirely.
-    title: title || feed.title,
-    lastFetchedAt: new Date().toISOString(),
-    etag: res.headers.get("ETag") || null,
-    lastModified: res.headers.get("Last-Modified") || null,
-  });
+  await putFeed(
+    await withFrequencyGroup({
+      ...feed,
+      // The feed's own <title> is the source of truth for what to call it —
+      // prefer it over whatever guess was stored at registration time (e.g.
+      // the userscript's best-effort <link title> guess, or an OPML entry's
+      // title). This also self-heals feeds that were registered with a wrong
+      // guess: the next time each one is fetched, its real title takes over.
+      // Only fall back to the stored guess for the rare feed that omits
+      // <title> entirely.
+      title: title || feed.title,
+      lastFetchedAt: new Date().toISOString(),
+      etag: res.headers.get("ETag") || null,
+      lastModified: res.headers.get("Last-Modified") || null,
+    })
+  );
 
   return dbEntries;
 }

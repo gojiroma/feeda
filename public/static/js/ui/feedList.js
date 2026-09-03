@@ -1,5 +1,6 @@
 import { highlightText } from "../highlight.js";
 import { COLOR_BY_KEY } from "../colorPalette.js";
+import { FREQUENCY_ORDER, FREQUENCY_LABELS } from "../frequency.js";
 import { renderColorSwatches } from "./commonComponents.js";
 import { renderEmptyHint } from "./listUtils.js";
 import { createElement, createButton, setCustomProperty } from "./domUtils.js";
@@ -106,10 +107,12 @@ function buildFeedItem(feed, { selectedFeedId, query, interactions }) {
 }
 
 // The feed list is always fully shown (no crawling/unread state to gate
-// visibility on — see main.js) — just pinned feeds up top, the rest of the
-// active subscriptions alphabetically, and paused ("更新停止") feeds sunk
-// to their own section at the bottom so they're out of the way without
-// disappearing.
+// visibility on — see main.js) — pinned feeds up top, then the rest of the
+// active subscriptions broken into their posting-frequency groups (see
+// frequency.js — computed from a feed's own cached entries once it's
+// actually been fetched at least once, most-frequent-first), and paused
+// ("更新停止") feeds sunk to their own section at the bottom so they're out
+// of the way without disappearing.
 export function renderFeedList(container, { feeds, selectedFeedId, query, onSelect, onTogglePause, onTogglePin, onSetColor, onCopyUrl }) {
   container.innerHTML = "";
 
@@ -138,6 +141,16 @@ export function renderFeedList(container, { feeds, selectedFeedId, query, onSele
   }
 
   appendSection(pinned.length > 0 ? "📌 ピン留め" : null, pinned);
-  appendSection(null, active);
+
+  const activeByGroup = new Map();
+  for (const feed of active) {
+    const key = feed.frequencyGroup || "unknown";
+    if (!activeByGroup.has(key)) activeByGroup.set(key, []);
+    activeByGroup.get(key).push(feed);
+  }
+  for (const key of FREQUENCY_ORDER) {
+    appendSection(FREQUENCY_LABELS.get(key), activeByGroup.get(key) || []);
+  }
+
   appendSection(paused.length > 0 ? "更新停止" : null, paused);
 }
