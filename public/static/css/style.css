@@ -154,24 +154,6 @@ input[type="text"], input[type="url"], input[type="search"] {
 .modal-card h1 { margin-top: 0; font-size: 1.3rem; }
 .modal-card p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; }
 
-/* Daily view-time limit notice (see viewTime.js) — a plain in-flow strip,
-   not an overlay: reaching the limit locks out "見る" (see
-   applyViewTimeLock in main.js, which forces and pins 振り返る) but must
-   never block 振り返る itself, so nothing here uses position:fixed or a
-   high z-index the way an actual modal would. */
-.view-limit-banner {
-  padding: 8px 16px;
-  background: rgba(220, 38, 38, 0.12);
-  color: var(--danger);
-  border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
-  text-align: center;
-}
-#mode-toggle-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 #ng-word-form { display: flex; gap: 8px; }
 #ng-word-form input { flex: 1; }
 .ng-word-list {
@@ -237,34 +219,6 @@ input[type="text"], input[type="url"], input[type="search"] {
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-/* Faint fixed countdown of today's remaining view-time budget (see
-   viewTime.js/DAILY_LIMIT_SECONDS), sized so "M:SS" spans roughly half the
-   viewport width — sits above every screen (panes, mobile list, reflect)
-   since it's a direct child of .app, not any one of them, but below the
-   modal/menu layers (z-index 20/30 — the seed modal, feed context menu,
-   color picker) so those still read as on top of it. pointer-events:none
-   and a low opacity keep it out of the way of both clicks and actually
-   reading the content underneath; the tabular-nums variant keeps the digits
-   from jittering sideways against the fixed-width colon as the seconds tick
-   over. Updated from main.js's updateViewTimeWatermark, driven by
-   viewTime.js's own countdown (see onTick in startViewTimeTracking). */
-.view-time-watermark {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
-  z-index: 15;
-  font-size: 17vw;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  color: var(--text);
-  opacity: 0.06;
-  user-select: none;
-  white-space: nowrap;
 }
 .topbar {
   display: flex;
@@ -473,80 +427,111 @@ input[type="text"], input[type="url"], input[type="search"] {
   color: var(--text);
 }
 
-/* Grouped-by-feed rendering of the article list (see groupByFeed in
-   articleList.js) — one block per feed, each headlined by its own name
-   (right-click/long-press for the per-feed context menu) instead of a
-   per-row feed name. Laid out as a grid (see the shared auto-fit column rule
-   near .article-list-view below) so a wide PC window shows several feeds'
-   blocks side by side instead of one long column; align-items:start keeps
-   a short block from stretching to match a tall neighbor in the same row. */
-.article-list-grouped {
-  display: grid;
-  align-items: start;
-  gap: 4px 20px;
+.empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
+
+/* --- Three panes: feed list / article list / preview ---------------------
+   Always all three, at every viewport width (see main.js) — there's no
+   crawl-driven cross-feed timeline or responsive single-column fallback any
+   more, so the feed list has no reason to ever be hidden. */
+.panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
-.article-feed-header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+.feed-pane {
+  width: 260px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+.article-pane {
+  width: 360px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 8px;
-  background: var(--bg-alt);
-  border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
-  font-weight: 600;
+  min-height: 0;
 }
-/* Copy-URL feedback (see copyFeedUrl in main.js) — flashed on the header
-   the icon button was clicked from. */
-.article-feed-header.copy-flash {
+.preview-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.pane-resizer {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+}
+.pane-resizer:hover,
+.pane-resizer.dragging {
   background: var(--accent);
-  color: var(--accent-fg);
-  transition: background 0.15s ease, color 0.15s ease;
+  opacity: 0.35;
 }
-/* --feed-color set inline per feed (see buildFeedHeader in
-   ui/articleList.js) — a quiet-tag convention shared with reflect's own
-   --reflect-color: a left border plus a low-alpha tint, so a feed's color
-   shows up on its block header. */
-.article-feed-header--colored {
-  border-left: 3px solid rgb(var(--feed-color));
-  background: rgba(var(--feed-color), 0.12);
+
+/* --- Feed list (left pane) ------------------------------------------------ */
+.feed-list-section-label {
+  padding: 8px 12px 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
 }
-.article-feed-header-row {
+.feed-list-group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.feed-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  font-size: 0.88rem;
 }
-.article-feed-header-title {
+.feed-item:hover {
+  background: rgba(var(--accent-rgb), 0.08);
+}
+.feed-item.selected {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.feed-item.paused {
+  opacity: 0.55;
+}
+.feed-item--colored {
+  border-left-color: rgb(var(--feed-color));
+}
+.feed-item--colored.selected {
+  border-left-color: var(--accent);
+}
+.feed-name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.article-feed-header-pin {
-  flex-shrink: 0;
-  font-size: 0.78rem;
-  line-height: 1;
-  opacity: 0.75;
-}
-/* Per-feed color/pin/pause/keep/copy actions (see buildFeedHeaderActions in
-   ui/articleList.js) — hidden by default, same hover/focus-within reveal as
-   .article-annotate-inline, plus .article-feed-header--actions-open (set by
-   JS via hoveredFeedId) so the row stays open across the full article-list
-   rebuild a pin/pause/keep/color change triggers, the same problem
-   .article-item--annotate-open works around for a single article row. */
-.article-feed-header-actions {
+/* Per-feed color/pin/pause/copy actions — hidden by default, revealed on
+   hover/focus the same way the article list's own annotate section is (see
+   .article-annotate-inline below), plus .feed-item--actions-open (set by JS
+   via hoveredFeedId in ui/feedList.js) so the row stays open across the
+   full feed-list rebuild a pin/pause/color change triggers. */
+.feed-item-actions {
   display: none;
+  flex-basis: 100%;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  padding-top: 2px;
 }
-.article-feed-header:hover .article-feed-header-actions,
-.article-feed-header:focus-within .article-feed-header-actions,
-.article-feed-header--actions-open .article-feed-header-actions {
+.feed-item:hover .feed-item-actions,
+.feed-item:focus-within .feed-item-actions,
+.feed-item--actions-open .feed-item-actions {
   display: flex;
 }
 .feed-header-icon-btn {
@@ -558,12 +543,6 @@ input[type="text"], input[type="url"], input[type="search"] {
   background: var(--accent);
   border-color: var(--accent);
 }
-
-.empty-hint { color: var(--text-muted); font-size: 0.9rem; padding: 12px 4px; }
-
-/* Sits inline in .article-feed-header-actions alongside the pin/pause/keep/
-   copy icon buttons — a plain wrapping row rather than a grid, since it's no
-   longer a standalone section of its own menu. */
 .feed-color-swatch-row {
   display: flex;
   flex-wrap: wrap;
@@ -668,6 +647,47 @@ input[type="text"], input[type="url"], input[type="search"] {
   gap: 6px;
 }
 
+/* --- Preview (right pane) ------------------------------------------------- */
+.preview-title { margin-top: 4px; }
+.preview-meta { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px; }
+.preview-link {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: var(--accent);
+  margin-bottom: 16px;
+  word-break: break-all;
+}
+.preview-video {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin-bottom: 16px;
+  background: #000;
+}
+.preview-video iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.preview-body { line-height: 1.7; font-size: 0.95rem; }
+.preview-body img { max-width: 100%; height: auto; }
+/* Always-visible copy of the article list's own hover-revealed color/
+   comment section (see renderAnnotateInline in articleList.js), stacked
+   under the preview body instead of requiring a hover. */
+.preview-annotate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.preview-annotate .annotate-palette-row {
+  max-width: 320px;
+}
+
 .search-highlight {
   background: #fde047;
   color: #111;
@@ -696,11 +716,9 @@ input[type="text"], input[type="url"], input[type="search"] {
   }
 }
 
-/* The whole app's only content view (see #article-list in index.html) — a
-   single scrolling column of article cards on a phone-width screen, widening
-   into a multi-column grid on a PC (see the shared auto-fit column rule
-   below) so a big monitor shows more of the list at once instead of one
-   long, mostly-empty row down the middle. */
+/* The middle pane's content view (see #article-list in index.html) — a
+   single scrolling column of article cards for whichever feed is selected,
+   or a search's results. */
 .article-list-view {
   flex: 1;
   min-height: 0;
@@ -711,54 +729,20 @@ input[type="text"], input[type="url"], input[type="search"] {
   margin: 0;
   padding: 0;
 }
-/* Flat (ungrouped) rendering — used for search results, see groupByFeed in
-   articleList.js — gets the same responsive grid as .article-list-grouped
-   above, just per-article instead of per-feed-block. Scoped to the
-   top-level list only (not the nested per-feed <ul> inside
-   .article-feed-block, which stays a plain single-column list) via the
-   direct-child combinator. */
-.article-list-view > .mobile-article-list-inner {
-  display: grid;
-  align-items: start;
-  gap: 0 20px;
-}
-/* Shared column rule for both the grouped and flat layouts above — no fixed
-   column-count cap, just as many ~320px-minimum columns as the viewport
-   fits (a single feed on a huge monitor still only ever gets 1, and a
-   20-feed list on a wide-enough monitor can spread across all 20; a phone-
-   width screen naturally lands on 1, the same single column as before).
-   auto-fit rather than auto-fill so, when there are fewer blocks/articles
-   than would-be columns, the empty tracks collapse instead of leaving
-   left-aligned columns with dead space to their right. */
-.article-list-grouped,
-.article-list-view > .mobile-article-list-inner {
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-}
 .mobile-article-item {
   border-bottom: 1px solid var(--border);
+  cursor: pointer;
 }
-/* Offered only when the list is short enough to fit on screen without
-   scrolling — see ui/articleList.js's appendMarkAllReadButtonIfFits. A
-   longer list already gets everything marked read for free just by
-   scrolling to the bottom (see main.js's handleArticleListScrollBottom), so
-   this exists purely to cover the case where there's no scrolling to do. */
-.mark-all-read-btn {
-  display: block;
-  width: 100%;
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 0;
-  font-size: 0.95rem;
+.mobile-article-item.selected {
+  background: rgba(var(--accent-rgb), 0.1);
 }
 .mobile-article-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
-  color: var(--text-muted);
-  text-decoration: none;
+  color: var(--text);
 }
-.mobile-article-item.unread .mobile-article-row { color: var(--unread); font-weight: 600; }
 .mobile-article-row .article-snippet { font-weight: 400; }
 /* j/k (or Arrow Up/Down — see moveArticleFocus in main.js) move this
    keyboard-only outline across rows; Enter/o (openFocusedArticleLink) opens
@@ -806,16 +790,16 @@ input[type="text"], input[type="url"], input[type="search"] {
 .reflect-view {
   display: none;
 }
-/* Reflect is a separate top-level screen, not the article list — hide
-   #article-list with !important so it wins over its own display rule
-   regardless of viewport. .filter-row (the feed color filter +
+/* Reflect is a separate top-level screen, not the three panes — hide
+   .panes (feed list / article list / preview) with !important so it wins
+   over its own display rule. .filter-row (the feed color filter +
    search-history bar) is NOT hidden — reflect filters its timeline through
    the same bar too (see renderReflect/filterLogEntriesByFeedColor in
    main.js). A log entry's own color tag is a separate, purely visual axis
    (see .reflect-log-item--colored) with no filter row of its own anymore —
    having two differently-scoped color filters stacked on this one screen
    was more clutter than it was worth. */
-.app.reflect-mode #article-list {
+.app.reflect-mode .panes {
   display: none !important;
 }
 .app.reflect-mode .reflect-view {

@@ -57,11 +57,6 @@ class Config:
     # whichever one preceded it (see setupShareLinkUI in shareLinkModal.js)
     # so a longer window doesn't mean multiple links stay live at once.
     SHARE_LINK_TTL_SECONDS = int(os.environ.get("SHARE_LINK_TTL_SECONDS", str(3 * 60 * 60)))
-    # Daily per-account view-time budget (see routes/view_time.py) — how long
-    # the app can be viewed per calendar day before the client locks itself
-    # out until the next day. 8 minutes by default.
-    DAILY_VIEW_LIMIT_SECONDS = int(os.environ.get("DAILY_VIEW_LIMIT_SECONDS", str(8 * 60)))
-    RATE_LIMIT_VIEW_TIME = os.environ.get("RATE_LIMIT_VIEW_TIME", "30 per minute")
 
     @classmethod
     def require_database_url(cls):
