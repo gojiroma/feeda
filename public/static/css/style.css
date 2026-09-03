@@ -673,20 +673,6 @@ input[type="text"], input[type="url"], input[type="search"] {
 }
 .preview-body { line-height: 1.7; font-size: 0.95rem; }
 .preview-body img { max-width: 100%; height: auto; }
-/* Always-visible copy of the article list's own hover-revealed color/
-   comment section (see renderAnnotateInline in articleList.js), stacked
-   under the preview body instead of requiring a hover. */
-.preview-annotate {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.preview-annotate .annotate-palette-row {
-  max-width: 320px;
-}
 
 .search-highlight {
   background: #fde047;

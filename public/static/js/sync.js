@@ -21,6 +21,11 @@ function feedToPayload(feed) {
     title: feed.title,
     addedAt: feed.addedAt,
     paused: feed.paused || false,
+    // Posting-frequency group (see frequency.js) — purely a feed-list
+    // display grouping now, synced so a device that hasn't fetched this
+    // feed itself yet still sorts it into the right section (see
+    // ui/feedList.js).
+    frequencyGroup: feed.frequencyGroup || null,
     // Context-menu color tag (see colorPalette.js) — a palette key or null.
     color: feed.color || null,
     // Pulled to the top of the feed list regardless of staleness or pause
@@ -96,6 +101,7 @@ export async function pullUpdates() {
       title: payload.title,
       addedAt: payload.addedAt,
       paused: payload.paused || false,
+      frequencyGroup: payload.frequencyGroup || null,
       color: payload.color || null,
       pinned: payload.pinned || false,
       deletedAt: payload.deletedAt || null,

@@ -93,4 +93,11 @@ export function setupSearchBar(inputEl, onQuery, { onSubscribe, onHistoryChange,
   });
 
   refreshBar().catch((err) => console.error("search history load failed", err));
+
+  // Exposed so a caller can refresh the bar after history rows arrive from
+  // somewhere other than a search made in this bar (e.g. a background pull
+  // from the server on another device's history — see main.js's
+  // refreshMeta) — refreshBar() itself only ever runs at setup or right
+  // after a local recordAndSync, neither of which fires for that case.
+  return { refreshHistoryBar: refreshBar };
 }

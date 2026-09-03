@@ -2,7 +2,7 @@
 // app shell is otherwise always fetched fresh from the network, so unlike
 // a cache-first design this name doesn't need to be bumped by hand on every
 // deploy just to make new code reach already-installed users.
-const CACHE_NAME = "feeda-shell-v4";
+const CACHE_NAME = "feeda-shell-v5";
 
 const APP_SHELL = [
   "./",
@@ -14,6 +14,7 @@ const APP_SHELL = [
   "./static/js/db.js",
   "./static/js/highlight.js",
   "./static/js/favicon.js",
+  "./static/js/frequency.js",
   "./static/js/feedFetch.js",
   "./static/js/search.js",
   "./static/js/sanitize.js",

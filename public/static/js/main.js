@@ -66,6 +66,11 @@ const moreMenuEl = document.getElementById("more-menu");
 // (both happen synchronously inside wireApp), so the placeholder default
 // never really runs.
 let openShortcutsModal = () => { };
+// Set by setupSearchBar (see wireApp) — refreshMeta calls this after
+// pulling search history from the server in the background, since that bar
+// otherwise only ever refreshes itself right after a search made in this
+// tab (see ui/searchBar.js).
+let refreshSearchHistoryBar = () => { };
 const reflectTimelineEl = document.getElementById("reflect-timeline");
 const reflectDayNavEl = document.getElementById("reflect-day-nav");
 const reflectDateLabelEl = document.getElementById("reflect-date-label");
@@ -527,11 +532,7 @@ function renderApp() {
   });
 
   const selectedEntry = state.selectedEntryId ? entries.find((e) => e.id === state.selectedEntryId) || null : null;
-  renderPreview(previewEl, selectedEntry, highlightQuery(), {
-    logEntry: selectedEntry ? state.logByEntryId.get(selectedEntry.id) : null,
-    onSetColor: selectedEntry ? (color) => annotateEntrySetColor(selectedEntry, color) : null,
-    onAddComment: selectedEntry ? (text) => annotateEntryAddComment(selectedEntry, text) : null,
-  });
+  renderPreview(previewEl, selectedEntry, highlightQuery());
 }
 
 function renderFeedListPane() {
@@ -905,7 +906,7 @@ function toggleFullscreen() {
 
 function wireApp() {
   setupPaneResizing();
-  setupSearchBar(
+  const searchBarHandle = setupSearchBar(
     searchInputEl,
     (query) => {
       state.searchQuery = query;
@@ -936,6 +937,7 @@ function wireApp() {
       },
     }
   );
+  refreshSearchHistoryBar = searchBarHandle.refreshHistoryBar;
   wireKeyboardNav();
   document.getElementById("brand-btn").addEventListener("click", toggleFullscreen);
   // A share-link session (see session.js's initEphemeralSession) never gets
@@ -1035,6 +1037,11 @@ async function refreshMeta() {
   }
   try {
     await syncSearchHistoryNow();
+    // The search-history chip bar (see ui/searchBar.js) only ever redraws
+    // itself right after a search made in *this* tab — a history row pulled
+    // from another device just now would otherwise sit in IndexedDB
+    // unseen until something else happens to trigger a search here.
+    refreshSearchHistoryBar();
   } catch (err) {
     console.error("search history sync failed", err);
   }
@@ -1049,7 +1056,15 @@ async function refreshMeta() {
     console.error("url block sync failed", err);
   }
   await loadAppData();
-  render();
+  // render() no-ops while sitting on 振り返る (see its own comment) — reflect
+  // has to be told directly, or a background pull landing while that screen
+  // is already open (log entries, most notably) would never actually reach
+  // it.
+  if (state.mode === "reflect") {
+    renderReflect().catch((err) => console.error("reflect render failed", err));
+  } else {
+    render();
+  }
 }
 
 async function startApp() {
