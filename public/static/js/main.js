@@ -268,6 +268,35 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// The very first time 振り返る is opened this session, "今日" can easily
+// have nothing logged yet — articles are only ever logged by actually
+// clicking into one (see openEntry), and a session spent just browsing
+// feeds for the first time since opening the app won't have done that yet.
+// Landing on a seemingly-blank "この日はまだ記録がありません。" (plus
+// near-invisible zero-height trend bars) reads as "振り返るが壊れている"
+// even though real history exists on an earlier day — jump to the most
+// recent day that actually has something logged instead, once, the first
+// time reflect is opened. Never runs again after that: once the user's
+// navigated (today, a different day, back), further switches must not
+// silently yank them somewhere else.
+let hasCheckedForRecentActivity = false;
+
+async function jumpToMostRecentActivityIfTodayEmpty() {
+  if (hasCheckedForRecentActivity) return;
+  hasCheckedForRecentActivity = true;
+  try {
+    const todayEntries = await getEntriesForDay(state.reflectDate);
+    if (todayEntries.length > 0) return;
+    const all = await getAllLogEntries();
+    const latest = all
+      .filter((e) => !e.deletedAt && e.openedAt)
+      .sort((a, b) => (b.openedAt || "").localeCompare(a.openedAt || ""))[0];
+    if (latest) state.reflectDate = dateStrOf(new Date(latest.openedAt));
+  } catch (err) {
+    console.error("recent activity check failed", err);
+  }
+}
+
 function setMode(mode) {
   state.mode = mode;
   appRoot.classList.toggle("reflect-mode", mode === "reflect");
@@ -278,7 +307,9 @@ function setMode(mode) {
   modeToggleBtn.classList.toggle("active", mode === "reflect");
   modeToggleBtn.title = mode === "reflect" ? "見るに戻る" : "振り返る";
   if (mode === "reflect") {
-    renderReflect().catch((err) => console.error("reflect render failed", err));
+    jumpToMostRecentActivityIfTodayEmpty()
+      .then(() => renderReflect())
+      .catch((err) => console.error("reflect render failed", err));
     startReflectLiveRefresh();
   } else {
     stopReflectLiveRefresh();
@@ -298,7 +329,12 @@ function formatReflectDateLabel(dateStr) {
 // Pulls fresh log rows before reading from local IndexedDB — see the
 // REFLECT_LIVE_REFRESH_MS comment above. Sync failure (offline, server
 // hiccup) falls back to whatever's already local rather than blocking the
-// render.
+// render. Everything past that sync is wrapped in its own try/catch: an
+// IndexedDB read going wrong here used to leave the screen silently blank
+// (only a console.error, which nobody watching the actual screen ever
+// sees) — showing the failure in the timeline itself instead means a
+// broken 振り返る is at least visibly broken, not indistinguishable from
+// "no records yet".
 async function renderReflect() {
   await syncLogNow().catch((err) => console.error("log sync failed", err));
   // Same shared #feed-color-filter bar the main screen shows above the
@@ -312,45 +348,54 @@ async function renderReflect() {
   // day — no one day is "selected", so hide the whole thing rather than
   // leave it showing controls that don't apply right now.
   reflectDayNavEl.classList.toggle("hidden", Boolean(query));
-  if (query) {
-    reflectDateLabelEl.textContent = `「${query}」の検索結果`;
-    const rawEntries = await searchLogEntries(query);
+  try {
+    if (query) {
+      reflectDateLabelEl.textContent = `「${query}」の検索結果`;
+      const rawEntries = await searchLogEntries(query);
+      renderReflectTimeline(reflectTimelineEl, {
+        entries: filterLogEntriesByFeedColor(rawEntries),
+        onAddComment: handleAddComment,
+        onSetColor: handleSetLogColor,
+        onDelete: handleDeleteLog,
+        onBlockAndDelete: handleBlockAndDeleteLog,
+        emptyHint: "検索結果がありません。",
+        showDate: true,
+      });
+      return;
+    }
+    reflectDateLabelEl.textContent = formatReflectDateLabel(state.reflectDate);
+    const [rawEntries, dailyCounts, feedCounts] = await Promise.all([
+      getEntriesForDay(state.reflectDate),
+      getDailyCounts(REFLECT_DAY_CHART_DAYS),
+      getFeedAddedCounts(REFLECT_DAY_CHART_DAYS),
+    ]);
+    renderDayChart(reflectDayChartEl, {
+      counts: dailyCounts,
+      selectedDate: state.reflectDate,
+      onSelectDate: jumpReflectToDate,
+      onHoverDate: previewReflectDate,
+    });
+    renderDayChart(reflectFeedChartEl, {
+      counts: feedCounts,
+      selectedDate: state.reflectDate,
+      onSelectDate: jumpReflectToDate,
+      onHoverDate: previewReflectDate,
+    });
     renderReflectTimeline(reflectTimelineEl, {
       entries: filterLogEntriesByFeedColor(rawEntries),
       onAddComment: handleAddComment,
       onSetColor: handleSetLogColor,
       onDelete: handleDeleteLog,
       onBlockAndDelete: handleBlockAndDeleteLog,
-      emptyHint: "検索結果がありません。",
-      showDate: true,
     });
-    return;
+  } catch (err) {
+    console.error("reflect render failed", err);
+    reflectTimelineEl.innerHTML = "";
+    const hint = document.createElement("p");
+    hint.className = "empty-hint";
+    hint.textContent = `振り返るの表示に失敗しました: ${err.message}`;
+    reflectTimelineEl.appendChild(hint);
   }
-  reflectDateLabelEl.textContent = formatReflectDateLabel(state.reflectDate);
-  const [rawEntries, dailyCounts, feedCounts] = await Promise.all([
-    getEntriesForDay(state.reflectDate),
-    getDailyCounts(REFLECT_DAY_CHART_DAYS),
-    getFeedAddedCounts(REFLECT_DAY_CHART_DAYS),
-  ]);
-  renderDayChart(reflectDayChartEl, {
-    counts: dailyCounts,
-    selectedDate: state.reflectDate,
-    onSelectDate: jumpReflectToDate,
-    onHoverDate: previewReflectDate,
-  });
-  renderDayChart(reflectFeedChartEl, {
-    counts: feedCounts,
-    selectedDate: state.reflectDate,
-    onSelectDate: jumpReflectToDate,
-    onHoverDate: previewReflectDate,
-  });
-  renderReflectTimeline(reflectTimelineEl, {
-    entries: filterLogEntriesByFeedColor(rawEntries),
-    onAddComment: handleAddComment,
-    onSetColor: handleSetLogColor,
-    onDelete: handleDeleteLog,
-    onBlockAndDelete: handleBlockAndDeleteLog,
-  });
 }
 
 // The feedColorFilter the main screen's #feed-color-filter bar drives (see
